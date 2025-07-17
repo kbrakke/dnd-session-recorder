@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator dbml {
+  provider = "prisma-dbml-generator"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Keep for local auth
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  accounts  Account[]
+  sessions  Session[]
+  campaigns Campaign[]
+}
+
+model Account {
+  id                String    @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, token])
+}
+
+model Campaign {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  userId      String           @map("user_id")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gamingSessions GamingSession[]
+
+  @@unique([userId, name])
+  @@map("campaigns")
+}
+
+model GamingSession {
+  id             String          @id @default(cuid())
+  campaignId     String          @map("campaign_id")
+  title          String
+  sessionDate    DateTime        @map("session_date")
+  audioFilePath  String?         @map("audio_file_path")
+  duration       Int?
+  status         String          @default("pending")
+  errorStep      String?         @map("error_step")
+  errorMessage   String?         @map("error_message")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  summary        Summary?
+  transcriptions Transcription[]
+
+  @@map("gaming_sessions")
+}
+
+model Transcription {
+  id         Int            @id @default(autoincrement())
+  sessionId  String         @map("session_id")
+  startTime  Float          @map("start_time")
+  endTime    Float          @map("end_time")
+  text       String
+  confidence Float?
+  createdAt  DateTime       @default(now()) @map("created_at")
+  session    GamingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("transcriptions")
+}
+
+model Summary {
+  id                 Int           @id @default(autoincrement())
+  sessionId          String        @unique @map("session_id")
+  summaryText        String        @map("summary_text")
+  keyEvents          String?       @map("key_events")
+  charactersInvolved String?       @map("characters_involved")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  session            GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("summaries")
+}

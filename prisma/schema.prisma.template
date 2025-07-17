@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator dbml {
+  provider = "prisma-dbml-generator"
+}
+
+datasource db {
+  provider = "PROVIDER_PLACEHOLDER"
+  url      = env("DATABASE_URL")
+}
+
+model Campaign {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  sessions    Session[]
+  
+  @@map("campaigns")
+}
+
+model Session {
+  id            Int      @id @default(autoincrement())
+  campaignId    Int      @map("campaign_id")
+  title         String
+  sessionDate   DateTime @map("session_date")
+  audioFilePath String?  @map("audio_file_path")
+  duration      Int?
+  status        String   @default("pending")
+  errorStep     String?  @map("error_step")
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  transcriptions Transcription[]
+  summary        Summary?
+  
+  @@map("sessions")
+}
+
+model Transcription {
+  id         Int      @id @default(autoincrement())
+  sessionId  Int      @map("session_id")
+  startTime  Float    @map("start_time")
+  endTime    Float    @map("end_time")
+  text       String
+  confidence Float?
+  createdAt  DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  @@map("transcriptions")
+}
+
+model Summary {
+  id                  Int      @id @default(autoincrement())
+  sessionId           Int      @unique @map("session_id")
+  summaryText         String   @map("summary_text")
+  keyEvents           String?  @map("key_events")
+  charactersInvolved  String?  @map("characters_involved")
+  createdAt           DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
+  @@map("summaries")
+}

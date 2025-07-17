@@ -1,0 +1,126 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table User {
+  id String [pk]
+  name String
+  email String [unique]
+  emailVerified DateTime
+  image String
+  password String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  accounts Account [not null]
+  sessions Session [not null]
+  campaigns campaigns [not null]
+}
+
+Table Account {
+  id String [pk]
+  userId String [not null]
+  type String [not null]
+  provider String [not null]
+  providerAccountId String [not null]
+  refresh_token String
+  access_token String
+  expires_at Int
+  token_type String
+  scope String
+  id_token String
+  session_state String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  user User [not null]
+
+  indexes {
+    (provider, providerAccountId) [unique]
+  }
+}
+
+Table Session {
+  id String [pk]
+  sessionToken String [unique, not null]
+  userId String [not null]
+  expires DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  user User [not null]
+}
+
+Table VerificationToken {
+  identifier String [not null]
+  token String [unique, not null]
+  expires DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+
+  indexes {
+    (identifier, token) [unique]
+  }
+}
+
+Table campaigns {
+  id String [pk]
+  name String [not null]
+  description String
+  userId String [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  user User [not null]
+  gamingSessions gaming_sessions [not null]
+
+  indexes {
+    (userId, name) [unique]
+  }
+}
+
+Table gaming_sessions {
+  id String [pk]
+  campaignId String [not null]
+  title String [not null]
+  sessionDate DateTime [not null]
+  audioFilePath String
+  duration Int
+  status String [not null, default: 'pending']
+  errorStep String
+  errorMessage String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  campaign campaigns [not null]
+  summary summaries
+  transcriptions transcriptions [not null]
+}
+
+Table transcriptions {
+  id Int [pk, increment]
+  sessionId String [not null]
+  startTime Float [not null]
+  endTime Float [not null]
+  text String [not null]
+  confidence Float
+  createdAt DateTime [default: `now()`, not null]
+  session gaming_sessions [not null]
+}
+
+Table summaries {
+  id Int [pk, increment]
+  sessionId String [unique, not null]
+  summaryText String [not null]
+  keyEvents String
+  charactersInvolved String
+  createdAt DateTime [default: `now()`, not null]
+  session gaming_sessions [not null]
+}
+
+Ref: Account.userId > User.id [delete: Cascade]
+
+Ref: Session.userId > User.id [delete: Cascade]
+
+Ref: campaigns.userId > User.id [delete: Cascade]
+
+Ref: gaming_sessions.campaignId > campaigns.id [delete: Cascade]
+
+Ref: transcriptions.sessionId > gaming_sessions.id [delete: Cascade]
+
+Ref: summaries.sessionId - gaming_sessions.id [delete: Cascade]
