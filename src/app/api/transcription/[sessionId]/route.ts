@@ -74,7 +74,7 @@ async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<st
 // Helper to update session status
 async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
   try {
-    await db.updateSession(parseInt(sessionId), {
+    await db.updateSession(sessionId, {
       status,
       errorStep: errorStep || null,
       errorMessage: errorMessage || null,
@@ -104,7 +104,7 @@ export async function POST(
     }
 
     // Check if session exists
-    const session = await db.getSessionById(parseInt(sessionId));
+    const session = await db.getSessionById(sessionId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -176,7 +176,7 @@ export async function POST(
     console.log(`[Transcription] All chunks transcribed and cleaned up.`);
 
     // Save transcriptions to database
-    await db.saveTranscriptions(parseInt(sessionId), allSegments);
+    await db.saveTranscriptions(sessionId, allSegments);
     console.log(`[Transcription] Transcriptions saved.`);
 
     await updateSessionStatus(sessionId, 'completed');
@@ -211,7 +211,7 @@ export async function GET(
   const { sessionId } = await params;
   
   try {
-    const transcriptions = await db.getTranscriptions(parseInt(sessionId));
+    const transcriptions = await db.getTranscriptions(sessionId);
     
     return NextResponse.json(transcriptions);
   } catch (error) {

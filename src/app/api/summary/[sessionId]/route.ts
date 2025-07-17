@@ -9,7 +9,7 @@ const openai = new OpenAI({
 // Helper to update session status
 async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
   try {
-    await db.updateSession(parseInt(sessionId), {
+    await db.updateSession(sessionId, {
       status,
       errorStep: errorStep || null,
       errorMessage: errorMessage || null,
@@ -36,7 +36,7 @@ export async function POST(
   
   try {
     // Check if session exists
-    const session = await db.getSessionById(parseInt(sessionId));
+    const session = await db.getSessionById(sessionId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -45,7 +45,7 @@ export async function POST(
     }
 
     // Get transcriptions for this session
-    const transcriptions = await db.getTranscriptions(parseInt(sessionId));
+    const transcriptions = await db.getTranscriptions(sessionId);
     
     if (!transcriptions || transcriptions.length === 0) {
       return NextResponse.json(
@@ -86,7 +86,7 @@ Please provide a compelling summary that captures the essence of this D&D sessio
     const summaryText = summaryResponse.choices[0]?.message?.content || '';
 
     // Save summary to database
-    await db.saveSummary(parseInt(sessionId), summaryText);
+    await db.saveSummary(sessionId, summaryText);
     await updateSessionStatus(sessionId, 'completed');
     
     console.log(`[Summary] Summary generation completed for session ${sessionId}`);
@@ -120,7 +120,7 @@ export async function GET(
   const { sessionId } = await params;
   
   try {
-    const summary = await db.getSummary(parseInt(sessionId));
+    const summary = await db.getSummary(sessionId);
     
     if (!summary) {
       return NextResponse.json(

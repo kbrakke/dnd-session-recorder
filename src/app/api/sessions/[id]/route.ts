@@ -11,9 +11,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = parseInt((await params).id);
+    const sessionId = (await params).id;
     
-    if (isNaN(sessionId)) {
+    if (!sessionId) {
       return NextResponse.json(
         { error: 'Invalid session ID' },
         { status: 400 }
@@ -50,9 +50,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = parseInt((await params).id);
+    const sessionId = (await params).id;
     
-    if (isNaN(sessionId)) {
+    if (!sessionId) {
       return NextResponse.json(
         { error: 'Invalid session ID' },
         { status: 400 }
@@ -86,9 +86,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = parseInt((await params).id);
+    const sessionId = (await params).id;
     
-    if (isNaN(sessionId)) {
+    if (!sessionId) {
       return NextResponse.json(
         { error: 'Invalid session ID' },
         { status: 400 }

@@ -1,6 +1,6 @@
 .env*
 **/.env*
-./uploads
+uploads/
 node_modules/
 prisma/data/
 .claude/

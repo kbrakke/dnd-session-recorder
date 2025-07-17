@@ -5,9 +5,9 @@ import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
 
 const createSessionSchema = z.object({
-  campaign_id: z.number().int().positive('Campaign ID must be a positive integer'),
+  campaign_id: z.string('Campaign ID must be a positive integer'),
   title: z.string().min(1, 'Session title is required'),
-  session_date: z.string().datetime('Invalid session date format'),
+  session_date: z.string('Invalid session date format'),
   audio_file_path: z.string().optional(),
   duration: z.number().int().positive().optional(),
 });
@@ -42,19 +42,28 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
     const body = await request.json();
     const validatedData = createSessionSchema.parse(body);
     
-    // Verify campaign exists
-    const campaign = await db.getCampaignById(validatedData.campaign_id.toString());
-    if (!campaign) {
+    // Verify campaign exists and belongs to user
+    const campaign = await db.getCampaignById(validatedData.campaign_id);
+    if (!campaign || campaign.userId !== session.user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }
       );
     }
     
-    const session = await db.createSession({
+    const gamingSession = await db.createSession({
       campaignId: validatedData.campaign_id,
       title: validatedData.title,
       sessionDate: new Date(validatedData.session_date),
@@ -62,7 +71,7 @@ export async function POST(request: Request) {
       duration: validatedData.duration,
     });
     
-    return NextResponse.json(session, { status: 201 });
+    return NextResponse.json(gamingSession, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

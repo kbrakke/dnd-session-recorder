@@ -20,12 +20,12 @@ interface UploadResponse {
     path: string;
     size: number;
     mimetype: string;
-    duration: number | null;
+    duration?: number;
   };
 }
 
 interface Session {
-  id: number;
+  id: string;
   title: string;
   campaignId: number;
   sessionDate: string;
@@ -68,17 +68,17 @@ export default function SessionUploadPage() {
     mutationFn: async (file: File): Promise<UploadResponse> => {
       const formData = new FormData();
       formData.append('audio', file);
-      
+
       const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Upload failed');
       }
-      
+
       return response.json();
     },
   });
@@ -87,7 +87,7 @@ export default function SessionUploadPage() {
   const createSessionMutation = useMutation({
     mutationFn: async (sessionData: {
       title: string;
-      campaign_id: number;
+      campaign_id: string;
       session_date: string;
       audio_file_path: string;
       duration?: number;
@@ -97,47 +97,47 @@ export default function SessionUploadPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sessionData),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to create session');
       }
-      
+
       return response.json();
     },
   });
 
   // Transcription mutation
   const transcribeMutation = useMutation({
-    mutationFn: async ({ sessionId, audioFilePath }: { sessionId: number; audioFilePath: string }) => {
+    mutationFn: async ({ sessionId, audioFilePath }: { sessionId: string; audioFilePath: string }) => {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audioFilePath }),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Transcription failed');
       }
-      
+
       return response.json();
     },
   });
 
   // Summary mutation
   const summarizeMutation = useMutation({
-    mutationFn: async (sessionId: number) => {
+    mutationFn: async (sessionId: string) => {
       const response = await fetch(`/api/summary/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Summary generation failed');
       }
-      
+
       return response.json();
     },
   });
@@ -166,7 +166,7 @@ export default function SessionUploadPage() {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     const files = e.dataTransfer.files;
     if (files && files[0]) {
       handleFileSelect(files[0]);
@@ -176,7 +176,7 @@ export default function SessionUploadPage() {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedFile || !formData.title || !formData.campaignId) {
       alert('Please fill in all required fields and select an audio file');
       return;
@@ -186,33 +186,33 @@ export default function SessionUploadPage() {
       // Step 1: Upload file
       setProcessingStep('upload');
       const uploadResult = await uploadMutation.mutateAsync(selectedFile);
-      
+
       // Step 2: Create session
       const sessionData = {
         title: formData.title,
-        campaign_id: parseInt(formData.campaignId),
+        campaign_id: formData.campaignId,
         session_date: new Date(formData.sessionDate).toISOString(),
         audio_file_path: uploadResult.file.path,
         duration: uploadResult.file.duration,
       };
-      
+
       const session = await createSessionMutation.mutateAsync(sessionData);
       setCurrentSession(session);
-      
+
       // Step 3: Generate transcription
       setProcessingStep('transcribe');
       await transcribeMutation.mutateAsync({
         sessionId: session.id,
         audioFilePath: uploadResult.file.path,
       });
-      
+
       // Step 4: Generate summary
       setProcessingStep('summarize');
       await summarizeMutation.mutateAsync(session.id);
-      
+
       // Step 5: Complete
       setProcessingStep('complete');
-      
+
     } catch (error) {
       console.error('Session processing error:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -238,23 +238,20 @@ export default function SessionUploadPage() {
             const Icon = step.icon;
             const isActive = step.key === processingStep;
             const isCompleted = steps.findIndex(s => s.key === processingStep) > index;
-            
+
             return (
-              <div key={step.key} className={`flex items-center space-x-3 p-3 rounded-lg ${
-                isActive ? 'bg-blue-50 border border-blue-200' : 
-                isCompleted ? 'bg-green-50 border border-green-200' : 
-                'bg-gray-50 border border-gray-200'
-              }`}>
-                <Icon className={`h-5 w-5 ${
-                  isActive ? 'text-blue-600' : 
-                  isCompleted ? 'text-green-600' : 
-                  'text-gray-400'
-                }`} />
-                <span className={`font-medium ${
-                  isActive ? 'text-blue-900' : 
-                  isCompleted ? 'text-green-900' : 
-                  'text-gray-500'
+              <div key={step.key} className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
+                isCompleted ? 'bg-green-50 border border-green-200' :
+                  'bg-gray-50 border border-gray-200'
                 }`}>
+                <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
+                  isCompleted ? 'text-green-600' :
+                    'text-gray-400'
+                  }`} />
+                <span className={`font-medium ${isActive ? 'text-blue-900' :
+                  isCompleted ? 'text-green-900' :
+                    'text-gray-500'
+                  }`}>
                   {step.label}
                 </span>
                 {isActive && (
@@ -267,7 +264,7 @@ export default function SessionUploadPage() {
             );
           })}
         </div>
-        
+
         {processingStep === 'complete' && currentSession && (
           <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
             <div className="flex items-center space-x-2 mb-2">
@@ -335,7 +332,7 @@ export default function SessionUploadPage() {
                 required
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Campaign *
@@ -357,7 +354,7 @@ export default function SessionUploadPage() {
                 </select>
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Session Date *
@@ -379,15 +376,14 @@ export default function SessionUploadPage() {
         {/* File Upload */}
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Audio File</h2>
-          
+
           <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-              dragActive
-                ? 'border-blue-400 bg-blue-50'
-                : selectedFile
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+              ? 'border-blue-400 bg-blue-50'
+              : selectedFile
                 ? 'border-green-400 bg-green-50'
                 : 'border-gray-300 hover:border-gray-400'
-            }`}
+              }`}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
