@@ -14,6 +14,7 @@ Table User {
   accounts Account [not null]
   sessions Session [not null]
   campaigns campaigns [not null]
+  uploads uploads [not null]
 }
 
 Table Account {
@@ -80,14 +81,16 @@ Table gaming_sessions {
   campaignId String [not null]
   title String [not null]
   sessionDate DateTime [not null]
+  uploadId String
   audioFilePath String
   duration Int
-  status String [not null, default: 'pending']
+  status String [not null, default: 'draft']
   errorStep String
   errorMessage String
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   campaign campaigns [not null]
+  upload uploads
   summary summaries
   transcriptions transcriptions [not null]
 }
@@ -109,8 +112,29 @@ Table summaries {
   summaryText String [not null]
   keyEvents String
   charactersInvolved String
+  isEdited Boolean [not null, default: false]
+  editedAt DateTime
+  originalText String
   createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [default: `now()`, not null]
   session gaming_sessions [not null]
+}
+
+Table uploads {
+  id String [pk]
+  userId String [not null]
+  filename String [not null]
+  originalName String [not null]
+  path String [not null]
+  size Int [not null]
+  mimetype String [not null]
+  duration Int
+  status String [not null, default: 'uploaded']
+  chunkPaths String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  user User [not null]
+  gamingSessions gaming_sessions [not null]
 }
 
 Ref: Account.userId > User.id [delete: Cascade]
@@ -121,6 +145,10 @@ Ref: campaigns.userId > User.id [delete: Cascade]
 
 Ref: gaming_sessions.campaignId > campaigns.id [delete: Cascade]
 
+Ref: gaming_sessions.uploadId > uploads.id [delete: Set Null]
+
 Ref: transcriptions.sessionId > gaming_sessions.id [delete: Cascade]
 
 Ref: summaries.sessionId - gaming_sessions.id [delete: Cascade]
+
+Ref: uploads.userId > User.id [delete: Cascade]

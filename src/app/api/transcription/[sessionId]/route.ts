@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/services/database';
+import { fileCleanup } from '@/services/fileCleanup';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
@@ -96,13 +97,6 @@ export async function POST(
     const body = await request.json();
     const { audioFilePath } = body;
 
-    if (!audioFilePath) {
-      return NextResponse.json(
-        { error: 'Audio file path is required' },
-        { status: 400 }
-      );
-    }
-
     // Check if session exists
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -112,16 +106,36 @@ export async function POST(
       );
     }
 
-    const fullPath = path.resolve(audioFilePath);
+    let fullPath: string;
+    
+    // If audioFilePath is provided, use it (backwards compatibility)
+    if (audioFilePath) {
+      fullPath = path.resolve(audioFilePath);
+    } 
+    // Otherwise, get the file path from the linked upload
+    else if (session.upload) {
+      fullPath = path.resolve(session.upload.path);
+    } 
+    // Fallback to session's audioFilePath if it exists
+    else if (session.audioFilePath) {
+      fullPath = path.resolve(session.audioFilePath);
+    } 
+    else {
+      return NextResponse.json(
+        { error: 'No audio file found for this session' },
+        { status: 400 }
+      );
+    }
+
     if (!fs.existsSync(fullPath)) {
       return NextResponse.json(
-        { error: 'Audio file not found' },
+        { error: `Audio file not found at path: ${fullPath}` },
         { status: 404 }
       );
     }
 
     console.log(`[Transcription] Starting transcription for session ${sessionId}`);
-    await updateSessionStatus(sessionId, 'processing');
+    await updateSessionStatus(sessionId, 'transcribing');
 
     // Split audio into 24MB chunks
     const chunkPaths = await splitAudioBySize(fullPath, 24);
@@ -179,7 +193,22 @@ export async function POST(
     await db.saveTranscriptions(sessionId, allSegments);
     console.log(`[Transcription] Transcriptions saved.`);
 
-    await updateSessionStatus(sessionId, 'completed');
+    // Update session status to transcribed
+    await updateSessionStatus(sessionId, 'transcribed');
+    
+    // Update upload status to transcribed if session has an upload
+    if (session.uploadId) {
+      await db.updateUploadStatus(session.uploadId, 'transcribed', chunkPaths);
+    }
+
+    // Clean up files after transcription is complete
+    try {
+      await fileCleanup.cleanupSessionFiles(sessionId);
+    } catch (cleanupError) {
+      console.warn(`[Transcription] File cleanup failed for session ${sessionId}:`, cleanupError);
+      // Don't fail the transcription if cleanup fails
+    }
+
     console.log(`[Transcription] Transcription completed for session ${sessionId}`);
 
     return NextResponse.json({

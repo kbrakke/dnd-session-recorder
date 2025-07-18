@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+});
+
+const updateSummarySchema = z.object({
+  summary_text: z.string().min(1, 'Summary text is required'),
 });
 
 // Helper to update session status
@@ -135,6 +142,80 @@ export async function GET(
     
     return NextResponse.json(
       { error: 'Failed to fetch summary' },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT /api/summary/[sessionId] - Update summary for a session
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
+  const { sessionId } = await params;
+  
+  try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
+    const body = await request.json();
+    const validatedData = updateSummarySchema.parse(body);
+    
+    // Verify session exists and belongs to user
+    const gamingSession = await db.getSessionById(sessionId);
+    if (!gamingSession) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Check if user owns the campaign this session belongs to
+    const campaign = await db.getCampaignById(gamingSession.campaignId);
+    if (!campaign || campaign.userId !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Verify summary exists
+    const existingSummary = await db.getSummary(sessionId);
+    if (!existingSummary) {
+      return NextResponse.json(
+        { error: 'Summary not found' },
+        { status: 404 }
+      );
+    }
+    
+    // Update summary
+    const updatedSummary = await db.updateSummary(sessionId, validatedData.summary_text);
+    
+    console.log(`[Summary] Summary updated for session ${sessionId}`);
+    
+    return NextResponse.json({
+      message: 'Summary updated successfully',
+      summary: updatedSummary
+    });
+    
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error.issues },
+        { status: 400 }
+      );
+    }
+    
+    console.error('Error updating summary:', error);
+    
+    return NextResponse.json(
+      { error: 'Failed to update summary' },
       { status: 500 }
     );
   }

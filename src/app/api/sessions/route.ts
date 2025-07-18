@@ -8,8 +8,10 @@ const createSessionSchema = z.object({
   campaign_id: z.string('Campaign ID must be a positive integer'),
   title: z.string().min(1, 'Session title is required'),
   session_date: z.string('Invalid session date format'),
+  upload_id: z.string().optional(),
   audio_file_path: z.string().optional(),
   duration: z.number().int().positive().optional(),
+  status: z.string().optional(),
 });
 
 export async function GET() {
@@ -63,12 +65,25 @@ export async function POST(request: Request) {
       );
     }
     
+    // If upload_id is provided, verify it exists and belongs to user
+    if (validatedData.upload_id) {
+      const upload = await db.getUploadById(validatedData.upload_id);
+      if (!upload || upload.userId !== session.user.id) {
+        return NextResponse.json(
+          { error: 'Upload not found' },
+          { status: 404 }
+        );
+      }
+    }
+    
     const gamingSession = await db.createSession({
       campaignId: validatedData.campaign_id,
       title: validatedData.title,
       sessionDate: new Date(validatedData.session_date),
+      uploadId: validatedData.upload_id,
       audioFilePath: validatedData.audio_file_path,
       duration: validatedData.duration,
+      status: validatedData.status,
     });
     
     return NextResponse.json(gamingSession, { status: 201 });

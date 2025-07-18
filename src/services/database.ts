@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { Campaign, GamingSession, Transcription, Summary } from '@prisma/client';
+import { Campaign, GamingSession, Transcription, Summary, Upload } from '@prisma/client';
 
 export interface CreateCampaignData {
   name: string;
@@ -11,7 +11,19 @@ export interface CreateSessionData {
   campaignId: string;
   title: string;
   sessionDate: Date;
+  uploadId?: string;
   audioFilePath?: string;
+  duration?: number;
+  status?: string;
+}
+
+export interface CreateUploadData {
+  userId: string;
+  filename: string;
+  originalName: string;
+  path: string;
+  size: number;
+  mimetype: string;
   duration?: number;
 }
 
@@ -19,6 +31,7 @@ export interface SessionWithIncludes extends GamingSession {
   campaign: { name: string };
   transcriptions: Transcription[];
   summary: Summary | null;
+  upload: Upload | null;
 }
 
 export interface SessionListItem extends GamingSession {
@@ -82,9 +95,10 @@ export class DatabaseService {
         campaignId: data.campaignId,
         title: data.title,
         sessionDate: data.sessionDate,
+        uploadId: data.uploadId,
         audioFilePath: data.audioFilePath,
         duration: data.duration,
-        status: 'pending',
+        status: data.status || (data.uploadId ? 'uploaded' : 'draft'),
       },
     });
   }
@@ -118,6 +132,7 @@ export class DatabaseService {
           orderBy: { startTime: 'asc' },
         },
         summary: true,
+        upload: true,
       },
     });
   }
@@ -162,6 +177,7 @@ export class DatabaseService {
     errorMessage?: string | null;
     duration?: number;
     audioFilePath?: string;
+    uploadId?: string | null;
   }): Promise<GamingSession> {
     return prisma.gamingSession.update({
       where: { id },
@@ -219,10 +235,115 @@ export class DatabaseService {
       },
     });
   }
+
+  async updateSummary(sessionId: string, summaryText: string): Promise<Summary> {
+    // First get the current summary to preserve original text
+    const currentSummary = await prisma.summary.findUnique({
+      where: { sessionId },
+    });
+    
+    if (!currentSummary) {
+      throw new Error('Summary not found');
+    }
+    
+    return prisma.summary.update({
+      where: { sessionId },
+      data: {
+        summaryText,
+        isEdited: true,
+        editedAt: new Date(),
+        originalText: currentSummary.originalText || currentSummary.summaryText,
+      },
+    });
+  }
   
   async getSummary(sessionId: string): Promise<Summary | null> {
     return prisma.summary.findUnique({
       where: { sessionId },
+    });
+  }
+
+  // Upload operations
+  async createUpload(data: CreateUploadData): Promise<Upload> {
+    return prisma.upload.create({
+      data: {
+        userId: data.userId,
+        filename: data.filename,
+        originalName: data.originalName,
+        path: data.path,
+        size: data.size,
+        mimetype: data.mimetype,
+        duration: data.duration,
+        status: 'uploaded',
+      },
+    });
+  }
+
+  async getUploads(userId: string): Promise<Upload[]> {
+    return prisma.upload.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getUploadById(id: string): Promise<Upload | null> {
+    return prisma.upload.findUnique({
+      where: { id },
+    });
+  }
+
+  async updateUploadStatus(id: string, status: string, chunkPaths?: string[]): Promise<Upload> {
+    return prisma.upload.update({
+      where: { id },
+      data: {
+        status,
+        chunkPaths: chunkPaths ? JSON.stringify(chunkPaths) : undefined,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async deleteUpload(id: string): Promise<void> {
+    await prisma.upload.delete({
+      where: { id },
+    });
+  }
+
+  async getUploadUsage(id: string): Promise<{ sessionCount: number; sessions: GamingSession[] }> {
+    const sessions = await prisma.gamingSession.findMany({
+      where: { uploadId: id },
+      include: {
+        campaign: {
+          select: { name: true },
+        },
+      },
+    });
+
+    return {
+      sessionCount: sessions.length,
+      sessions,
+    };
+  }
+
+  async linkSessionToUpload(sessionId: string, uploadId: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id: sessionId },
+      data: {
+        uploadId,
+        status: 'uploaded',
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async unlinkSessionFromUpload(sessionId: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id: sessionId },
+      data: {
+        uploadId: null,
+        status: 'draft',
+        updatedAt: new Date(),
+      },
     });
   }
   

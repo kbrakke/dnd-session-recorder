@@ -24,6 +24,7 @@ model User {
   accounts  Account[]
   sessions  Session[]
   campaigns Campaign[]
+  uploads   Upload[]
 }
 
 model Account {
@@ -88,14 +89,16 @@ model GamingSession {
   campaignId     String          @map("campaign_id")
   title          String
   sessionDate    DateTime        @map("session_date")
-  audioFilePath  String?         @map("audio_file_path")
+  uploadId       String?         @map("upload_id")
+  audioFilePath  String?         @map("audio_file_path") // Keep for backwards compatibility
   duration       Int?
-  status         String          @default("pending")
+  status         String          @default("draft") // draft, uploaded, transcribing, transcribed, summarizing, completed, error
   errorStep      String?         @map("error_step")
   errorMessage   String?         @map("error_message")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
   campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: SetNull)
   summary        Summary?
   transcriptions Transcription[]
 
@@ -121,8 +124,32 @@ model Summary {
   summaryText        String        @map("summary_text")
   keyEvents          String?       @map("key_events")
   charactersInvolved String?       @map("characters_involved")
+  isEdited           Boolean       @default(false) @map("is_edited")
+  editedAt           DateTime?     @map("edited_at")
+  originalText       String?       @map("original_text")
   createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at")
   session            GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("summaries")
+}
+
+model Upload {
+  id               String          @id @default(cuid())
+  userId           String          @map("user_id")
+  filename         String
+  originalName     String          @map("original_name")
+  path             String
+  size             Int
+  mimetype         String
+  duration         Int?
+  status           String          @default("uploaded") // uploaded, processing, chunked, transcribed, cleaned
+  chunkPaths       String?         @map("chunk_paths") // JSON array of chunk file paths
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gamingSessions   GamingSession[]
+  
+  @@map("uploads")
 }

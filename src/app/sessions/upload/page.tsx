@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Upload, FileAudio, Calendar, BookOpen, Play, CheckCircle, Sparkles } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Upload, FileAudio, Calendar, BookOpen, Play, CheckCircle, Sparkles, Plus } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
 interface Campaign {
@@ -12,24 +12,29 @@ interface Campaign {
   description: string | null;
 }
 
+interface Upload {
+  id: string;
+  filename: string;
+  originalName: string;
+  size: number;
+  mimetype: string;
+  duration?: number;
+  status: string;
+  createdAt: string;
+}
+
 interface UploadResponse {
   message: string;
-  file: {
-    filename: string;
-    originalName: string;
-    path: string;
-    size: number;
-    mimetype: string;
-    duration?: number;
-  };
+  upload: Upload;
 }
 
 interface Session {
   id: string;
   title: string;
-  campaignId: number;
+  campaignId: string;
   sessionDate: string;
-  audioFilePath: string;
+  uploadId?: string;
+  audioFilePath?: string;
   status: string;
 }
 
@@ -43,7 +48,9 @@ const formatFileSize = (bytes: number) => {
 
 export default function SessionUploadPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -52,6 +59,9 @@ export default function SessionUploadPage() {
   });
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [processingStep, setProcessingStep] = useState<'upload' | 'transcribe' | 'summarize' | 'complete' | null>(null);
+  const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
+  const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
+  const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '' });
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -63,13 +73,24 @@ export default function SessionUploadPage() {
     },
   });
 
+  // Fetch existing uploads
+  const { data: uploads = [], isLoading: uploadsLoading } = useQuery<Upload[]>({
+    queryKey: ['uploads'],
+    queryFn: async () => {
+      const response = await fetch('/api/uploads');
+      if (!response.ok) throw new Error('Failed to fetch uploads');
+      const data = await response.json();
+      return data.uploads || [];
+    },
+  });
+
   // File upload mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File): Promise<UploadResponse> => {
       const formData = new FormData();
       formData.append('audio', file);
 
-      const response = await fetch('/api/upload', {
+      const response = await fetch('/api/uploads', {
         method: 'POST',
         body: formData,
       });
@@ -89,7 +110,8 @@ export default function SessionUploadPage() {
       title: string;
       campaign_id: string;
       session_date: string;
-      audio_file_path: string;
+      upload_id?: string;
+      audio_file_path?: string;
       duration?: number;
     }): Promise<Session> => {
       const response = await fetch('/api/sessions', {
@@ -109,11 +131,11 @@ export default function SessionUploadPage() {
 
   // Transcription mutation
   const transcribeMutation = useMutation({
-    mutationFn: async ({ sessionId, audioFilePath }: { sessionId: string; audioFilePath: string }) => {
+    mutationFn: async ({ sessionId, upload }: { sessionId: string; upload: Upload }) => {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioFilePath }),
+        body: JSON.stringify({ audioFilePath: upload.filename }),
       });
 
       if (!response.ok) {
@@ -142,6 +164,29 @@ export default function SessionUploadPage() {
     },
   });
 
+  // Create campaign mutation
+  const createCampaignMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string }) => {
+      const response = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create campaign');
+      }
+      return response.json();
+    },
+    onSuccess: (newCampaign) => {
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      setShowCreateCampaignModal(false);
+      setCampaignFormData({ name: '', description: '' });
+      // Automatically select the newly created campaign
+      setFormData({ ...formData, campaignId: newCampaign.id });
+    },
+  });
+
   // Handle file selection
   const handleFileSelect = (file: File) => {
     if (file.type.startsWith('audio/')) {
@@ -149,6 +194,17 @@ export default function SessionUploadPage() {
     } else {
       alert('Please select an audio file');
     }
+  };
+
+  // Handle campaign creation
+  const handleCreateCampaign = (e: React.FormEvent) => {
+    e.preventDefault();
+    createCampaignMutation.mutate(campaignFormData);
+  };
+
+  const openCreateCampaignModal = () => {
+    setCampaignFormData({ name: '', description: '' });
+    setShowCreateCampaignModal(true);
   };
 
   // Handle drag and drop
@@ -177,41 +233,57 @@ export default function SessionUploadPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedFile || !formData.title || !formData.campaignId) {
-      alert('Please fill in all required fields and select an audio file');
+    if (!formData.title || !formData.campaignId || !formData.sessionDate) {
+      alert('Please fill in all required fields');
       return;
     }
 
+    const hasUpload = uploadMode === 'skip' ? null : (uploadMode === 'new' ? selectedFile : selectedUpload);
+
     try {
-      // Step 1: Upload file
-      setProcessingStep('upload');
-      const uploadResult = await uploadMutation.mutateAsync(selectedFile);
+      let upload: Upload | null = null;
+
+      if (hasUpload) {
+        if (uploadMode === 'new' && selectedFile) {
+          // Step 1: Upload file
+          setProcessingStep('upload');
+          const uploadResult = await uploadMutation.mutateAsync(selectedFile);
+          upload = uploadResult.upload;
+        } else if (selectedUpload) {
+          upload = selectedUpload;
+        }
+      }
 
       // Step 2: Create session
       const sessionData = {
         title: formData.title,
         campaign_id: formData.campaignId,
         session_date: new Date(formData.sessionDate).toISOString(),
-        audio_file_path: uploadResult.file.path,
-        duration: uploadResult.file.duration,
+        ...(upload && { upload_id: upload.id, duration: upload.duration }),
       };
 
       const session = await createSessionMutation.mutateAsync(sessionData);
       setCurrentSession(session);
 
-      // Step 3: Generate transcription
-      setProcessingStep('transcribe');
-      await transcribeMutation.mutateAsync({
-        sessionId: session.id,
-        audioFilePath: uploadResult.file.path,
-      });
+      // Only proceed with transcription and summarization if we have an upload
+      if (upload) {
+        // Step 3: Generate transcription
+        setProcessingStep('transcribe');
+        await transcribeMutation.mutateAsync({
+          sessionId: session.id,
+          upload: upload,
+        });
 
-      // Step 4: Generate summary
-      setProcessingStep('summarize');
-      await summarizeMutation.mutateAsync(session.id);
+        // Step 4: Generate summary
+        setProcessingStep('summarize');
+        await summarizeMutation.mutateAsync(session.id);
 
-      // Step 5: Complete
-      setProcessingStep('complete');
+        // Step 5: Complete
+        setProcessingStep('complete');
+      } else {
+        // Session created without audio - redirect to session page
+        router.push(`/sessions/${session.id}`);
+      }
 
     } catch (error) {
       console.error('Session processing error:', error);
@@ -317,11 +389,12 @@ export default function SessionUploadPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Session Details */}
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Session Details</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Session Details</h2>
+          <p className="text-sm text-gray-600 mb-4">Fields marked with <span className="text-red-500">*</span> are required</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Session Title *
+                Session Title <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -335,13 +408,19 @@ export default function SessionUploadPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Campaign *
+                Campaign <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <BookOpen className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 <select
                   value={formData.campaignId}
-                  onChange={(e) => setFormData({ ...formData, campaignId: e.target.value })}
+                  onChange={(e) => {
+                    if (e.target.value === 'create-new') {
+                      openCreateCampaignModal();
+                    } else {
+                      setFormData({ ...formData, campaignId: e.target.value });
+                    }
+                  }}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
@@ -351,13 +430,26 @@ export default function SessionUploadPage() {
                       {campaign.name}
                     </option>
                   ))}
+                  {campaigns.length === 0 && (
+                    <option value="create-new">➕ Create New Campaign</option>
+                  )}
                 </select>
+                {campaigns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={openCreateCampaignModal}
+                    className="absolute right-2 top-2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                    title="Create new campaign"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                )}
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Session Date *
+                Session Date <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <Calendar className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
@@ -375,61 +467,150 @@ export default function SessionUploadPage() {
 
         {/* File Upload */}
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Audio File</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Audio File</h2>
+          <p className="text-sm text-gray-600 mb-4">Optional - You can create a session without audio and add it later</p>
 
-          <div
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-              ? 'border-blue-400 bg-blue-50'
-              : selectedFile
-                ? 'border-green-400 bg-green-50'
-                : 'border-gray-300 hover:border-gray-400'
-              }`}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-          >
-            {selectedFile ? (
-              <div className="space-y-3">
-                <FileAudio className="h-12 w-12 text-green-600 mx-auto" />
-                <div>
-                  <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
-                  <p className="text-sm text-gray-500">
-                    {formatFileSize(selectedFile.size)} • {selectedFile.type}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedFile(null)}
-                >
-                  Remove File
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-                <div>
-                  <p className="text-lg font-medium text-gray-900">
-                    Drop your audio file here, or{' '}
-                    <label className="text-blue-600 cursor-pointer hover:text-blue-700">
-                      browse
-                      <input
-                        type="file"
-                        accept="audio/*"
-                        onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
-                        className="hidden"
-                      />
-                    </label>
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    Supports MP3, WAV, OGG, M4A, AAC, FLAC, and WebM files
-                  </p>
-                </div>
-              </div>
-            )}
+          {/* Upload Mode Selection */}
+          <div className="mb-6">
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setUploadMode('new')}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'new'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                  }`}
+              >
+                Upload New File
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadMode('existing')}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'existing'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                  }`}
+              >
+                Use Existing Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadMode('skip')}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'skip'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                  }`}
+              >
+                Skip Audio
+              </button>
+            </div>
           </div>
+
+          {uploadMode === 'skip' ? (
+            <div className="text-center py-12 bg-green-50 rounded-lg border-2 border-green-200">
+              <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-green-900 mb-2">Audio Upload Skipped</h3>
+              <p className="text-green-700">
+                You can add audio to this session later from the session details page.
+              </p>
+            </div>
+          ) : uploadMode === 'new' ? (
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+                ? 'border-blue-400 bg-blue-50'
+                : selectedFile
+                  ? 'border-green-400 bg-green-50'
+                  : 'border-gray-300 hover:border-gray-400'
+                }`}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+            >
+              {selectedFile ? (
+                <div className="space-y-3">
+                  <FileAudio className="h-12 w-12 text-green-600 mx-auto" />
+                  <div>
+                    <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {formatFileSize(selectedFile.size)} • {selectedFile.type}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedFile(null)}
+                  >
+                    Remove File
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Upload className="h-12 w-12 text-gray-400 mx-auto" />
+                  <div>
+                    <p className="text-lg font-medium text-gray-900">
+                      Drop your audio file here, or{' '}
+                      <label className="text-blue-600 cursor-pointer hover:text-blue-700">
+                        browse
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
+                          className="hidden"
+                        />
+                      </label>
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Supports MP3, WAV, OGG, M4A, AAC, FLAC, and WebM files
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {uploadsLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="text-gray-500 mt-2">Loading uploads...</p>
+                </div>
+              ) : uploads.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileAudio className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">No uploaded files found</p>
+                  <p className="text-sm text-gray-400">Upload a file first to use this option</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {uploads.map((upload) => (
+                    <div
+                      key={upload.id}
+                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${selectedUpload?.id === upload.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      onClick={() => setSelectedUpload(upload)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <FileAudio className="h-8 w-8 text-gray-600" />
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{upload.originalName}</p>
+                          <p className="text-sm text-gray-500">
+                            {formatFileSize(upload.size)} • {upload.mimetype}
+                            {upload.duration && ` • ${Math.round(upload.duration)}s`}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            Uploaded {new Date(upload.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Submit Button */}
@@ -443,7 +624,12 @@ export default function SessionUploadPage() {
           </Button>
           <Button
             type="submit"
-            disabled={!selectedFile || !formData.title || !formData.campaignId || campaignsLoading}
+            disabled={
+              !formData.title ||
+              !formData.campaignId ||
+              !formData.sessionDate ||
+              campaignsLoading
+            }
             className="flex items-center space-x-2"
           >
             <Upload className="h-4 w-4" />
@@ -451,6 +637,59 @@ export default function SessionUploadPage() {
           </Button>
         </div>
       </form>
+
+      {/* Create Campaign Modal */}
+      {showCreateCampaignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Campaign</h2>
+            <form onSubmit={handleCreateCampaign} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Campaign Name
+                </label>
+                <input
+                  type="text"
+                  value={campaignFormData.name}
+                  onChange={(e) => setCampaignFormData({ ...campaignFormData, name: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Enter campaign name"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description (Optional)
+                </label>
+                <textarea
+                  value={campaignFormData.description}
+                  onChange={(e) => setCampaignFormData({ ...campaignFormData, description: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  rows={3}
+                  placeholder="Enter campaign description"
+                />
+              </div>
+              <div className="flex space-x-3 pt-2">
+                <Button
+                  type="submit"
+                  disabled={createCampaignMutation.isPending}
+                  className="flex-1"
+                >
+                  {createCampaignMutation.isPending ? 'Creating...' : 'Create Campaign'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCreateCampaignModal(false)}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
