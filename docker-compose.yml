@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  dnd-recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Database
+      - DATABASE_URL=file:./prisma/data/dev.db
+      
+      # OpenAI Configuration (Required)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # NextAuth Configuration (Required)
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      
+      # Google OAuth Configuration (Optional)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - NEXT_PUBLIC_GOOGLE_ENABLED=${NEXT_PUBLIC_GOOGLE_ENABLED}
+      
+      # File Upload Configuration
+      - UPLOAD_DIR=./uploads
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      
+      # Node Environment
+      - NODE_ENV=production
+    volumes:
+      # Persist database and uploads
+      - ./data/database:/app/prisma/data
+      - ./data/uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  database:
+    driver: local
+  uploads:
+    driver: local
