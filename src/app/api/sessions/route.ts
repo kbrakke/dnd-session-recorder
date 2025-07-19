@@ -14,15 +14,18 @@ const createSessionSchema = z.object({
   status: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     
     if (!session?.user?.id) {
       return NextResponse.json([]);
     }
+
+    const { searchParams } = new URL(request.url);
+    const campaignId = searchParams.get('campaignId');
     
-    const sessions = await db.getSessions(session.user.id);
+    const sessions = await db.getSessions(session.user.id, campaignId || undefined);
     
     // Transform data to match existing API format
     const transformedSessions = await Promise.all(sessions.map(async session => ({

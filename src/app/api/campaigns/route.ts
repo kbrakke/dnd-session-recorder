@@ -7,6 +7,7 @@ import { db } from '@/services/database';
 const createCampaignSchema = z.object({
   name: z.string().min(1, 'Campaign name is required'),
   description: z.string().optional(),
+  systemPrompt: z.string().optional(),
 });
 
 export async function GET() {
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
     const campaign = await db.createCampaign({
       name: validatedData.name,
       description: validatedData.description,
+      systemPrompt: validatedData.systemPrompt,
       userId: session.user.id,
     });
     

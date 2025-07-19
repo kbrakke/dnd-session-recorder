@@ -70,12 +70,13 @@ model VerificationToken {
 }
 
 model Campaign {
-  id          String           @id @default(cuid())
-  name        String
-  description String?
-  userId      String           @map("user_id")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  id           String           @id @default(cuid())
+  name         String
+  description  String?
+  systemPrompt String?          @map("system_prompt")
+  userId       String           @map("user_id")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
   
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   gamingSessions GamingSession[]

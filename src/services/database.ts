@@ -4,6 +4,7 @@ import { Campaign, GamingSession, Transcription, Summary, Upload } from '@prisma
 export interface CreateCampaignData {
   name: string;
   description?: string;
+  systemPrompt?: string;
   userId: string;
 }
 
@@ -49,6 +50,7 @@ export class DatabaseService {
       data: {
         name: data.name,
         description: data.description,
+        systemPrompt: data.systemPrompt,
         userId: data.userId,
       },
     });
@@ -78,6 +80,7 @@ export class DatabaseService {
       data: {
         name: data.name,
         description: data.description,
+        systemPrompt: data.systemPrompt,
       },
     });
   }
@@ -103,9 +106,12 @@ export class DatabaseService {
     });
   }
   
-  async getSessions(userId?: string): Promise<SessionListItem[]> {
+  async getSessions(userId?: string, campaignId?: string): Promise<SessionListItem[]> {
     return prisma.gamingSession.findMany({
-      where: userId ? { campaign: { userId } } : undefined,
+      where: {
+        ...(userId && { campaign: { userId } }),
+        ...(campaignId && { campaignId }),
+      },
       include: {
         campaign: {
           select: { name: true },

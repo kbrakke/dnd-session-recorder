@@ -51,6 +51,15 @@ export async function POST(
       );
     }
 
+    // Get campaign information to include system prompt
+    const campaign = await db.getCampaignById(session.campaignId);
+    if (!campaign) {
+      return NextResponse.json(
+        { error: 'Campaign not found' },
+        { status: 404 }
+      );
+    }
+
     // Get transcriptions for this session
     const transcriptions = await db.getTranscriptions(sessionId);
     
@@ -67,26 +76,30 @@ export async function POST(
     // Format transcriptions for summarization
     const formattedText = formatTranscriptionsForSummary(transcriptions);
 
-    // Generate summary with OpenAI Chat API
-    const summaryResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      max_tokens: 2000,
-      messages: [{
-        role: 'user',
-        content: `You are a skilled storyteller and D&D campaign chronicler. Below is a transcript of a D&D session. Please create an engaging summary that:
+    // Build the prompt with optional campaign context
+    let basePrompt = `You are a skilled storyteller and D&D campaign chronicler. Below is a transcript of a D&D session. Please create an engaging summary that:
 
 1. Tells the story of what happened in this session
 2. Identifies key events, decisions, and character moments
 3. Mentions which characters were involved in important scenes
 4. Maintains the narrative flow and excitement of the session
 5. Uses the character names provided
-6. Focuses on story elements, combat highlights, and character development
+6. Focuses on story elements, combat highlights, and character development`;
 
-Here's the transcript:
+    // Add campaign-specific context if available
+    if (campaign.systemPrompt) {
+      basePrompt += `\n\nCampaign Context:\n${campaign.systemPrompt}`;
+    }
 
-${formattedText}
+    basePrompt += `\n\nHere's the transcript:\n\n${formattedText}\n\nPlease provide a compelling summary that captures the essence of this D&D session.`;
 
-Please provide a compelling summary that captures the essence of this D&D session.`
+    // Generate summary with OpenAI Chat API
+    const summaryResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      max_tokens: 2000,
+      messages: [{
+        role: 'user',
+        content: basePrompt
       }]
     });
 

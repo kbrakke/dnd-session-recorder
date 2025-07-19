@@ -7,6 +7,7 @@ import { db } from '@/services/database';
 const updateCampaignSchema = z.object({
   name: z.string().min(1, 'Campaign name is required'),
   description: z.string().optional(),
+  systemPrompt: z.string().optional(),
 });
 
 export async function PUT(
@@ -40,6 +41,7 @@ export async function PUT(
     const updatedCampaign = await db.updateCampaign(id, {
       name: validatedData.name,
       description: validatedData.description,
+      systemPrompt: validatedData.systemPrompt,
     });
     
     return NextResponse.json(updatedCampaign);

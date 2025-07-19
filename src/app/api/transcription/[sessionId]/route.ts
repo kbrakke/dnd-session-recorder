@@ -158,8 +158,8 @@ export async function POST(
       const file = new File([fileBuffer], fileName, { type: 'audio/mpeg' });
       
       const transcription = await openai.audio.transcriptions.create({
-        file: file,
-        model: 'whisper-1',
+        file: file as any,
+        model: 'gpt-4o-transcribe',
         response_format: 'verbose_json',
         timestamp_granularities: ['word', 'segment'],
       });

@@ -61,7 +61,7 @@ export default function SessionUploadPage() {
   const [processingStep, setProcessingStep] = useState<'upload' | 'transcribe' | 'summarize' | 'complete' | null>(null);
   const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
   const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
-  const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '' });
+  const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -181,7 +181,7 @@ export default function SessionUploadPage() {
     onSuccess: (newCampaign) => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       setShowCreateCampaignModal(false);
-      setCampaignFormData({ name: '', description: '' });
+      setCampaignFormData({ name: '', description: '', systemPrompt: '' });
       // Automatically select the newly created campaign
       setFormData({ ...formData, campaignId: newCampaign.id });
     },
@@ -203,7 +203,7 @@ export default function SessionUploadPage() {
   };
 
   const openCreateCampaignModal = () => {
-    setCampaignFormData({ name: '', description: '' });
+    setCampaignFormData({ name: '', description: '', systemPrompt: '' });
     setShowCreateCampaignModal(true);
   };
 
@@ -641,7 +641,7 @@ export default function SessionUploadPage() {
       {/* Create Campaign Modal */}
       {showCreateCampaignModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Campaign</h2>
             <form onSubmit={handleCreateCampaign} className="space-y-6">
               <div>
@@ -668,6 +668,21 @@ export default function SessionUploadPage() {
                   rows={3}
                   placeholder="Enter campaign description"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  System Prompt (Optional)
+                </label>
+                <textarea
+                  value={campaignFormData.systemPrompt}
+                  onChange={(e) => setCampaignFormData({ ...campaignFormData, systemPrompt: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  rows={4}
+                  placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This information helps the AI generate more accurate and contextual summaries for your sessions.
+                </p>
               </div>
               <div className="flex space-x-3 pt-2">
                 <Button
