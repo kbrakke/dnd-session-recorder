@@ -3,11 +3,10 @@ import { z } from 'zod';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
-import OpenAI from 'openai';
+import { openai } from '@ai-sdk/openai';
+import { generateText } from 'ai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const model = openai('gpt-4o');
 
 const updateSummarySchema = z.object({
   summary_text: z.string().min(1, 'Summary text is required'),
@@ -93,17 +92,11 @@ export async function POST(
 
     basePrompt += `\n\nHere's the transcript:\n\n${formattedText}\n\nPlease provide a compelling summary that captures the essence of this D&D session.`;
 
-    // Generate summary with OpenAI Chat API
-    const summaryResponse = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      max_tokens: 2000,
-      messages: [{
-        role: 'user',
-        content: basePrompt
-      }]
+    // Generate summary with Vercel AI SDK
+    const { text: summaryText } = await generateText({
+      model,
+      prompt: basePrompt
     });
-
-    const summaryText = summaryResponse.choices[0]?.message?.content || '';
 
     // Save summary to database
     await db.saveSummary(sessionId, summaryText);

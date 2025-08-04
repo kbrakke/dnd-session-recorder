@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
-import OpenAI from 'openai';
+import { experimental_transcribe as transcribe } from 'ai';
+import { openai } from '@ai-sdk/openai';
 import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
-import { File } from 'node:buffer';
-
-// Polyfill for Node.js File API compatibility with OpenAI SDK
-if (typeof globalThis.File === 'undefined') {
-  globalThis.File = File;
-}
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 // Helper to split audio into 24MB chunks
 async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<string[]> {
@@ -138,47 +129,29 @@ export async function POST(
     await updateSessionStatus(sessionId, 'transcribing');
 
     // Split audio into 24MB chunks
-    const chunkPaths = await splitAudioBySize(fullPath, 24);
+    const chunkPaths = await splitAudioBySize(fullPath, 18);
     console.log(`[Transcription] Audio split into ${chunkPaths.length} chunk(s)`);
 
-    let allSegments: Array<{
-      start: number;
-      end: number;
-      text: string;
-      avg_logprob?: number;
-    }> = [];
+    const allText: string[] = [];
     
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
       console.log(`[Transcription] Transcribing chunk ${i + 1}/${chunkPaths.length}: ${chunkPath}`);
       
-      // Read the file and create a proper File object
+      // Read the file buffer for AI SDK
       const fileBuffer = fs.readFileSync(chunkPath);
-      const fileName = path.basename(chunkPath);
-      const file = new File([fileBuffer], fileName, { type: 'audio/mpeg' });
       
-      const transcription = await openai.audio.transcriptions.create({
-        file: file as any,
-        model: 'gpt-4o-transcribe',
-        response_format: 'verbose_json',
-        timestamp_granularities: ['word', 'segment'],
+      const transcription = await transcribe({
+        model: openai.transcription('whisper-1'),
+        audio: fileBuffer,
       });
 
-      if (!transcription.segments) {
-        throw new Error(`No transcription segments received for chunk ${i + 1}`);
+      if (!transcription.text) {
+        throw new Error(`No transcription text received for chunk ${i + 1}`);
       }
 
-      // Offset segment times for all but the first chunk
-      if (i > 0) {
-        const prevDuration = allSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
-        transcription.segments.forEach(seg => {
-          seg.start += prevDuration;
-          seg.end += prevDuration;
-        });
-      }
-
-      allSegments = allSegments.concat(transcription.segments);
-      console.log(`[Transcription] Chunk ${i + 1} transcribed, ${transcription.segments.length} segments.`);
+      allText.push(transcription.text);
+      console.log(`[Transcription] Chunk ${i + 1} transcribed.`);
     }
 
     // Clean up chunk files (except original)
@@ -189,9 +162,12 @@ export async function POST(
     });
     console.log(`[Transcription] All chunks transcribed and cleaned up.`);
 
-    // Save transcriptions to database
-    await db.saveTranscriptions(sessionId, allSegments);
-    console.log(`[Transcription] Transcriptions saved.`);
+    // Combine all text chunks into a single transcription
+    const fullText = allText.join(' ');
+
+    // Save transcription to database
+    await db.saveTranscription(sessionId, fullText);
+    console.log(`[Transcription] Transcription saved.`);
 
     // Update session status to transcribed
     await updateSessionStatus(sessionId, 'transcribed');
@@ -213,7 +189,7 @@ export async function POST(
 
     return NextResponse.json({
       message: 'Transcription completed successfully',
-      transcriptionCount: allSegments.length
+      transcriptionLength: fullText.length
     });
 
   } catch (error) {

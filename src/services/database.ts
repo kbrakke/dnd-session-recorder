@@ -214,6 +214,26 @@ export class DatabaseService {
       });
     });
   }
+
+  async saveTranscription(sessionId: string, text: string): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      // Delete existing transcriptions for this session
+      await tx.transcription.deleteMany({
+        where: { sessionId },
+      });
+      
+      // Insert single transcription record with dummy timestamps
+      await tx.transcription.create({
+        data: {
+          sessionId,
+          startTime: 0,
+          endTime: 0,
+          text,
+          confidence: null,
+        },
+      });
+    });
+  }
   
   async getTranscriptions(sessionId: string): Promise<Transcription[]> {
     return prisma.transcription.findMany({

@@ -46,7 +46,7 @@ interface Transcription {
   startTime: number;
   endTime: number;
   text: string;
-  confidence: number;
+  confidence: number | null;
 }
 
 interface Summary {
@@ -229,11 +229,6 @@ export default function SessionDetailPage() {
     return `${hours}h ${minutes}m`;
   };
 
-  const formatTime = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -808,7 +803,7 @@ export default function SessionDetailPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Transcription</h2>
             <span className="text-sm text-gray-500">
-              {session._count?.transcriptions || 0} segments
+              {session._count?.transcriptions > 0 ? 'Available' : 'Not Available'}
             </span>
           </div>
           
@@ -819,31 +814,22 @@ export default function SessionDetailPage() {
             </div>
           ) : transcriptions && transcriptions.length > 0 ? (
             <div className="space-y-3">
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {transcriptions.slice(0, 10).map((transcription) => (
-                  <div key={transcription.id} className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-500">
-                        {formatTime(transcription.startTime)} - {formatTime(transcription.endTime)}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {Math.round(transcription.confidence * 100)}% confidence
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-800">{transcription.text}</p>
-                  </div>
-                ))}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-sm text-gray-800 leading-relaxed">
+                  {transcriptions[0].text.length > 500 
+                    ? `${transcriptions[0].text.substring(0, 500)}...` 
+                    : transcriptions[0].text
+                  }
+                </p>
               </div>
-              {transcriptions.length > 10 && (
-                <div className="text-center pt-4 border-t">
-                  <Link href={`/sessions/${sessionId}/transcript`}>
-                    <Button variant="outline" size="sm" className="flex items-center space-x-2">
-                      <FileText className="h-4 w-4" />
-                      <span>View Full Transcript</span>
-                    </Button>
-                  </Link>
-                </div>
-              )}
+              <div className="text-center pt-4 border-t">
+                <Link href={`/sessions/${sessionId}/transcript`}>
+                  <Button variant="outline" size="sm" className="flex items-center space-x-2">
+                    <FileText className="h-4 w-4" />
+                    <span>View Full Transcript</span>
+                  </Button>
+                </Link>
+              </div>
             </div>
           ) : (
             <div className="text-center py-8">

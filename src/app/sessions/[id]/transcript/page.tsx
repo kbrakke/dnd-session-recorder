@@ -27,7 +27,7 @@ interface Transcription {
   startTime: number;
   endTime: number;
   text: string;
-  confidence: number;
+  confidence: number | null;
 }
 
 export default function SessionTranscriptPage() {
@@ -69,15 +69,7 @@ export default function SessionTranscriptPage() {
     return `${hours}h ${minutes}m`;
   };
 
-  const formatTime = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
 
-  const formatTimestamp = (startTime: number, endTime: number) => {
-    return `${formatTime(startTime)} - ${formatTime(endTime)}`;
-  };
 
   const exportTranscript = () => {
     if (!transcriptions || !session) return;
@@ -85,13 +77,14 @@ export default function SessionTranscriptPage() {
     let content = `${session.title}\n`;
     content += `Campaign: ${session.campaign.name}\n`;
     content += `Date: ${formatDate(session.sessionDate)}\n`;
-    content += `Duration: ${formatDuration(session.duration)}\n`;
-    content += `Transcription Segments: ${transcriptions.length}\n\n`;
+    content += `Duration: ${formatDuration(session.duration)}\n\n`;
     content += '--- TRANSCRIPT ---\n\n';
     
-    transcriptions.forEach((transcript, index) => {
-      content += `[${formatTimestamp(transcript.startTime, transcript.endTime)}] ${transcript.text}\n\n`;
-    });
+    // For the new format, there should only be one transcription with all the text
+    const mainTranscription = transcriptions[0];
+    if (mainTranscription) {
+      content += mainTranscription.text;
+    }
     
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -122,7 +115,7 @@ export default function SessionTranscriptPage() {
       <div className="text-center py-12">
         <AlertCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">Session not found</h3>
-        <p className="text-gray-500 mb-6">The session you're looking for doesn't exist.</p>
+        <p className="text-gray-500 mb-6">The session you&apos;re looking for doesn&apos;t exist.</p>
         <Link href="/sessions">
           <Button>Back to Sessions</Button>
         </Link>
@@ -194,8 +187,8 @@ export default function SessionTranscriptPage() {
               <FileText className="h-5 w-5 text-orange-600" />
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-500">Segments</p>
-              <p className="text-lg font-semibold text-gray-900">{session._count?.transcriptions || 0}</p>
+              <p className="text-sm font-medium text-gray-500">Status</p>
+              <p className="text-lg font-semibold text-gray-900">{session._count?.transcriptions > 0 ? 'Transcribed' : 'Not Transcribed'}</p>
             </div>
           </div>
         </div>
@@ -215,7 +208,7 @@ export default function SessionTranscriptPage() {
         </div>
         {searchTerm && (
           <p className="mt-2 text-sm text-gray-600">
-            Found {filteredTranscriptions.length} segments matching "{searchTerm}"
+            {filteredTranscriptions.length > 0 ? 'Transcript contains' : 'No matches found for'} &quot;{searchTerm}&quot;
           </p>
         )}
       </div>
@@ -225,8 +218,8 @@ export default function SessionTranscriptPage() {
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Transcript</h2>
           <p className="text-gray-600 mt-1">
-            {filteredTranscriptions.length} of {session._count?.transcriptions || 0} segments
-            {searchTerm && ` matching "${searchTerm}"`}
+            {session._count?.transcriptions > 0 ? 'Full session transcript' : 'No transcript available'}
+            {searchTerm && filteredTranscriptions.length > 0 && ` - showing search results for "${searchTerm}"`}
           </p>
         </div>
         
@@ -244,7 +237,7 @@ export default function SessionTranscriptPage() {
               </h3>
               <p className="text-gray-500">
                 {searchTerm 
-                  ? 'Try different search terms or clear the search to view all segments.'
+                  ? 'Try different search terms or clear the search to view the full transcript.'
                   : 'This session does not have any transcription data.'
                 }
               </p>
@@ -259,24 +252,14 @@ export default function SessionTranscriptPage() {
               )}
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredTranscriptions.map((transcript, index) => (
-                <div
-                  key={transcript.id}
-                  className="flex space-x-4 p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex-shrink-0 w-24">
-                    <div className="text-sm font-medium text-blue-600">
-                      {formatTime(transcript.startTime)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {Math.round(transcript.confidence * 100)}%
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-gray-900 leading-relaxed">
+            <div className="space-y-6">
+              {/* Display single transcript text */}
+              {transcriptions && transcriptions.length > 0 && (
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <div className="prose max-w-none">
+                    <p className="text-gray-900 leading-relaxed whitespace-pre-wrap text-base">
                       {searchTerm ? (
-                        transcript.text
+                        transcriptions[0].text
                           .split(new RegExp(`(${searchTerm})`, 'gi'))
                           .map((part, i) => 
                             part.toLowerCase() === searchTerm.toLowerCase() ? (
@@ -288,20 +271,20 @@ export default function SessionTranscriptPage() {
                             )
                           )
                       ) : (
-                        transcript.text
+                        transcriptions[0].text
                       )}
                     </p>
                   </div>
                 </div>
-              ))}
+              )}
               
-              {/* Pagination info */}
-              {filteredTranscriptions.length > 0 && (
+              {/* Info */}
+              {transcriptions && transcriptions.length > 0 && (
                 <div className="text-center pt-6 border-t border-gray-200">
                   <p className="text-sm text-gray-600">
-                    Showing {filteredTranscriptions.length} segments
+                    Full transcript • {transcriptions[0].text.length} characters
                     {session.duration && (
-                      <> • Total duration: {formatDuration(session.duration)}</>
+                      <> • Duration: {formatDuration(session.duration)}</>
                     )}
                   </p>
                 </div>

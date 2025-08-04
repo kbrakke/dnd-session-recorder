@@ -190,8 +190,8 @@ export default function SessionsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 <div className="bg-blue-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-600">{session._count.transcriptions}</div>
-                  <div className="text-sm text-gray-600">Transcriptions</div>
+                  <div className="text-2xl font-bold text-blue-600">{session._count.transcriptions > 0 ? '✓' : '—'}</div>
+                  <div className="text-sm text-gray-600">Transcribed</div>
                 </div>
                 <div className="bg-green-50 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-green-600">{formatDuration(session.total_speech_time)}</div>
