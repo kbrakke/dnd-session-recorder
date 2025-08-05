@@ -165,6 +165,8 @@ export async function PUT(
   
   try {
     // Check authentication
+    const { getServerSession } = await import('next-auth/next');
+    const { authOptions } = await import('@/lib/auth');
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json(

@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Sparkles, Download, Copy, Edit3, Lock, Unlock, RefreshCw, CheckCircle, FileText } from 'lucide-react';
+import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Sparkles, Download, Copy, Edit3, Lock, Unlock, RefreshCw, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { useState } from 'react';
 
@@ -272,7 +272,7 @@ export default function SessionSummaryPage() {
             {[
               { key: 'summarize', label: 'Creating AI summary', icon: Sparkles },
               { key: 'complete', label: 'Summary regenerated!', icon: CheckCircle },
-            ].map((step, index) => {
+            ].map((step, _) => {
               const Icon = step.icon;
               const isActive = step.key === processingStep;
               const isCompleted = processingStep === 'complete' && step.key === 'summarize';

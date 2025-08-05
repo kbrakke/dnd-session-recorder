@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
 
@@ -89,7 +89,7 @@ export async function POST(
 // PUT /api/sessions/[id]/upload - Replace session's upload
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -105,7 +105,8 @@ export async function PUT(
     const validatedData = linkUploadSchema.parse(body);
     
     // Verify session exists and belongs to user
-    const gamingSession = await db.getSessionById(params.id);
+    const { id } = await params;
+    const gamingSession = await db.getSessionById(id);
     if (!gamingSession) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -140,7 +141,7 @@ export async function PUT(
     }
     
     // Replace upload
-    const updatedSession = await db.linkSessionToUpload(params.id, validatedData.upload_id);
+    const updatedSession = await db.linkSessionToUpload(id, validatedData.upload_id);
     
     return NextResponse.json({
       message: 'Upload replaced successfully',
@@ -166,7 +167,7 @@ export async function PUT(
 // DELETE /api/sessions/[id]/upload - Unlink upload from session
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -179,7 +180,8 @@ export async function DELETE(
     }
     
     // Verify session exists and belongs to user
-    const gamingSession = await db.getSessionById(params.id);
+    const { id } = await params;
+    const gamingSession = await db.getSessionById(id);
     if (!gamingSession) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -205,7 +207,7 @@ export async function DELETE(
     }
     
     // Unlink upload from session
-    const updatedSession = await db.unlinkSessionFromUpload(params.id);
+    const updatedSession = await db.unlinkSessionFromUpload(id);
     
     return NextResponse.json({
       message: 'Upload unlinked from session successfully',

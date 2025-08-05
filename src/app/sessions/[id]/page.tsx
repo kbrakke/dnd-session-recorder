@@ -166,7 +166,7 @@ export default function SessionDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           // Don't pass audioFilePath - let the server figure it out from the session
-          ...(upload && { audioFilePath: upload.path || upload.filename })
+          ...(upload && { audioFilePath: upload.filename })
         }),
       });
 
@@ -355,7 +355,7 @@ export default function SessionDetailPage() {
     try {
       // Step 1: Generate transcription
       setProcessingStep('transcribe');
-      await transcribeMutation.mutateAsync();
+      await transcribeMutation.mutateAsync({});
 
       // Step 2: Generate summary
       setProcessingStep('summarize');

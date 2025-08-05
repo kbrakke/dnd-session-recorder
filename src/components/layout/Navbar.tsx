@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Sword, Upload, BookOpen, Home, User, LogOut, Settings } from 'lucide-react';
+import { Sword, Upload, BookOpen, Home, User, LogOut } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -71,11 +71,10 @@ export default function Navbar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
-                      isActive
+                    className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${isActive
                         ? 'bg-blue-50 text-blue-700 border border-blue-200'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                    }`}
+                      }`}
                   >
                     <Icon className="h-5 w-5" />
                     <span>{item.label}</span>

@@ -1,9 +1,33 @@
-import { NextAuthOptions } from 'next-auth';
+import type { NextAuthOptions } from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
+import type { JWT } from 'next-auth/jwt';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+
+type User = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+};
+
+type Account = {
+  provider: string;
+  type: string;
+  providerAccountId: string;
+  access_token?: string;
+  refresh_token?: string;
+  expires_at?: number;
+};
+
+type Profile = {
+  sub?: string;
+  name?: string;
+  email?: string;
+  picture?: string;
+};
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -55,11 +79,10 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: '/auth/signin',
-    signUp: '/auth/signup',
     error: '/auth/error',
   },
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }: { user: any; account: any }) {
       try {
         if (account?.provider === 'google') {
           // Check if user exists in database
@@ -88,18 +111,18 @@ export const authOptions: NextAuthOptions = {
         return false;
       }
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }: { token: JWT; user?: any }) {
       // Add user ID to token on first sign in
       if (user) {
         token.id = user.id;
       }
       return token;
     },
-    async session({ session, token }) {
+    async session({ session, token }: { session: any; token: JWT }) {
       try {
         // When using JWT sessions, token object is available
         if (token) {
-          session.user.id = (token.id || token.sub) as string;
+          session.user.id = token.id as string;
         }
         return session;
       } catch (error) {
@@ -109,19 +132,19 @@ export const authOptions: NextAuthOptions = {
     },
   },
   events: {
-    async signIn({ user, account, profile, isNewUser }) {
+    async signIn({ user, account, profile, isNewUser }: { user: any; account: any; profile?: any; isNewUser?: boolean }) {
       console.log('SignIn event - Success:', { user, account, profile, isNewUser });
     },
-    async signOut({ session, token }) {
+    async signOut({ session, token }: { session: any; token?: JWT }) {
       console.log('SignOut event:', { session, token });
     },
-    async createUser({ user }) {
+    async createUser({ user }: { user: any }) {
       console.log('CreateUser event:', user);
     },
-    async linkAccount({ user, account, profile }) {
+    async linkAccount({ user, account, profile }: { user: any; account: any; profile?: any }) {
       console.log('LinkAccount event:', { user, account, profile });
     },
-    async session({ session, token }) {
+    async session({ session, token }: { session: any; token?: JWT }) {
       console.log('Session event:', { session, token });
     },
   },
