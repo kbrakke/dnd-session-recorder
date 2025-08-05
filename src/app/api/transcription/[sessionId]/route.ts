@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
 import { experimental_transcribe as transcribe } from 'ai';
@@ -216,6 +217,10 @@ export async function GET(
   const { sessionId } = await params;
   
   try {
+    // Check authentication
+    const { error } = await requireAuth();
+    if (error) return error;
+
     const transcriptions = await db.getTranscriptions(sessionId);
     
     return NextResponse.json(transcriptions);

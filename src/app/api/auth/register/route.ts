@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { authRateLimiter, getRateLimitIdentifier } from '@/lib/rate-limiter';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -11,6 +12,30 @@ const registerSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply rate limiting for registration
+    const identifier = getRateLimitIdentifier(request);
+    const rateLimitResult = authRateLimiter.isRateLimited(identifier);
+
+    if (rateLimitResult.limited) {
+      const resetTime = new Date(rateLimitResult.resetTime).toISOString();
+      return NextResponse.json(
+        { 
+          error: 'Too many registration attempts',
+          resetTime,
+          limit: rateLimitResult.limit 
+        },
+        { 
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': rateLimitResult.resetTime.toString(),
+            'Retry-After': Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000).toString()
+          }
+        }
+      );
+    }
+
     const body = await request.json();
     const { email, password, name } = registerSchema.parse(body);
 
@@ -39,11 +64,19 @@ export async function POST(request: NextRequest) {
     });
 
     // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password: _password, ...userWithoutPassword } = user;
 
     return NextResponse.json(
       { user: userWithoutPassword },
-      { status: 201 }
+      { 
+        status: 201,
+        headers: {
+          'X-RateLimit-Limit': rateLimitResult.limit.toString(),
+          'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+          'X-RateLimit-Reset': rateLimitResult.resetTime.toString(),
+        }
+      }
     );
   } catch (error) {
     if (error instanceof z.ZodError) {

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
@@ -133,6 +132,10 @@ export async function GET(
   const { sessionId } = await params;
   
   try {
+    // Check authentication
+    const { error } = await requireAuth();
+    if (error) return error;
+
     const summary = await db.getSummary(sessionId);
     
     if (!summary) {

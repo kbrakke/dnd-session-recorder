@@ -3,8 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, TrendingUp, Activity, Users, LogIn } from 'lucide-react';
+import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, TrendingUp, Activity, Users } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import LandingPage from '@/components/LandingPage';
 
 interface Campaign {
   id: string;
@@ -36,7 +37,7 @@ interface Session {
 
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const isAuthenticated = status === 'authenticated';
 
   const { data: sessions, isLoading: sessionsLoading } = useQuery<Session[]>({
@@ -100,6 +101,11 @@ export default function Dashboard() {
   const totalCampaigns = campaigns?.length || 0;
   const totalHours = sessions?.reduce((total, session) => total + (session.duration || 0), 0) || 0;
 
+  // Show landing page for unauthenticated users
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
+
   return (
     <div className="space-y-8">
       {/* Hero Section */}
@@ -107,20 +113,16 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold mb-2">
-              {isAuthenticated ? 'Welcome back, Dungeon Master!' : 'Welcome New Dungeon Master!'}
+              Welcome back, Dungeon Master!
             </h1>
             <p className="text-blue-100 text-lg">
-              {isAuthenticated
-                ? 'Manage your D&D sessions with AI-powered transcription and summaries'
-                : 'Get started with AI-powered transcription and summaries for your D&D sessions'
-              }
+              Manage your D&D sessions with AI-powered transcription and summaries
             </p>
           </div>
         </div>
       </div>
 
       {/* Stats Cards */}
-      {isAuthenticated && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all duration-200">
             <div className="flex items-center justify-between">
@@ -194,10 +196,8 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      )}
 
       {/* Recent Sessions Section */}
-      {isAuthenticated && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -322,68 +322,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      )}
-
-      {/* Unauthenticated content */}
-      {!isAuthenticated && (
-        <div className="space-y-8">
-          {/* Features Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <Mic className="h-6 w-6 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">AI Transcription</h3>
-              <p className="text-gray-600">
-                Automatically convert your D&D session audio into accurate, searchable text transcripts.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <Sparkles className="h-6 w-6 text-purple-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Smart Summaries</h3>
-              <p className="text-gray-600">
-                Generate concise summaries of your sessions with key events and character interactions.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <BookOpen className="h-6 w-6 text-green-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Campaign Management</h3>
-              <p className="text-gray-600">
-                Organize multiple campaigns and track your adventures with comprehensive session history.
-              </p>
-            </div>
-          </div>
-
-          {/* Call to Action */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Ready to enhance your D&D experience?</h3>
-            <p className="text-gray-600 mb-6 max-w-2xl mx-auto">
-              Join thousands of Dungeon Masters who use AI-powered tools to create better session records,
-              track campaign progress, and never miss important story moments.
-            </p>
-            <div className="flex items-center justify-center space-x-4">
-              <Link href="/auth/signup">
-                <Button className="flex items-center space-x-2">
-                  <Plus className="h-4 w-4" />
-                  <span>Get Started Free</span>
-                </Button>
-              </Link>
-              <Link href="/auth/signin">
-                <Button variant="outline" className="flex items-center space-x-2">
-                  <LogIn className="h-4 w-4" />
-                  <span>Sign In</span>
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

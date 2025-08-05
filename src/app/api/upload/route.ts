@@ -5,8 +5,9 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { promisify } from 'util';
 import { exec } from 'child_process';
+import { requireAuth } from '@/lib/auth-utils';
 
-var ffprobe = require('ffprobe-static');
+import ffprobe from 'ffprobe-static';
 
 // Configure upload settings
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
@@ -49,6 +50,10 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
 // POST /api/upload - Upload audio file
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication first
+    const { error } = await requireAuth();
+    if (error) return error;
+
     await ensureUploadDir();
     
     const formData = await request.formData();

@@ -51,7 +51,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   session: {
-    strategy: 'database',
+    strategy: 'jwt',
   },
   pages: {
     signIn: '/auth/signin',
@@ -59,16 +59,27 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/error',
   },
   callbacks: {
-    async signIn({ user, account, profile, email, credentials }) {
+    async signIn({ user, account, profile }) {
       try {
-        console.log('SignIn callback - User:', user);
-        console.log('SignIn callback - Account:', account);
-        console.log('SignIn callback - Profile:', profile);
-        
         if (account?.provider === 'google') {
-          console.log('Google OAuth sign in attempt');
-          // Add any custom Google OAuth validation here
-          return true;
+          // Check if user exists in database
+          const existingUser = await prisma.user.findUnique({
+            where: { email: user.email! },
+          });
+
+          if (!existingUser) {
+            // Create user if doesn't exist
+            const newUser = await prisma.user.create({
+              data: {
+                name: user.name,
+                email: user.email!,
+                image: user.image,
+              },
+            });
+            user.id = newUser.id;
+          } else {
+            user.id = existingUser.id;
+          }
         }
         
         return true;
@@ -77,11 +88,18 @@ export const authOptions: NextAuthOptions = {
         return false;
       }
     },
-    async session({ session, user }) {
+    async jwt({ token, user, account }) {
+      // Add user ID to token on first sign in
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
       try {
-        // When using database sessions, user object is available
-        if (user) {
-          session.user.id = user.id;
+        // When using JWT sessions, token object is available
+        if (token) {
+          session.user.id = (token.id || token.sub) as string;
         }
         return session;
       } catch (error) {

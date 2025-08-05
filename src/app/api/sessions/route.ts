@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 
 const createSessionSchema = z.object({
@@ -16,16 +15,13 @@ const createSessionSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json([]);
-    }
+    const { error, user } = await requireAuth();
+    if (error) return error;
 
     const { searchParams } = new URL(request.url);
     const campaignId = searchParams.get('campaignId');
     
-    const sessions = await db.getSessions(session.user.id, campaignId || undefined);
+    const sessions = await db.getSessions(user.id, campaignId || undefined);
     
     // Transform data to match existing API format
     const transformedSessions = await Promise.all(sessions.map(async session => ({
@@ -47,21 +43,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error, user } = await requireAuth();
+    if (error) return error;
     
     const body = await request.json();
     const validatedData = createSessionSchema.parse(body);
     
     // Verify campaign exists and belongs to user
     const campaign = await db.getCampaignById(validatedData.campaign_id);
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }
@@ -71,7 +61,7 @@ export async function POST(request: Request) {
     // If upload_id is provided, verify it exists and belongs to user
     if (validatedData.upload_id) {
       const upload = await db.getUploadById(validatedData.upload_id);
-      if (!upload || upload.userId !== session.user.id) {
+      if (!upload || upload.userId !== user.id) {
         return NextResponse.json(
           { error: 'Upload not found' },
           { status: 404 }
