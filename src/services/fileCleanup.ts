@@ -124,7 +124,7 @@ export class FileCleanupService {
       
       console.log(`[FileCleanup] Deleted file: ${filePath}`);
     } catch (error: unknown) {
-      if (error instanceof Error && (error as any).code === 'ENOENT') {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         // File doesn't exist, which is fine
         console.log(`[FileCleanup] File already deleted or doesn't exist: ${filePath}`);
       } else {

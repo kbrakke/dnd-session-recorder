@@ -272,7 +272,7 @@ export default function SessionSummaryPage() {
             {[
               { key: 'summarize', label: 'Creating AI summary', icon: Sparkles },
               { key: 'complete', label: 'Summary regenerated!', icon: CheckCircle },
-            ].map((step, _) => {
+            ].map((step) => {
               const Icon = step.icon;
               const isActive = step.key === processingStep;
               const isCompleted = processingStep === 'complete' && step.key === 'summarize';
