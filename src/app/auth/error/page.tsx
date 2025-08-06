@@ -2,6 +2,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
@@ -21,7 +22,7 @@ const errorMessages = {
   'Default': 'An unexpected error occurred during authentication.',
 };
 
-export default function AuthErrorPage() {
+function AuthErrorForm() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error') || 'Default';
   
@@ -154,5 +155,13 @@ export default function AuthErrorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AuthErrorForm />
+    </Suspense>
   );
 }

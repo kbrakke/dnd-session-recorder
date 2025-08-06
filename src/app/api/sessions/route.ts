@@ -4,9 +4,9 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 
 const createSessionSchema = z.object({
-  campaign_id: z.string('Campaign ID must be a positive integer'),
+  campaign_id: z.string().min(1, 'Campaign ID must be a positive integer'),
   title: z.string().min(1, 'Session title is required'),
-  session_date: z.string('Invalid session date format'),
+  session_date: z.string().min(1, 'Invalid session date format'),
   upload_id: z.string().optional(),
   audio_file_path: z.string().optional(),
   duration: z.number().int().positive().optional(),
