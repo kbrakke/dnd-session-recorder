@@ -72,6 +72,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup test environment
+        run: |
+          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}" >> .env.local
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
+          echo "DATABASE_URL=file:./prisma/data/test.db" >> .env.local
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}" >> .env.local
+          echo "NODE_ENV=test" >> .env.local
+
       - name: Setup test database
         run: |
           mkdir -p prisma/data
@@ -85,9 +93,10 @@ jobs:
       - name: Build application
         run: npm run build
         env:
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: https://dnd-recorder-staging.fly.dev
           DATABASE_URL: "file:./prisma/data/test.db"
+          NODE_ENV: development
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
@@ -95,10 +104,11 @@ jobs:
       - name: Run Playwright tests
         run: npm test
         env:
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: http://localhost:3000
           DATABASE_URL: "file:./prisma/data/test.db"
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
+          NODE_ENV: test
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
