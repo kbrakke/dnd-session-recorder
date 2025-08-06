@@ -1,13 +1,3 @@
-.env*
-**/.env*
-uploads/
-node_modules/
-prisma/data/
-.claude/
-**dist/
-**build/
-**.next/
-
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -22,6 +12,14 @@ prisma/data/
 
 # testing
 /coverage
+/nyc_output/
+
+# playwright testing
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+*.pwtest-*
 
 # next.js
 /.next/
@@ -29,23 +27,59 @@ prisma/data/
 
 # production
 /build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
+/dist/
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+*.d.ts.map
+*.js.map
+
+# database files
+/prisma/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# uploads and file storage
+/uploads/
+/data/
+/tmp/
+
+# environment variables
+.env*
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+/logs/
+build.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# misc
+*.pem
+
+# vercel
+.vercel
+
+# Claude AI assistant files
+.claude/
