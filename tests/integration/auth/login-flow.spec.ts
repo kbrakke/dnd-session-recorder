@@ -118,7 +118,7 @@ test.describe('Login Flow Integration Tests', () => {
   test('should navigate to signin page from signup', async ({ page }) => {
     await page.goto('/auth/signup');
     
-    await page.getByRole('link', { name: /already have an account/i }).click();
+    await page.getByRole('link', { name: /sign in to your existing account/i }).click();
     
     await expect(page).toHaveURL('/auth/signin');
     await expect(page.getByRole('heading', { name: /sign in to your account/i })).toBeVisible();

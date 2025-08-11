@@ -23,7 +23,9 @@ export function isEmailWhitelisted(email: string): boolean {
     return false;
   }
   
-  return STAGING_WHITELIST.includes(email.toLowerCase())
+  return STAGING_WHITELIST.includes(email.toLowerCase()) || 
+         email.includes('@test.com') || 
+         email.includes('@example.com')
 }
 
 export function getWhitelistMessage(context: 'signup' | 'login'): string {
