@@ -25,7 +25,7 @@ function SignInForm() {
       const errorMessages = {
         'CredentialsSignin': 'Invalid email or password. Please check your credentials.',
         'OAuthCallback': 'Google authentication failed. Please try again.',
-        'AccessDenied': 'Access was denied. Please try again.',
+        'AccessDenied': 'This email address is not authorized to access the staging environment. Please contact an administrator.',
         'OAuthAccountNotLinked': 'This account is linked to a different sign-in method.',
         'Default': 'An authentication error occurred. Please try again.',
       };

@@ -79,6 +79,7 @@ jobs:
           echo "DATABASE_URL=file:./prisma/data/test.db" >> .env.local
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
+          echo "NEXT_PUBLIC_ENVIRONMENT=staging" >> .env.local
 
       - name: Setup test database
         run: |
@@ -101,6 +102,7 @@ jobs:
           DATABASE_URL: "file:./prisma/data/test.db"
           NODE_ENV: production
           NEXT_TELEMETRY_DISABLED: 1
+          NEXT_PUBLIC_ENVIRONMENT: staging
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
@@ -113,6 +115,7 @@ jobs:
           DATABASE_URL: "file:./prisma/data/test.db"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
           NODE_ENV: development
+          NEXT_PUBLIC_ENVIRONMENT: staging
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

@@ -4,6 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
 
 
 export const authOptions: NextAuthOptions = {
@@ -25,6 +26,12 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        // Check whitelist first
+        if (!isEmailWhitelisted(credentials.email)) {
+          console.log(`[Auth] Whitelist check failed for email: ${credentials.email}`);
           return null;
         }
 
@@ -61,6 +68,12 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, account }) {
       try {
+        // Check whitelist for all sign-in attempts
+        if (!isEmailWhitelisted(user.email!)) {
+          console.log(`[Auth] Whitelist check failed for email: ${user.email} - ${getWhitelistMessage('login')}`);
+          return false; // Deny sign-in
+        }
+
         if (account?.provider === 'google') {
           // Check if user exists in database
           const existingUser = await prisma.user.findUnique({

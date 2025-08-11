@@ -3,6 +3,7 @@ import { hash } from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { authRateLimiter, getRateLimitIdentifier } from '@/lib/rate-limiter';
+import { isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -38,6 +39,14 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { email, password, name } = registerSchema.parse(body);
+
+    // Check whitelist before proceeding
+    if (!isEmailWhitelisted(email)) {
+      return NextResponse.json(
+        { error: getWhitelistMessage('signup') },
+        { status: 403 }
+      );
+    }
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
