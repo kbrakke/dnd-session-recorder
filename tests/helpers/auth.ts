@@ -14,11 +14,12 @@ export class AuthHelper {
    */
   static createTestUser(prefix = 'test'): TestUser {
     const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000);
+    const random = Math.floor(Math.random() * 10000);
+    const processId = process.pid || Math.floor(Math.random() * 1000);
     
     return {
       name: `Test User ${random}`,
-      email: `${prefix}-${timestamp}-${random}@example.com`,
+      email: `${prefix}-${timestamp}-${processId}-${random}@example.com`,
       password: 'TestPassword123!'
     };
   }
@@ -103,7 +104,47 @@ export class AuthHelper {
       data: user
     });
     
-    expect([200, 201, 400]).toContain(response.status());
+    const status = response.status();
+    
+    // Only accept success status codes - if user exists, that's a test setup issue
+    if (status === 200 || status === 201) {
+      return; // Success
+    }
+    
+    // If we get 400, check if it's "user already exists" and that's acceptable
+    if (status === 400) {
+      const body = await response.json();
+      if (body.error && body.error.toLowerCase().includes('already exists')) {
+        return; // User already exists is acceptable for test setup
+      }
+      throw new Error(`Registration failed with 400: ${body.error || 'Unknown error'}`);
+    }
+    
+    // If we get 429 (rate limit), wait and retry once
+    if (status === 429) {
+      console.log('Rate limited, waiting and retrying...');
+      await this.page.waitForTimeout(2000);
+      
+      const retryResponse = await this.page.request.post('/api/auth/register', {
+        data: user
+      });
+      const retryStatus = retryResponse.status();
+      
+      if (retryStatus === 200 || retryStatus === 201) {
+        return;
+      }
+      
+      if (retryStatus === 400) {
+        const retryBody = await retryResponse.json();
+        if (retryBody.error && retryBody.error.toLowerCase().includes('already exists')) {
+          return;
+        }
+      }
+      
+      throw new Error(`Registration failed after retry with status ${retryStatus}`);
+    }
+    
+    throw new Error(`Unexpected registration status: ${status}`);
   }
 
   /**
@@ -158,10 +199,25 @@ export class AuthHelper {
   async createAndSignIn(prefix = 'test'): Promise<TestUser> {
     const user = AuthHelper.createTestUser(prefix);
     
-    // Register via API first (faster)
-    await this.registerUserApi(user);
+    try {
+      // Register via API first (faster)
+      await this.registerUserApi(user);
+    } catch (error) {
+      console.log(`API registration failed for ${user.email}, will try UI registration:`, error);
+      
+      // Fallback to UI registration if API fails
+      try {
+        await this.signUp(user);
+        return user; // signUp automatically signs in
+      } catch (signUpError) {
+        console.log(`UI registration also failed, trying to sign in with existing user:`, signUpError);
+        // Maybe user already exists, try to sign in
+        await this.signIn(user);
+        return user;
+      }
+    }
     
-    // Then sign in via UI
+    // Sign in via UI
     await this.signIn(user);
     
     return user;
