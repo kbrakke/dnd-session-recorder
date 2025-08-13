@@ -65,8 +65,13 @@ export class FormHelper {
     try {
       // Wait for button to be enabled
       await this.page.waitForFunction(() => {
-        const buttons = document.querySelectorAll('button[type="submit"], button:has-text("Create"), button:has-text("Save")');
-        return Array.from(buttons).some(btn => !(btn as HTMLButtonElement).disabled);
+        const buttons = document.querySelectorAll('button[type="submit"], button');
+        return Array.from(buttons).some(btn => {
+          const button = btn as HTMLButtonElement;
+          if (button.disabled) return false;
+          const text = button.textContent?.toLowerCase() || '';
+          return button.type === 'submit' || text.includes('create') || text.includes('save') || text.includes('submit');
+        });
       }, { timeout: 10000 });
 
       await submitButton.click();

@@ -17,6 +17,7 @@
 # playwright testing
 /test-results/
 /playwright-report/
+/playwright-report-workflows/
 /blob-report/
 /playwright/.cache/
 *.pwtest-*
