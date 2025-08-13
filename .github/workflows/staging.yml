@@ -107,7 +107,7 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Run Playwright tests
+      - name: Run Unit Tests
         run: npm run test:local
         env:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
@@ -116,6 +116,17 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
           NODE_ENV: development
           NEXT_PUBLIC_ENVIRONMENT: staging
+
+      - name: Run Workflow Tests
+        run: npm run test:workflows
+        env:
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
+          NEXTAUTH_URL: http://localhost:3000
+          DATABASE_URL: "file:./prisma/data/workflow-test.db"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
+          NODE_ENV: development
+          NEXT_PUBLIC_ENVIRONMENT: staging
+          MOCK_AI_SERVICES: false
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
