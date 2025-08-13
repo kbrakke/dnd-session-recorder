@@ -66,7 +66,7 @@ export class FormHelper {
       // Wait for button to be enabled
       await this.page.waitForFunction(() => {
         const buttons = document.querySelectorAll('button[type="submit"], button:has-text("Create"), button:has-text("Save")');
-        return Array.from(buttons).some(btn => !btn.disabled);
+        return Array.from(buttons).some(btn => !(btn as HTMLButtonElement).disabled);
       }, { timeout: 10000 });
 
       await submitButton.click();
