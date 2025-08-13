@@ -18,11 +18,10 @@ export default defineConfig({
     // Ignore post-deploy tests
     '**/post-deploy/**',
     // Ignore tests that require real authentication infrastructure
-    '**/integration/auth/api-auth.spec.ts',
-    '**/integration/auth/error-scenarios.spec.ts',
-    '**/integration/auth/login-flow.spec.ts',
-    '**/integration/auth/registration.spec.ts',
-    '**/login.spec.ts',
+    '**/integration/auth/**',
+    // Ignore root level auth tests that require real infrastructure
+    'api-auth.spec.ts',
+    'login.spec.ts',
   ],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
