@@ -108,7 +108,7 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run Playwright tests
-        run: npm test
+        run: npm run test:local
         env:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: http://localhost:3000

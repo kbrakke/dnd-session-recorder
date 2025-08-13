@@ -4,7 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
+import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
 
 
 export const authOptions: NextAuthOptions = {
@@ -29,9 +29,9 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Check whitelist first
-        if (!isEmailWhitelisted(credentials.email)) {
-          console.log(`[Auth] Whitelist check failed for email: ${credentials.email}`);
+        // Validate whitelist access for login
+        const whitelistValidation = validateWhitelistAccess(credentials.email);
+        if (!whitelistValidation.allowed) {
           return null;
         }
 

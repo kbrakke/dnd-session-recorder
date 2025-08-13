@@ -1,0 +1,333 @@
+name: Pull Request CI
+
+on:
+  pull_request:
+    branches: [main, staging, develop]
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_VERSION: '22'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # Check if files have changed that require CI
+  changes:
+    name: Check Changes
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+      tests: ${{ steps.filter.outputs.tests }}
+      deps: ${{ steps.filter.outputs.deps }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Check for file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'src/**'
+              - 'app/**'
+              - 'components/**'
+              - 'lib/**'
+              - 'prisma/**'
+              - 'public/**'
+              - '*.config.*'
+              - '*.json'
+              - '*.ts'
+              - '*.tsx'
+            tests:
+              - 'tests/**'
+              - 'playwright.config.*'
+              - 'jest.config.*'
+            deps:
+              - 'package.json'
+              - 'package-lock.json'
+              - 'prisma/schema.prisma'
+
+  # Security and Code Quality Checks
+  lint-and-type-check:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Check formatting (if configured)
+        run: |
+          if [ -f ".prettierrc" ] || [ -f ".prettierrc.json" ] || [ -f "prettier.config.js" ]; then
+            npx prettier --check "src/**/*.{ts,tsx,js,jsx,json,css,md}"
+          fi
+        continue-on-error: true
+
+  # Dependency Security Audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.deps == 'true' || needs.changes.outputs.src == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level moderate
+        continue-on-error: true
+
+      - name: Check for known vulnerabilities
+        run: |
+          npx audit-ci --moderate || echo "::warning::Found vulnerabilities in dependencies"
+
+  # Build Test
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [changes, lint-and-type-check]
+    if: needs.changes.outputs.src == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup test environment
+        run: |
+          echo "NEXTAUTH_SECRET=test-secret-for-ci-builds-minimum-32-characters" >> .env.local
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
+          echo "DATABASE_URL=file:./prisma/data/test.db" >> .env.local
+          echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
+          echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
+
+      - name: Setup test database
+        run: |
+          mkdir -p prisma/data
+          touch prisma/data/test.db
+        
+      - name: Push database schema
+        run: npx prisma db push
+        env:
+          DATABASE_URL: "file:./prisma/data/test.db"
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Check build output
+        run: |
+          if [ ! -d ".next" ]; then
+            echo "::error::Build failed - .next directory not found"
+            exit 1
+          fi
+
+  # Run Tests
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: [changes, build]
+    if: needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup test environment
+        run: |
+          echo "NEXTAUTH_SECRET=test-secret-for-ci-builds-minimum-32-characters" >> .env.local
+          echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
+          echo "DATABASE_URL=file:./prisma/data/test.db" >> .env.local
+          echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
+          echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
+
+      - name: Setup test database
+        run: |
+          mkdir -p prisma/data
+          touch prisma/data/test.db
+        
+      - name: Push database schema  
+        run: npx prisma db push
+        env:
+          DATABASE_URL: "file:./prisma/data/test.db"
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run unit tests
+        run: npm run test:local
+        env:
+          CI: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-pr-${{ github.event.pull_request.number }}
+          path: playwright-report/
+          retention-days: 7
+
+  # Bundle Size Check
+  bundle-analysis:
+    name: Bundle Size Analysis
+    runs-on: ubuntu-latest
+    needs: [changes, build]
+    if: needs.changes.outputs.src == 'true'
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Analyze bundle size
+        run: |
+          if command -v npx &> /dev/null && npx --help | grep -q "@next/bundle-analyzer"; then
+            ANALYZE=true npm run build
+          else
+            echo "Bundle analyzer not configured, skipping..."
+          fi
+        env:
+          NEXTAUTH_SECRET: test-secret
+          NEXTAUTH_URL: http://localhost:3000
+          DATABASE_URL: file:./prisma/data/test.db
+        continue-on-error: true
+
+  # PR Comment with Status
+  pr-comment:
+    name: PR Status Comment
+    runs-on: ubuntu-latest
+    needs: [lint-and-type-check, security-audit, build, test]
+    if: always()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment PR Status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('## CI Status')
+            );
+            
+            const lintStatus = '${{ needs.lint-and-type-check.result }}';
+            const securityStatus = '${{ needs.security-audit.result }}';
+            const buildStatus = '${{ needs.build.result }}';
+            const testStatus = '${{ needs.test.result }}';
+            
+            const statusEmoji = (status) => {
+              switch(status) {
+                case 'success': return '✅';
+                case 'failure': return '❌';
+                case 'skipped': return '⏭️';
+                default: return '⏸️';
+              }
+            };
+            
+            const body = `## CI Status
+            
+            | Check | Status |
+            |-------|--------|
+            | Lint & Type Check | ${statusEmoji(lintStatus)} ${lintStatus} |
+            | Security Audit | ${statusEmoji(securityStatus)} ${securityStatus} |
+            | Build | ${statusEmoji(buildStatus)} ${buildStatus} |
+            | Tests | ${statusEmoji(testStatus)} ${testStatus} |
+            
+            ${testStatus === 'success' ? '### ✅ All checks passed!' : '### ⚠️ Some checks require attention'}
+            
+            [View Full Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            *Last updated: ${new Date().toUTCString()}*`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # Final Status Check
+  ci-status:
+    name: CI Status
+    runs-on: ubuntu-latest
+    needs: [lint-and-type-check, security-audit, build, test]
+    if: always()
+    steps:
+      - name: Check CI Status
+        run: |
+          if [ "${{ needs.lint-and-type-check.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::CI checks failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed successfully!"
