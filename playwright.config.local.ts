@@ -3,20 +3,21 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Local Development Test Configuration
  * 
- * These tests can run in a local development environment without
- * requiring actual authentication infrastructure or external services.
+ * Unit tests that can run in a local development environment without
+ * requiring external services or complex infrastructure.
  * 
- * Excluded tests (moved to post-deploy):
- * - Tests requiring real JWT session management
- * - Tests requiring persistent database state
- * - Tests verifying rate limiting
- * - Tests requiring real authentication flow
+ * Excluded tests:
+ * - Workflow tests (moved to workflows/) - require staging environment with AI services
+ * - Integration tests (moved to integration/) - require real authentication infrastructure
+ * - Post-deploy tests (in post-deploy/) - require deployed environment
  */
 export default defineConfig({
   testDir: './tests',
   testIgnore: [
     // Ignore post-deploy tests
     '**/post-deploy/**',
+    // Ignore workflow tests (these require full staging environment)
+    '**/workflows/**',
     // Ignore tests that require real authentication infrastructure
     '**/integration/auth/**',
     // Ignore root level auth tests that require real infrastructure
