@@ -4,7 +4,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { validateWhitelistAccess } from '@/lib/whitelist';
+import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
 
 
 export const authOptions: NextAuthOptions = {
