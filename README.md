@@ -171,6 +171,93 @@ CORS_ORIGIN="http://localhost:3000"
 - Mobile app for player contributions
 - Integration with popular VTT platforms (Roll20, Foundry VTT)
 
+## CI/CD and Deployment
+
+This project uses GitHub Actions for continuous integration and deployment to Fly.io. The following workflows are configured:
+
+### 1. Pull Request CI (~5 minutes)
+- **Triggers**: On every PR
+- **Tests**: Fast unit tests, linting, type checking, security audit, build verification
+- **Purpose**: Quick feedback for development
+
+### 2. Post-Merge CI (~30 minutes)  
+- **Triggers**: When code is merged to main/staging
+- **Tests**: Comprehensive workflow tests, staging deployment, integration tests
+- **Purpose**: Full validation before production
+
+### 3. PR Review Apps
+- **Triggers**: On PR creation/updates
+- **Creates**: Ephemeral Fly.io apps for each PR (e.g., `pr-123-dnd-rec.fly.dev`)
+- **Tests**: Post-deploy validation against review app
+- **Cleanup**: Automatic destruction when PR is closed
+
+### Required GitHub Secrets
+
+To enable full CI/CD functionality, add these secrets to your GitHub repository:
+
+#### Core Application Secrets
+```
+NEXTAUTH_SECRET_STAGING     # NextAuth secret for staging/review apps (32+ characters)
+OPENAI_API_KEY             # OpenAI API key for AI transcription and summarization
+```
+
+#### Fly.io Deployment Secrets  
+```
+FLY_API_TOKEN              # Fly.io API token for deployments
+```
+
+**To get your Fly.io API token:**
+1. Install [flyctl CLI](https://fly.io/docs/hands-on/install-flyctl/)
+2. Run: `fly tokens org <YOUR_ORG_NAME>`
+3. Add the returned token as `FLY_API_TOKEN` in GitHub repository secrets
+
+#### Database Configuration
+```
+DATABASE_URL_POSTGRES      # Connection string for managed Postgres database
+                          # Format: postgres://user:pass@host:port/db
+                          # Example: postgres://user:pass@dnd-rec-db.fly.dev:5432/dnd_rec_db
+```
+
+### Setting Up GitHub Secrets
+
+1. Go to your GitHub repository
+2. Navigate to **Settings** → **Secrets and variables** → **Actions**
+3. Click **New repository secret**
+4. Add each secret with the exact names listed above
+
+### Database Setup
+
+The application is configured to use a managed PostgreSQL database (`dnd-rec-db`) for staging and production:
+
+- **Cluster ID**: `vmkq60981nvr35ln`
+- **Name**: `dnd-rec-db`
+- **Usage**: Shared across staging and review apps
+- **Configuration**: Review apps connect to this shared database
+
+### Deployment Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   PR Review     │    │   Staging       │    │   Production    │
+│   Apps          │    │   Environment   │    │   Environment   │
+├─────────────────┤    ├─────────────────┤    ├─────────────────┤
+│ pr-N-dnd-rec    │    │ dnd-rec-staging │    │ dnd-rec-prod    │
+│ .fly.dev        │    │ .fly.dev        │    │ .fly.dev        │
+│                 │    │                 │    │                 │
+│ • Ephemeral     │    │ • Auto-deploy   │    │ • Manual deploy │
+│ • Per PR        │    │ • from main     │    │ • from staging  │
+│ • Auto cleanup  │    │ • Full testing  │    │ • Production    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                  ┌─────────────────┐
+                  │ Shared Postgres │
+                  │   dnd-rec-db    │
+                  │ vmkq60981nvr35ln│
+                  └─────────────────┘
+```
+
 ## Contributing
 
 1. Fork the repository
@@ -178,6 +265,13 @@ CORS_ORIGIN="http://localhost:3000"
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+### Development Workflow
+
+1. **Create PR**: Automatically deploys review app for testing
+2. **Review**: Use review app URL to test changes
+3. **Merge**: Triggers staging deployment and comprehensive tests
+4. **Production**: Manual promotion from staging when ready
 
 ## License
 
