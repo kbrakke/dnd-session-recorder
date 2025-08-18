@@ -76,7 +76,7 @@ async function globalSetup(config: FullConfig) {
           });
           return { ok: response.ok, status: response.status };
         } catch (error) {
-          return { ok: false, error: error.message };
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       }, csrfToken);
       
@@ -86,7 +86,7 @@ async function globalSetup(config: FullConfig) {
         console.log('⚠️ Could not create default campaign (may already exist)');
       }
     } catch (error) {
-      console.log('⚠️ Campaign creation skipped:', error.message);
+      console.log('⚠️ Campaign creation skipped:', error instanceof Error ? error.message : String(error));
     }
     
     // Verify server is running
