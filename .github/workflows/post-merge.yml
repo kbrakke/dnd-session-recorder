@@ -192,7 +192,6 @@ jobs:
           CI: true
           DEPLOY_URL: ${{ needs.staging-deployment.outputs.staging_url }}
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL_POSTGRES }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Upload staging test results

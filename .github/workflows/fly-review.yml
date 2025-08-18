@@ -37,7 +37,6 @@ jobs:
           config: fly.review.toml
           secrets: |
             NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING }}
-            DATABASE_URL=${{ secrets.DATABASE_URL_POSTGRES }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             NEXT_PUBLIC_ENVIRONMENT=review
           vmsize: shared-cpu-1x

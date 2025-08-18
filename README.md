@@ -213,7 +213,7 @@ FLY_API_TOKEN              # Fly.io API token for deployments
 
 #### Database Configuration
 ```
-DATABASE_URL_POSTGRES      # Connection string for managed Postgres database
+DATABASE_URL      # Connection string for managed Postgres database
                           # Format: postgres://user:pass@host:port/db
                           # Example: postgres://user:pass@dnd-rec-db.fly.dev:5432/dnd_rec_db
 ```
