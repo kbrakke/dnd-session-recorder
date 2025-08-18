@@ -21,6 +21,7 @@
 /blob-report/
 /playwright/.cache/
 *.pwtest-*
+test-results-*.json
 
 # next.js
 /.next/

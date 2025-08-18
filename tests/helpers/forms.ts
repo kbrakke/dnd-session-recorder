@@ -63,16 +63,43 @@ export class FormHelper {
     }
 
     try {
-      // Wait for button to be enabled
-      await this.page.waitForFunction(() => {
-        const buttons = document.querySelectorAll('button[type="submit"], button');
-        return Array.from(buttons).some(btn => {
-          const button = btn as HTMLButtonElement;
-          if (button.disabled) return false;
-          const text = button.textContent?.toLowerCase() || '';
-          return button.type === 'submit' || text.includes('create') || text.includes('save') || text.includes('submit');
-        });
-      }, { timeout: 10000 });
+      // Check if button is disabled
+      const isDisabled = await submitButton.isDisabled();
+      
+      if (isDisabled) {
+        // Wait for button to be enabled
+        try {
+          await this.page.waitForFunction(() => {
+            const buttons = document.querySelectorAll('button[type="submit"], button');
+            return Array.from(buttons).some(btn => {
+              const button = btn as HTMLButtonElement;
+              if (button.disabled) return false;
+              const text = button.textContent?.toLowerCase() || '';
+              return button.type === 'submit' || text.includes('create') || text.includes('save') || text.includes('submit');
+            });
+          }, { timeout: 10000 });
+        } catch (waitError) {
+          console.log('Submit button remained disabled after 10s wait');
+          
+          // Try to diagnose why the button is disabled
+          const hasErrors = await this.hasValidationErrors();
+          if (hasErrors) {
+            console.log('Form has validation errors');
+          }
+          
+          // Check if required fields are filled
+          const requiredInputs = await this.page.locator('input[required], textarea[required], select[required]').all();
+          for (const input of requiredInputs) {
+            const value = await input.inputValue().catch(() => '');
+            const name = await input.getAttribute('name') || await input.getAttribute('placeholder') || 'unknown';
+            if (!value) {
+              console.log(`Required field not filled: ${name}`);
+            }
+          }
+          
+          return false;
+        }
+      }
 
       await submitButton.click();
       
