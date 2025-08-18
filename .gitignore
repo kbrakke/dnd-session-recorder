@@ -17,9 +17,11 @@
 # playwright testing
 /test-results/
 /playwright-report/
+/playwright-report-workflows/
 /blob-report/
 /playwright/.cache/
 *.pwtest-*
+test-results-*.json
 
 # next.js
 /.next/

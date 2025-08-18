@@ -22,6 +22,7 @@ jobs:
       src: ${{ steps.filter.outputs.src }}
       tests: ${{ steps.filter.outputs.tests }}
       deps: ${{ steps.filter.outputs.deps }}
+      docs-only: ${{ steps.filter.outputs.docs-only }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -50,6 +51,14 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'prisma/schema.prisma'
+            docs-only:
+              - '*.md'
+              - 'docs/**'
+              - '.vscode/**'
+              - '.idea/**'
+              - 'README*'
+              - 'LICENSE*'
+              - '.gitignore'
 
   # Security and Code Quality Checks
   lint-and-type-check:
@@ -161,7 +170,7 @@ jobs:
 
   # Run Tests
   test:
-    name: Run Tests
+    name: Run Unit Tests
     runs-on: ubuntu-latest
     needs: [changes, build]
     if: needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true'
@@ -213,6 +222,18 @@ jobs:
           retention-days: 7
 
   # Bundle Size Check
+  # Fast docs-only check
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs-only == 'true' && needs.changes.outputs.src != 'true' && needs.changes.outputs.tests != 'true' && needs.changes.outputs.deps != 'true'
+    steps:
+      - name: Docs only changes detected
+        run: |
+          echo "✅ Only documentation files changed - skipping code tests"
+          echo "This PR contains documentation-only changes and doesn't require comprehensive testing."
+
   bundle-analysis:
     name: Bundle Size Analysis
     runs-on: ubuntu-latest
@@ -290,9 +311,11 @@ jobs:
             | Lint & Type Check | ${statusEmoji(lintStatus)} ${lintStatus} |
             | Security Audit | ${statusEmoji(securityStatus)} ${securityStatus} |
             | Build | ${statusEmoji(buildStatus)} ${buildStatus} |
-            | Tests | ${statusEmoji(testStatus)} ${testStatus} |
+            | Unit Tests | ${statusEmoji(testStatus)} ${testStatus} |
             
             ${testStatus === 'success' ? '### ✅ All checks passed!' : '### ⚠️ Some checks require attention'}
+            
+            > **Note**: PR CI runs fast unit tests only. Comprehensive workflow tests run after merge.
             
             [View Full Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
             
@@ -319,15 +342,46 @@ jobs:
   ci-status:
     name: CI Status
     runs-on: ubuntu-latest
-    needs: [lint-and-type-check, security-audit, build, test]
+    needs: [changes, lint-and-type-check, security-audit, build, test, docs-check]
     if: always()
     steps:
       - name: Check CI Status
         run: |
-          if [ "${{ needs.lint-and-type-check.result }}" != "success" ] || \
-             [ "${{ needs.build.result }}" != "success" ] || \
-             [ "${{ needs.test.result }}" != "success" ]; then
-            echo "::error::CI checks failed"
+          # For docs-only changes (no src, tests, or deps changes)
+          if [ "${{ needs.changes.outputs.docs-only }}" == "true" ] && \
+             [ "${{ needs.changes.outputs.src }}" != "true" ] && \
+             [ "${{ needs.changes.outputs.tests }}" != "true" ] && \
+             [ "${{ needs.changes.outputs.deps }}" != "true" ]; then
+            echo "✅ Documentation-only changes - no code testing required!"
+            exit 0
+          fi
+          
+          # For regular changes, check all jobs that should have run
+          failed_jobs=()
+          
+          # Check lint and type check
+          if [ "${{ needs.lint-and-type-check.result }}" == "failure" ]; then
+            failed_jobs+=("Lint & Type Check")
+          fi
+          
+          # Check build (only if src changed)
+          if [ "${{ needs.changes.outputs.src }}" == "true" ] && [ "${{ needs.build.result }}" == "failure" ]; then
+            failed_jobs+=("Build")
+          fi
+          
+          # Check tests (if src or tests changed)
+          if ([ "${{ needs.changes.outputs.src }}" == "true" ] || [ "${{ needs.changes.outputs.tests }}" == "true" ]) && [ "${{ needs.test.result }}" == "failure" ]; then
+            failed_jobs+=("Tests")
+          fi
+          
+          # Check security audit (if deps or src changed)
+          if ([ "${{ needs.changes.outputs.deps }}" == "true" ] || [ "${{ needs.changes.outputs.src }}" == "true" ]) && [ "${{ needs.security-audit.result }}" == "failure" ]; then
+            failed_jobs+=("Security Audit")
+          fi
+          
+          if [ ${#failed_jobs[@]} -gt 0 ]; then
+            echo "::error::CI checks failed: ${failed_jobs[*]}"
             exit 1
           fi
-          echo "✅ All CI checks passed successfully!"
+          
+          echo "✅ All required CI checks passed successfully!"

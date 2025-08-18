@@ -73,9 +73,16 @@ class RateLimiter {
 }
 
 // Different rate limiters for different types of requests
-export const apiRateLimiter = new RateLimiter(60000, 100); // 100 requests per minute
-export const authRateLimiter = new RateLimiter(900000, 5); // 5 auth attempts per 15 minutes
-export const uploadRateLimiter = new RateLimiter(3600000, 10); // 10 uploads per hour
+// In development/test, use much more lenient limits
+const isDevelopment = process.env.NODE_ENV === 'development' || process.env.CI === 'true';
+
+export const apiRateLimiter = new RateLimiter(60000, isDevelopment ? 1000 : 100); // 1000 requests per minute in dev, 100 in prod
+export const authRateLimiter = new RateLimiter(60000, isDevelopment ? 100 : 10); // 100 auth attempts per minute in dev, 10 per minute in prod  
+export const uploadRateLimiter = new RateLimiter(3600000, isDevelopment ? 100 : 10); // 100 uploads per hour in dev, 10 in prod
+
+// AI-specific rate limiters (more restrictive due to cost)
+export const aiTranscriptionRateLimiter = new RateLimiter(3600000, isDevelopment ? 50 : 10); // 50 transcriptions per hour in dev, 10 in prod
+export const aiSummaryRateLimiter = new RateLimiter(3600000, isDevelopment ? 50 : 20); // 50 summaries per hour in dev, 20 in prod
 
 export function getRateLimitIdentifier(request: Request, userId?: string): string {
   // Use user ID if available, otherwise fall back to IP
