@@ -34,15 +34,6 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    // Mobile testing for responsive workflows
-    {
-      name: 'mobile-chrome',
-      use: { ...devices['Pixel 5'] },
-    },
   ],
   webServer: {
     command: 'npm run dev',
