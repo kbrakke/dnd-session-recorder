@@ -1,49 +1,18 @@
 import { chromium, FullConfig } from '@playwright/test';
 import { AudioFixtures } from '../fixtures/audio-files';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { setupTestDatabase } from '../helpers/database';
 
 async function globalSetup(config: FullConfig) {
   console.log('🔧 Setting up workflow tests...');
   
   try {
-    // Initialize test database
+    // Initialize test database with testcontainers
     console.log('🗃️  Initializing test database...');
-    const databaseUrl = 'file:./prisma/data/workflow-test.db';
+    const databaseUrl = await setupTestDatabase();
     
-    try {
-      // Run Prisma migrations to set up the test database
-      const { stdout, stderr } = await execAsync('npx prisma db push', {
-        env: { 
-          ...process.env, 
-          DATABASE_URL: databaseUrl,
-          NODE_ENV: 'development'
-        },
-        cwd: process.cwd()
-      });
-      
-      if (stderr && !stderr.includes('warnings')) {
-        console.log('Database setup stderr:', stderr);
-      }
-      console.log('✅ Test database initialized');
-    } catch (dbError) {
-      console.error('❌ Database initialization failed:', dbError);
-      // Try alternative approach - generate client and push schema
-      try {
-        await execAsync('npx prisma generate', {
-          env: { ...process.env, DATABASE_URL: databaseUrl }
-        });
-        await execAsync('npx prisma db push --force-reset', {
-          env: { ...process.env, DATABASE_URL: databaseUrl }
-        });
-        console.log('✅ Test database initialized (fallback method)');
-      } catch (fallbackError) {
-        console.error('❌ Database fallback also failed:', fallbackError);
-        throw fallbackError;
-      }
-    }
+    // Set the DATABASE_URL for the tests
+    process.env.DATABASE_URL = databaseUrl;
+    console.log('✅ Test database initialized');
     
     // Setup test audio files
     console.log('📁 Creating test audio fixtures...');

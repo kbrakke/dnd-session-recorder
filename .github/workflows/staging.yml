@@ -74,20 +74,13 @@ jobs:
         run: |
           echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}" >> .env.local
           echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
-          echo "DATABASE_URL=file:./prisma/data/test.db" >> .env.local
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
           echo "NEXT_PUBLIC_ENVIRONMENT=staging" >> .env.local
+          # DATABASE_URL will be set by testcontainers
 
-      - name: Setup test database
-        run: |
-          mkdir -p prisma/data
-          touch prisma/data/test.db
-
-      - name: Run Prisma migrations
-        run: npx prisma db push
-        env:
-          DATABASE_URL: "file:./prisma/data/test.db"
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       - name: Clean build cache
         run: rm -rf .next
@@ -97,7 +90,7 @@ jobs:
         env:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: https://dnd-recorder-staging.fly.dev
-          DATABASE_URL: "file:./prisma/data/test.db"
+          # DATABASE_URL: managed by Fly.io secrets
           NODE_ENV: production
           NEXT_TELEMETRY_DISABLED: 1
           NEXT_PUBLIC_ENVIRONMENT: staging
@@ -110,7 +103,7 @@ jobs:
         env:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: http://localhost:3000
-          DATABASE_URL: "file:./prisma/data/test.db"
+          # DATABASE_URL: managed by Fly.io secrets
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
           NODE_ENV: development
           NEXT_PUBLIC_ENVIRONMENT: staging
@@ -120,7 +113,7 @@ jobs:
         env:
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: http://localhost:3000
-          DATABASE_URL: "file:./prisma/data/workflow-test.db"
+          # DATABASE_URL: set by testcontainers
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
           NODE_ENV: development
           NEXT_PUBLIC_ENVIRONMENT: staging
@@ -143,6 +136,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write # Required for uploading SARIF results
     
     steps:
       - name: Checkout code
@@ -187,6 +181,7 @@ jobs:
 
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
+        if: always() # Upload results even if scan finds vulnerabilities
         with:
           sarif_file: 'trivy-results.sarif'
 

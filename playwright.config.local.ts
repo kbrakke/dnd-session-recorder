@@ -40,14 +40,14 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    command: 'npm run dev:simple',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     env: {
       // Mock authentication for local tests
       NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || 'fallback-secret-for-tests-32characters',
       NEXTAUTH_URL: 'http://localhost:3000',
-      DATABASE_URL: process.env.DATABASE_URL || 'file:./prisma/data/test.db',
+      DATABASE_URL: process.env.DATABASE_URL || 'postgresql://dnd_user:dnd_password@localhost:5432/dnd_recorder',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-test-key-placeholder',
       NODE_ENV: 'development',
       NEXT_TELEMETRY_DISABLED: '1',

@@ -5,6 +5,7 @@ FROM node:22-alpine AS base
 RUN apk add --no-cache \
     ffmpeg \
     sqlite \
+    curl \
     && rm -rf /var/cache/apk/*
 
 # Set working directory
@@ -44,11 +45,18 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
 
-# Create directories for data persistence
-RUN mkdir -p uploads prisma/data
-RUN chown -R nextjs:nodejs uploads prisma/data
+# Copy entrypoint script (as root for proper permissions)
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Create directories for data persistence  
+RUN mkdir -p uploads /app/data
+RUN chown -R nextjs:nodejs uploads /app/data
 
 # Switch to non-root user
 USER nextjs
@@ -60,5 +68,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/api/health || exit 1
 
-# Start the application
+# Set entrypoint and start command
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

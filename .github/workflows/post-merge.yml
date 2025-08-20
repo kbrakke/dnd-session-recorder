@@ -84,19 +84,12 @@ jobs:
         run: |
           echo "NEXTAUTH_SECRET=test-secret-for-ci-workflows-32characters" >> .env.local
           echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
-          echo "DATABASE_URL=file:./prisma/data/workflow-test.db" >> .env.local
           echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
+          # DATABASE_URL will be set by testcontainers
 
-      - name: Setup test database
-        run: |
-          mkdir -p prisma/data
-          touch prisma/data/workflow-test.db
-        
-      - name: Push database schema  
-        run: npx prisma db push
-        env:
-          DATABASE_URL: "file:./prisma/data/workflow-test.db"
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
@@ -106,7 +99,7 @@ jobs:
         env:
           CI: true
           NEXTAUTH_SECRET: test-secret-for-ci-workflows-32characters
-          DATABASE_URL: "file:./prisma/data/workflow-test.db"
+          # DATABASE_URL: set by testcontainers
           MOCK_AI_SERVICES: true
 
       - name: Upload test results
@@ -243,7 +236,7 @@ jobs:
         env:
           NEXTAUTH_SECRET: test-secret-for-perf-32characters
           NEXTAUTH_URL: http://localhost:3000
-          DATABASE_URL: file:./prisma/data/perf-test.db
+          # DATABASE_URL: managed by testcontainers
           NODE_ENV: production
 
       - name: Run performance tests

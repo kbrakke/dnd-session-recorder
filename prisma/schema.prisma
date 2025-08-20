@@ -2,9 +2,8 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"  // Use PostgreSQL for production builds
   url      = env("DATABASE_URL")
 }
 
@@ -30,12 +29,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
+  refresh_token     String?   @db.Text
+  access_token      String?   @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?
+  id_token          String?   @db.Text
   session_state     String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -69,8 +68,8 @@ model VerificationToken {
 model Campaign {
   id           String           @id @default(cuid())
   name         String
-  description  String?
-  systemPrompt String?          @map("system_prompt")
+  description  String?          @db.Text
+  systemPrompt String?          @map("system_prompt") @db.Text
   userId       String           @map("user_id")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
@@ -92,7 +91,7 @@ model GamingSession {
   duration       Int?
   status         String          @default("draft") // draft, uploaded, transcribing, transcribed, summarizing, completed, error
   errorStep      String?         @map("error_step")
-  errorMessage   String?         @map("error_message")
+  errorMessage   String?         @map("error_message") @db.Text
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
   campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -108,7 +107,7 @@ model Transcription {
   sessionId  String         @map("session_id")
   startTime  Float          @map("start_time")
   endTime    Float          @map("end_time")
-  text       String
+  text       String         @db.Text
   confidence Float?
   createdAt  DateTime       @default(now()) @map("created_at")
   session    GamingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -119,12 +118,12 @@ model Transcription {
 model Summary {
   id                 Int           @id @default(autoincrement())
   sessionId          String        @unique @map("session_id")
-  summaryText        String        @map("summary_text")
-  keyEvents          String?       @map("key_events")
-  charactersInvolved String?       @map("characters_involved")
+  summaryText        String        @map("summary_text") @db.Text
+  keyEvents          String?       @map("key_events") @db.Text
+  charactersInvolved String?       @map("characters_involved") @db.Text
   isEdited           Boolean       @default(false) @map("is_edited")
   editedAt           DateTime?     @map("edited_at")
-  originalText       String?       @map("original_text")
+  originalText       String?       @map("original_text") @db.Text
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at")
   session            GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -142,7 +141,7 @@ model Upload {
   mimetype         String
   duration         Int?
   status           String          @default("uploaded") // uploaded, processing, chunked, transcribed, cleaned
-  chunkPaths       String?         @map("chunk_paths") // JSON array of chunk file paths
+  chunkPaths       String?         @map("chunk_paths") @db.Text // JSON array of chunk file paths
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
   

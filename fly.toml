@@ -7,6 +7,7 @@ primary_region = "bos"  # Change to your preferred region
 [env]
   NODE_ENV = "production"
   PORT = "3000"
+  # DATABASE_URL is provided by Fly.io secrets (attached Postgres database)
 
 [http_service]
   internal_port = 3000
@@ -28,10 +29,7 @@ primary_region = "bos"  # Change to your preferred region
   cpus = 1
   memory_mb = 1024  # More memory for production
 
-[mounts]
-  source = "dnd_data_prod"
-  destination = "/app/data"
-  processes = ["app"]
+# No mounts needed - using managed PostgreSQL database
 
 [[services]]
   protocol = "tcp"
