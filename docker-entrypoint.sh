@@ -10,11 +10,8 @@ echo "📋 Environment Variables:"
 echo "  - NODE_ENV: ${NODE_ENV:-not set}"
 echo "  - PORT: ${PORT:-3000}"
 echo "  - NEXTAUTH_URL: ${NEXTAUTH_URL:-not set}"
-echo "  - NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:+[SET]}"
 echo "  - DATABASE_URL: ${DATABASE_URL:+[SET]}"
 echo "  - GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:+[SET]}"
-echo "  - GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:+[SET]}"
-echo "  - OPENAI_API_KEY: ${OPENAI_API_KEY:+[SET]}"
 
 # Check if DATABASE_URL is already set (by Fly.io secrets or environment)
 if [ -n "$DATABASE_URL" ]; then
