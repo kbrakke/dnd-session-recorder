@@ -5,9 +5,27 @@ declare global {
 }
 
 const createPrismaClient = () => {
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']
+  console.log('[Prisma] Initializing Prisma Client');
+  console.log('[Prisma] NODE_ENV:', process.env.NODE_ENV);
+  console.log('[Prisma] DATABASE_URL:', process.env.DATABASE_URL ? '[SET]' : '[NOT SET]');
+  
+  const client = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' 
+      ? ['query', 'error', 'warn', 'info'] 
+      : ['error', 'warn'],
+    errorFormat: 'pretty',
   });
+
+  // Log successful connection
+  client.$connect()
+    .then(() => {
+      console.log('[Prisma] ✅ Database connected successfully');
+    })
+    .catch((error) => {
+      console.error('[Prisma] ❌ Failed to connect to database:', error);
+    });
+
+  return client;
 };
 
 export const prisma = globalThis.prisma || createPrismaClient();
@@ -19,6 +37,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 // Handle graceful shutdown
 process.on('beforeExit', async () => {
+  console.log('[Prisma] Disconnecting from database...');
   await prisma.$disconnect();
 });
 
