@@ -29,7 +29,10 @@ primary_region = "bos"  # Change to your preferred region
   cpus = 1
   memory_mb = 512
 
-# No mounts needed - using managed PostgreSQL database
+# Mount for file uploads
+[[mounts]]
+  source = "dnd_data_staging"
+  destination = "/app/data"
 
 [[services]]
   protocol = "tcp"
