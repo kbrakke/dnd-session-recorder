@@ -52,8 +52,46 @@ async function runMigrations() {
             console.log(`🔄 Applying migration: ${latestMigration}`);
             const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
             
-            // Execute the migration SQL as a transaction
-            await prisma.$executeRawUnsafe(migrationSQL);
+            // Split the migration SQL into individual statements
+            // This is a simple splitter that works for most cases
+            const statements = [];
+            let currentStatement = '';
+            const lines = migrationSQL.split('\n');
+            
+            for (const line of lines) {
+              // Skip comment lines
+              if (line.trim().startsWith('--')) continue;
+              
+              currentStatement += line + '\n';
+              
+              // Check if line ends with semicolon (not inside quotes)
+              if (line.trim().endsWith(';')) {
+                const stmt = currentStatement.trim();
+                if (stmt && stmt !== ';') {
+                  statements.push(stmt);
+                }
+                currentStatement = '';
+              }
+            }
+            
+            // Add any remaining statement
+            if (currentStatement.trim()) {
+              statements.push(currentStatement.trim());
+            }
+            
+            console.log(`📦 Found ${statements.length} SQL statements to execute`);
+            
+            // Execute each statement in a transaction
+            await prisma.$transaction(async (tx) => {
+              for (let i = 0; i < statements.length; i++) {
+                const statement = statements[i];
+                if (statement) {
+                  console.log(`  Executing statement ${i + 1}/${statements.length}...`);
+                  await tx.$executeRawUnsafe(statement);
+                }
+              }
+            });
+            
             console.log('✅ Migration applied successfully');
             
             // Create migration history record
