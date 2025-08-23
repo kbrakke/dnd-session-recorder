@@ -1,18 +1,12 @@
 import { chromium, FullConfig } from '@playwright/test';
 import { AudioFixtures } from '../fixtures/audio-files';
-import { setupTestDatabase } from '../helpers/database';
 
 async function globalSetup(config: FullConfig) {
   console.log('🔧 Setting up workflow tests...');
   
   try {
-    // Initialize test database with testcontainers
-    console.log('🗃️  Initializing test database...');
-    const databaseUrl = await setupTestDatabase();
-    
-    // Set the DATABASE_URL for the tests
-    process.env.DATABASE_URL = databaseUrl;
-    console.log('✅ Test database initialized');
+    // Database is now handled by test-server.js in CI
+    // For local development, assume database is already running
     
     // Setup test audio files
     console.log('📁 Creating test audio fixtures...');

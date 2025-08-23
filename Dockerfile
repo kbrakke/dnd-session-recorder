@@ -22,7 +22,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 
-# Generate Prisma client
+# Generate Prisma client (using PostgreSQL provider from schema.prisma)
 RUN npx prisma generate
 
 # Build the Next.js application

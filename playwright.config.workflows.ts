@@ -36,7 +36,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    command: process.env.CI 
+      ? 'node scripts/test-server.js'  // Use custom script that handles testcontainers in CI
+      : 'npm run dev:simple',  // Use simple dev server for local development
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120000, // 2 minutes to start server
@@ -44,6 +46,7 @@ export default defineConfig({
       // Workflow test environment
       NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || 'workflow-test-secret-32characters-minimum',
       NEXTAUTH_URL: 'http://localhost:3000',
+      // DATABASE_URL will be set by test-server.js in CI or use default
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://test_user:test_password@localhost:5432/dnd_recorder_test',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-workflow-test-key-placeholder',
       NODE_ENV: 'development',
