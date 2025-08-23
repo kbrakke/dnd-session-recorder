@@ -79,19 +79,40 @@ fi
 if [ "$DB_TYPE" = "postgresql" ]; then
     echo "🔄 Running database migrations for PostgreSQL..."
     
-    # Use npx prisma instead of direct node command for better error handling
-    npx prisma db push --skip-generate --accept-data-loss 2>&1 | tee /tmp/prisma.log || {
-        echo "❌ PostgreSQL migration failed!"
-        echo "📋 Migration output:"
-        cat /tmp/prisma.log
-        echo ""
-        echo "🔍 Troubleshooting:"
-        echo "  1. Check DATABASE_URL is correct"
-        echo "  2. Ensure PostgreSQL server is running"
-        echo "  3. Verify network connectivity"
-        echo "  4. Check database credentials"
-        exit 1
-    }
+    # For production, use migrate deploy which applies migrations
+    # If no migrations exist or for initial setup, fall back to db push
+    if [ -d "./prisma/migrations" ] && [ "$(ls -A ./prisma/migrations)" ]; then
+        echo "📦 Found existing migrations, applying them..."
+        npx prisma migrate deploy 2>&1 | tee /tmp/prisma.log || {
+            echo "⚠️  Migration deploy failed, trying db push as fallback..."
+            npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma.log || {
+                echo "❌ PostgreSQL schema sync failed!"
+                echo "📋 Migration output:"
+                cat /tmp/prisma.log
+                echo ""
+                echo "🔍 Troubleshooting:"
+                echo "  1. Check DATABASE_URL is correct"
+                echo "  2. Ensure PostgreSQL server is running"
+                echo "  3. Verify network connectivity"
+                echo "  4. Check database credentials"
+                exit 1
+            }
+        }
+    else
+        echo "📦 No migrations found, using db push for initial schema..."
+        npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma.log || {
+            echo "❌ PostgreSQL schema sync failed!"
+            echo "📋 Migration output:"
+            cat /tmp/prisma.log
+            echo ""
+            echo "🔍 Troubleshooting:"
+            echo "  1. Check DATABASE_URL is correct"
+            echo "  2. Ensure PostgreSQL server is running"
+            echo "  3. Verify network connectivity"
+            echo "  4. Check database credentials"
+            exit 1
+        }
+    fi
     
     echo "✅ PostgreSQL migrations applied successfully"
     

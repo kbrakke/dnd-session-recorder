@@ -45,10 +45,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
+
+# Install Prisma CLI for database migrations
+RUN npm install prisma@6.12.0 --no-save
 
 # Copy entrypoint script (as root for proper permissions)
 COPY docker-entrypoint.sh /usr/local/bin/
