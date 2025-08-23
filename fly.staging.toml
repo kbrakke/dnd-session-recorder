@@ -5,7 +5,7 @@ primary_region = "bos"  # Change to your preferred region
   dockerfile = "Dockerfile"
 
 [deploy]
-  release_command = "npx prisma migrate deploy"
+  release_command = "npx prisma db push --accept-data-loss"
 
 [env]
   NODE_ENV = "production"
