@@ -45,11 +45,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/package.json ./package.json
+
+# Install Prisma CLI for migrations (needed for release command)
+# We install it separately to ensure it's available
+RUN npm install -g prisma@6.12.0
 
 # Copy entrypoint script (as root for proper permissions)
 COPY docker-entrypoint.sh /usr/local/bin/

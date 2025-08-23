@@ -63,80 +63,27 @@ else
     mkdir -p "$DB_DIR"
 fi
 
-# Initialize database schema
-echo "🔧 Initializing database schema..."
+# Note: Database migrations are now handled by Fly.io release command
+# For local development, run: npx prisma migrate dev
 
-# Check Prisma client exists
-if [ -d "./node_modules/.prisma" ]; then
-    echo "✅ Prisma client found"
-else
-    echo "❌ Prisma client not found - build may have failed"
-fi
-
-# Note: The Docker build uses PostgreSQL schema by default (see Dockerfile)
-# For local development with SQLite, use schema.sqlite.prisma
-
-if [ "$DB_TYPE" = "postgresql" ]; then
-    echo "🔄 Running database migrations for PostgreSQL..."
-    
-    # Use the robust migration script
-    node scripts/migrate.js || {
-        echo "❌ Migration script failed!"
-        echo "🚨 Database initialization failed - container will exit"
-        exit 1
-    }
-    
-    echo "✅ PostgreSQL migrations applied successfully"
-    
-elif [ "$DB_TYPE" = "sqlite" ]; then
-    # SQLite is only for local development/staging with volume mount
+if [ "$DB_TYPE" = "sqlite" ]; then
+    # SQLite is only for local development with volume mount
     if [ ! -f "$DB_PATH" ]; then
         echo "🗃️  SQLite database not found. Creating..."
         touch "$DB_PATH"
+        echo "📋 Run 'npx prisma migrate dev' locally to initialize the schema"
     else
         echo "📁 SQLite database exists at: $DB_PATH"
-        ls -la "$DB_PATH" || true
     fi
-    
-    echo "🔄 Running database migrations for SQLite..."
-    # Note: This requires the schema to be set to SQLite provider
-    npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma.log || {
-        echo "⚠️  SQLite migration failed. The production build uses PostgreSQL schema."
-        echo "📋 Migration output:"
-        cat /tmp/prisma.log
-        echo ""
-        echo "For SQLite, you need to build with schema.sqlite.prisma"
-    }
 fi
 
-echo "✅ Database initialization complete"
-
-# Test database connection with a simple query
-echo "🔍 Testing database connection..."
-node -e "
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-
-async function testConnection() {
-    try {
-        await prisma.\$queryRaw\`SELECT 1 as test\`;
-        console.log('✅ Database connection successful');
-        
-        // Try to count users
-        const userCount = await prisma.user.count();
-        console.log(\`  - Users in database: \${userCount}\`);
-    } catch (error) {
-        console.error('❌ Database connection failed:', error.message);
-        process.exit(1);
-    } finally {
-        await prisma.\$disconnect();
-    }
-}
-
-testConnection();
-" || {
-    echo "⚠️  Database connection test failed, but continuing..."
-}
+# Simple health check
+echo "🔍 Checking database connection..."
+if [ -n "$DATABASE_URL" ]; then
+    echo "✅ DATABASE_URL is configured"
+else
+    echo "⚠️  DATABASE_URL not set - database features will not work"
+fi
 
 echo "🌐 Starting Next.js server on port ${PORT:-3000}..."
 
