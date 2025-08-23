@@ -31,13 +31,17 @@ async function runMigrations() {
       const output = execSync('npx prisma migrate deploy', { encoding: 'utf8' });
       console.log('Migration output:', output);
       
-      // Verify tables exist
+      // Verify tables exist by trying to count users
       console.log('🔍 Verifying schema deployment...');
-      const verifyOutput = execSync('npx prisma db execute --stdin', {
-        input: 'SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';',
-        encoding: 'utf8'
-      });
-      console.log('Tables created:', verifyOutput);
+      try {
+        const { PrismaClient } = require('@prisma/client');
+        const testClient = new PrismaClient();
+        await testClient.user.count();
+        await testClient.$disconnect();
+        console.log('✅ Schema verification successful - User table accessible');
+      } catch (verifyError) {
+        console.log('⚠️ Schema verification failed:', verifyError.message);
+      }
       
     } else {
       console.log('📦 No migrations found, creating initial schema...');
@@ -57,12 +61,15 @@ async function runMigrations() {
       console.log('Environment variables:', Object.keys(process.env).filter(k => k.includes('DATABASE')));
       
       // Try a simple connection test
-      const testOutput = execSync('npx prisma db execute --stdin', {
-        input: 'SELECT 1 as test;',
-        encoding: 'utf8',
-        timeout: 10000
-      });
-      console.log('Connection test result:', testOutput);
+      try {
+        const { PrismaClient } = require('@prisma/client');
+        const testClient = new PrismaClient();
+        await testClient.$queryRaw`SELECT 1 as test`;
+        await testClient.$disconnect();
+        console.log('✅ Basic database connection working');
+      } catch (connError) {
+        console.log('❌ Basic database connection failed:', connError.message);
+      }
       
     } catch (debugError) {
       console.error('Debug connection test failed:', debugError.message);

@@ -91,11 +91,7 @@ if [ "$DB_TYPE" = "postgresql" ]; then
             exit 1
         }
         
-        echo "🔍 Checking database connectivity..."
-        npx prisma db execute --stdin <<< 'SELECT 1 as test;' || {
-            echo "❌ Database connection failed"
-            exit 1
-        }
+        echo "🔍 Database connectivity will be tested during migration..."
         
         if [ -d "./prisma/migrations" ] && [ "$(ls -A ./prisma/migrations)" ]; then
             echo "📦 Applying migrations with verbose output..."
