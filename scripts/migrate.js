@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 async function runMigrations() {
   console.log('🔄 Starting database migrations...');
@@ -13,68 +14,89 @@ async function runMigrations() {
     
     console.log('📊 Database URL configured:', process.env.DATABASE_URL.replace(/:[^@]*@/, ':***@'));
     
-    // Check if Prisma CLI is available
+    // Import Prisma client
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    console.log('🔍 Testing database connection...');
+    await prisma.$queryRaw`SELECT 1 as health_check`;
+    console.log('✅ Database connection successful');
+    
+    // Check if schema is already initialized
+    let schemaExists = false;
     try {
-      execSync('npx prisma --version', { encoding: 'utf8' });
-      console.log('✅ Prisma CLI is available');
+      await prisma.user.count();
+      schemaExists = true;
+      console.log('✅ Schema already exists');
     } catch (error) {
-      throw new Error('Prisma CLI not found');
+      console.log('📦 Schema does not exist, will initialize');
     }
     
-    // Check migrations directory
-    const fs = require('fs');
-    const path = require('path');
-    const migrationsDir = path.join(process.cwd(), 'prisma', 'migrations');
-    
-    if (fs.existsSync(migrationsDir) && fs.readdirSync(migrationsDir).length > 0) {
-      console.log('📦 Found existing migrations, applying them...');
-      const output = execSync('npx prisma migrate deploy', { encoding: 'utf8' });
-      console.log('Migration output:', output);
+    if (!schemaExists) {
+      // Run the migration SQL directly
+      const migrationsDir = path.join(process.cwd(), 'prisma', 'migrations');
       
-      // Verify tables exist by trying to count users
-      console.log('🔍 Verifying schema deployment...');
-      try {
-        const { PrismaClient } = require('@prisma/client');
-        const testClient = new PrismaClient();
-        await testClient.user.count();
-        await testClient.$disconnect();
-        console.log('✅ Schema verification successful - User table accessible');
-      } catch (verifyError) {
-        console.log('⚠️ Schema verification failed:', verifyError.message);
+      if (fs.existsSync(migrationsDir)) {
+        const migrationFolders = fs.readdirSync(migrationsDir)
+          .filter(item => fs.statSync(path.join(migrationsDir, item)).isDirectory())
+          .sort();
+        
+        if (migrationFolders.length > 0) {
+          console.log('📦 Found migration folders:', migrationFolders);
+          
+          // Execute the migration SQL
+          const latestMigration = migrationFolders[migrationFolders.length - 1];
+          const migrationPath = path.join(migrationsDir, latestMigration, 'migration.sql');
+          
+          if (fs.existsSync(migrationPath)) {
+            console.log(`🔄 Applying migration: ${latestMigration}`);
+            const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+            
+            // Execute the migration SQL as a transaction
+            await prisma.$executeRawUnsafe(migrationSQL);
+            console.log('✅ Migration applied successfully');
+            
+            // Create migration history record
+            try {
+              await prisma.$executeRaw`
+                CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+                  "id" TEXT PRIMARY KEY,
+                  "checksum" TEXT NOT NULL,
+                  "finished_at" TIMESTAMP(3),
+                  "migration_name" TEXT NOT NULL,
+                  "logs" TEXT,
+                  "rolled_back_at" TIMESTAMP(3),
+                  "started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  "applied_steps_count" INTEGER NOT NULL DEFAULT 0
+                )
+              `;
+              
+              await prisma.$executeRaw`
+                INSERT INTO "_prisma_migrations" (id, checksum, migration_name, applied_steps_count, finished_at)
+                VALUES (${latestMigration}, '', ${latestMigration}, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT (id) DO NOTHING
+              `;
+              
+              console.log('✅ Migration history recorded');
+            } catch (historyError) {
+              console.log('⚠️ Could not record migration history:', historyError.message);
+            }
+          }
+        }
       }
-      
-    } else {
-      console.log('📦 No migrations found, creating initial schema...');
-      const output = execSync('npx prisma db push --skip-generate', { encoding: 'utf8' });
-      console.log('Schema push output:', output);
     }
     
+    // Final verification
+    console.log('🔍 Final schema verification...');
+    const userCount = await prisma.user.count();
+    console.log(`✅ Schema verification successful - User table has ${userCount} records`);
+    
+    await prisma.$disconnect();
     console.log('✅ Database migrations completed successfully!');
     
   } catch (error) {
     console.error('❌ Migration failed:', error.message);
-    
-    // Additional debugging
-    try {
-      console.log('🔍 Additional debugging:');
-      console.log('Current working directory:', process.cwd());
-      console.log('Environment variables:', Object.keys(process.env).filter(k => k.includes('DATABASE')));
-      
-      // Try a simple connection test
-      try {
-        const { PrismaClient } = require('@prisma/client');
-        const testClient = new PrismaClient();
-        await testClient.$queryRaw`SELECT 1 as test`;
-        await testClient.$disconnect();
-        console.log('✅ Basic database connection working');
-      } catch (connError) {
-        console.log('❌ Basic database connection failed:', connError.message);
-      }
-      
-    } catch (debugError) {
-      console.error('Debug connection test failed:', debugError.message);
-    }
-    
+    console.error('Stack trace:', error.stack);
     process.exit(1);
   }
 }

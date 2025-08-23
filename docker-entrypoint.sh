@@ -82,24 +82,8 @@ if [ "$DB_TYPE" = "postgresql" ]; then
     # Use the robust migration script
     node scripts/migrate.js || {
         echo "❌ Migration script failed!"
-        echo "📋 Attempting fallback migration..."
-        
-        # Fallback: try direct Prisma commands with more verbose output
-        echo "🔍 Checking Prisma CLI availability..."
-        npx prisma --version || {
-            echo "❌ Prisma CLI not available"
-            exit 1
-        }
-        
-        echo "🔍 Database connectivity will be tested during migration..."
-        
-        if [ -d "./prisma/migrations" ] && [ "$(ls -A ./prisma/migrations)" ]; then
-            echo "📦 Applying migrations with verbose output..."
-            npx prisma migrate deploy --schema=./prisma/schema.prisma || exit 1
-        else
-            echo "📦 Creating schema with db push..."
-            npx prisma db push --skip-generate --schema=./prisma/schema.prisma || exit 1
-        fi
+        echo "🚨 Database initialization failed - container will exit"
+        exit 1
     }
     
     echo "✅ PostgreSQL migrations applied successfully"
