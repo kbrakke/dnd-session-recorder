@@ -79,40 +79,32 @@ fi
 if [ "$DB_TYPE" = "postgresql" ]; then
     echo "🔄 Running database migrations for PostgreSQL..."
     
-    # For production, use migrate deploy which applies migrations
-    # If no migrations exist or for initial setup, fall back to db push
-    if [ -d "./prisma/migrations" ] && [ "$(ls -A ./prisma/migrations)" ]; then
-        echo "📦 Found existing migrations, applying them..."
-        npx prisma migrate deploy 2>&1 | tee /tmp/prisma.log || {
-            echo "⚠️  Migration deploy failed, trying db push as fallback..."
-            npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma.log || {
-                echo "❌ PostgreSQL schema sync failed!"
-                echo "📋 Migration output:"
-                cat /tmp/prisma.log
-                echo ""
-                echo "🔍 Troubleshooting:"
-                echo "  1. Check DATABASE_URL is correct"
-                echo "  2. Ensure PostgreSQL server is running"
-                echo "  3. Verify network connectivity"
-                echo "  4. Check database credentials"
-                exit 1
-            }
-        }
-    else
-        echo "📦 No migrations found, using db push for initial schema..."
-        npx prisma db push --skip-generate 2>&1 | tee /tmp/prisma.log || {
-            echo "❌ PostgreSQL schema sync failed!"
-            echo "📋 Migration output:"
-            cat /tmp/prisma.log
-            echo ""
-            echo "🔍 Troubleshooting:"
-            echo "  1. Check DATABASE_URL is correct"
-            echo "  2. Ensure PostgreSQL server is running"
-            echo "  3. Verify network connectivity"
-            echo "  4. Check database credentials"
+    # Use the robust migration script
+    node scripts/migrate.js || {
+        echo "❌ Migration script failed!"
+        echo "📋 Attempting fallback migration..."
+        
+        # Fallback: try direct Prisma commands with more verbose output
+        echo "🔍 Checking Prisma CLI availability..."
+        npx prisma --version || {
+            echo "❌ Prisma CLI not available"
             exit 1
         }
-    fi
+        
+        echo "🔍 Checking database connectivity..."
+        npx prisma db execute --stdin <<< 'SELECT 1 as test;' || {
+            echo "❌ Database connection failed"
+            exit 1
+        }
+        
+        if [ -d "./prisma/migrations" ] && [ "$(ls -A ./prisma/migrations)" ]; then
+            echo "📦 Applying migrations with verbose output..."
+            npx prisma migrate deploy --schema=./prisma/schema.prisma || exit 1
+        else
+            echo "📦 Creating schema with db push..."
+            npx prisma db push --skip-generate --schema=./prisma/schema.prisma || exit 1
+        fi
+    }
     
     echo "✅ PostgreSQL migrations applied successfully"
     
