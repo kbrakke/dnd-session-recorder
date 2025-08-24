@@ -6,6 +6,7 @@ RUN apk add --no-cache \
     ffmpeg \
     sqlite \
     curl \
+    postgresql-client \
     && rm -rf /var/cache/apk/*
 
 # Set working directory
