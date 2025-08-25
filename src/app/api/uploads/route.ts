@@ -38,7 +38,10 @@ async function ensureUploadDir() {
 async function getAudioDuration(filePath: string): Promise<number | null> {
   try {
     const execAsync = promisify(exec);
-    const ffprobeBin = "./"+(ffprobe.path as string).substring(5);
+    // Use system ffprobe in production, fallback to ffprobe-static in development
+    const ffprobeBin = process.env.NODE_ENV === 'production' 
+      ? 'ffprobe'  // Use system-installed ffprobe in production
+      : ffprobe.path as string;  // Use ffprobe-static in development
     const command = `${ffprobeBin} -v quiet -show_entries format=duration -of csv=p=0 "${filePath}"`;
     const { stdout } = await execAsync(command);
     const duration = parseFloat(stdout.trim());
