@@ -102,15 +102,17 @@ export async function POST(
     
     // If audioFilePath is provided, use it (backwards compatibility)
     if (audioFilePath) {
-      fullPath = path.resolve(audioFilePath);
+      // Don't use path.resolve for relative paths - they're already correct
+      fullPath = audioFilePath.startsWith('/') ? audioFilePath : audioFilePath;
     } 
     // Otherwise, get the file path from the linked upload
     else if (session.upload) {
-      fullPath = path.resolve(session.upload.path);
+      // Upload paths are already relative to the app root
+      fullPath = session.upload.path;
     } 
     // Fallback to session's audioFilePath if it exists
     else if (session.audioFilePath) {
-      fullPath = path.resolve(session.audioFilePath);
+      fullPath = session.audioFilePath;
     } 
     else {
       return NextResponse.json(
