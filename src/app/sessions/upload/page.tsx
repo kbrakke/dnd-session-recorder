@@ -16,6 +16,7 @@ interface Upload {
   id: string;
   filename: string;
   originalName: string;
+  path: string;
   size: number;
   mimetype: string;
   duration?: number;
