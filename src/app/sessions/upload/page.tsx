@@ -135,7 +135,7 @@ export default function SessionUploadPage() {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioFilePath: upload.filename }),
+        body: JSON.stringify({ audioFilePath: upload.path }),
       });
 
       if (!response.ok) {
