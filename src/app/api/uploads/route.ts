@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { promisify } from 'util';
@@ -12,7 +13,7 @@ import { db } from '@/services/database';
 import ffprobe from 'ffprobe-static';
 
 // Configure upload settings
-const uploadDir = process.env.UPLOAD_DIR || './uploads';
+const uploadDir = process.env.UPLOAD_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/uploads' : './uploads');
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
 
 // Allowed audio file types
@@ -157,8 +158,33 @@ export async function GET() {
 
     const uploads = await db.getUploads(session.user.id);
     
+    // File reconciliation: Filter out uploads whose files don't exist on disk
+    const validUploads = [];
+    const invalidUploadIds = [];
+    
+    for (const upload of uploads) {
+      if (fs.existsSync(upload.path)) {
+        validUploads.push(upload);
+      } else {
+        console.log(`[Uploads] File not found for upload ${upload.id}: ${upload.path}`);
+        invalidUploadIds.push(upload.id);
+      }
+    }
+    
+    // Clean up database records for missing files
+    if (invalidUploadIds.length > 0) {
+      console.log(`[Uploads] Cleaning up ${invalidUploadIds.length} upload records with missing files`);
+      try {
+        for (const uploadId of invalidUploadIds) {
+          await db.deleteUpload(uploadId);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up invalid uploads:', cleanupError);
+      }
+    }
+    
     return NextResponse.json({
-      uploads: uploads.map(upload => ({
+      uploads: validUploads.map(upload => ({
         id: upload.id,
         filename: upload.filename,
         originalName: upload.originalName,
@@ -168,7 +194,8 @@ export async function GET() {
         status: upload.status,
         createdAt: upload.createdAt,
         updatedAt: upload.updatedAt,
-      }))
+      })),
+      reconciledCount: invalidUploadIds.length
     });
 
   } catch (error) {

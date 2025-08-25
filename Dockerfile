@@ -59,7 +59,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Create directories for data persistence  
-RUN mkdir -p uploads /app/data
+RUN mkdir -p uploads /app/data /app/data/uploads
 RUN chown -R nextjs:nodejs uploads /app/data
 
 # Switch to non-root user

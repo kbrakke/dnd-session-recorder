@@ -122,8 +122,31 @@ export async function POST(
     }
 
     if (!fs.existsSync(fullPath)) {
+      console.log(`[Transcription] File not found at path: ${fullPath}, performing reconciliation`);
+      
+      // File reconciliation: Remove database references to missing files
+      try {
+        if (session.upload) {
+          console.log(`[Transcription] Removing upload record ${session.upload.id} for missing file`);
+          await db.deleteUpload(session.upload.id);
+        }
+        
+        // Clear the session's upload link and revert to draft status
+        await db.updateSession(sessionId, { 
+          uploadId: null, 
+          status: 'draft'
+        });
+        
+        console.log(`[Transcription] Cleaned up database records for missing file`);
+      } catch (cleanupError) {
+        console.error('Error during file reconciliation cleanup:', cleanupError);
+      }
+      
       return NextResponse.json(
-        { error: `Audio file not found at path: ${fullPath}` },
+        { 
+          error: `Audio file not found at path: ${fullPath}. Database records have been cleaned up. Please re-upload the file.`,
+          fileReconciled: true
+        },
         { status: 404 }
       );
     }

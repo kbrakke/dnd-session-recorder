@@ -10,7 +10,7 @@ import { requireAuth } from '@/lib/auth-utils';
 import ffprobe from 'ffprobe-static';
 
 // Configure upload settings
-const uploadDir = process.env.UPLOAD_DIR || './uploads';
+const uploadDir = process.env.UPLOAD_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/uploads' : './uploads');
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
 
 // Allowed audio file types
