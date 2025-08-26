@@ -148,10 +148,24 @@ export async function POST(
 
     console.log(`[Transcription] Starting transcription for session ${sessionId}`);
     await updateSessionStatus(sessionId, 'transcribing');
+    
+    // Update progress: Starting chunking
+    await db.updateTranscriptionProgress(sessionId, {
+      currentStep: 'chunking',
+      transcriptionProgress: 5,
+    });
 
     // Split audio into 24MB chunks
     const chunkPaths = await splitAudioBySize(fullPath, 18);
     console.log(`[Transcription] Audio split into ${chunkPaths.length} chunk(s)`);
+    
+    // Update progress: Chunking complete, starting transcription
+    await db.updateTranscriptionProgress(sessionId, {
+      currentStep: 'transcribing',
+      totalChunks: chunkPaths.length,
+      chunksCompleted: 0,
+      transcriptionProgress: 10,
+    });
 
     const allText: string[] = [];
     
@@ -173,7 +187,20 @@ export async function POST(
 
       allText.push(transcription.text);
       console.log(`[Transcription] Chunk ${i + 1} transcribed.`);
+      
+      // Update progress after each chunk
+      const progressPercentage = Math.floor(10 + ((i + 1) / chunkPaths.length) * 80); // 10-90% for transcription
+      await db.updateTranscriptionProgress(sessionId, {
+        chunksCompleted: i + 1,
+        transcriptionProgress: progressPercentage,
+      });
     }
+    
+    // Update progress: Starting stitching
+    await db.updateTranscriptionProgress(sessionId, {
+      currentStep: 'stitching',
+      transcriptionProgress: 90,
+    });
 
     // Clean up chunk files (except original)
     chunkPaths.forEach(p => {
@@ -189,6 +216,12 @@ export async function POST(
     // Save transcription to database
     await db.saveTranscription(sessionId, fullText);
     console.log(`[Transcription] Transcription saved.`);
+    
+    // Update progress: Complete
+    await db.updateTranscriptionProgress(sessionId, {
+      currentStep: 'completed',
+      transcriptionProgress: 100,
+    });
 
     // Update session status to transcribed
     await updateSessionStatus(sessionId, 'transcribed');

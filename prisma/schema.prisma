@@ -90,6 +90,13 @@ model GamingSession {
   audioFilePath  String?         @map("audio_file_path") // Keep for backwards compatibility
   duration       Int?
   status         String          @default("draft") // draft, uploaded, transcribing, transcribed, summarizing, completed, error
+  
+  // Detailed transcription progress tracking
+  transcriptionProgress   Int?            @default(0) @map("transcription_progress") // 0-100 percentage
+  totalChunks            Int?            @map("total_chunks")
+  chunksCompleted        Int?            @default(0) @map("chunks_completed")
+  currentStep            String?         @map("current_step") // chunking, transcribing, stitching
+  
   errorStep      String?         @map("error_step")
   errorMessage   String?         @map("error_message") @db.Text
   createdAt      DateTime        @default(now()) @map("created_at")

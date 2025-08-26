@@ -154,6 +154,24 @@ export class DatabaseService {
     });
   }
   
+  async updateTranscriptionProgress(
+    id: string, 
+    data: {
+      currentStep?: string;
+      totalChunks?: number;
+      chunksCompleted?: number;
+      transcriptionProgress?: number;
+    }
+  ): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id },
+      data: {
+        ...data,
+        updatedAt: new Date(),
+      },
+    });
+  }
+  
   async setSessionError(id: string, step: string, message: string): Promise<GamingSession> {
     return prisma.gamingSession.update({
       where: { id },

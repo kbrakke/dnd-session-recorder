@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, FileAudio, Calendar, BookOpen, Play, CheckCircle, Sparkles, Plus } from 'lucide-react';
@@ -26,6 +26,17 @@ interface Upload {
 interface UploadResponse {
   message: string;
   upload: Upload;
+}
+
+interface SessionProgress {
+  status: string;
+  duration?: number;
+  transcriptionProgress: number;
+  totalChunks: number;
+  chunksCompleted: number;
+  currentStep?: string;
+  errorStep?: string;
+  errorMessage?: string;
 }
 
 interface Session {
@@ -62,6 +73,32 @@ export default function SessionUploadPage() {
   const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
   const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
   const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
+  const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
+  
+  // Poll for transcription progress
+  useEffect(() => {
+    if (processingStep === 'transcribe' && currentSession) {
+      const pollProgress = async () => {
+        try {
+          const response = await fetch(`/api/sessions/${currentSession.id}/progress`);
+          if (response.ok) {
+            const progress = await response.json();
+            setSessionProgress(progress);
+          }
+        } catch (error) {
+          console.error('Failed to fetch progress:', error);
+        }
+      };
+      
+      // Initial poll
+      pollProgress();
+      
+      // Set up interval polling
+      const interval = setInterval(pollProgress, 1000); // Poll every second
+      
+      return () => clearInterval(interval);
+    }
+  }, [processingStep, currentSession]);
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -311,26 +348,63 @@ export default function SessionUploadPage() {
             const isCompleted = steps.findIndex(s => s.key === processingStep) > index;
 
             return (
-              <div key={step.key} className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
-                isCompleted ? 'bg-green-50 border border-green-200' :
-                  'bg-gray-50 border border-gray-200'
-                }`}>
-                <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
-                  isCompleted ? 'text-green-600' :
-                    'text-gray-400'
-                  }`} />
-                <span className={`font-medium ${isActive ? 'text-blue-900' :
-                  isCompleted ? 'text-green-900' :
-                    'text-gray-500'
+              <div key={step.key} className="space-y-2">
+                <div className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
+                  isCompleted ? 'bg-green-50 border border-green-200' :
+                    'bg-gray-50 border border-gray-200'
                   }`}>
-                  {step.label}
-                </span>
-                {isActive && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 ml-auto"></div>
-                )}
-                {isCompleted && (
-                  <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />
-                )}
+                  <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
+                    isCompleted ? 'text-green-600' :
+                      'text-gray-400'
+                    }`} />
+                  <div className="flex-1">
+                    <span className={`font-medium ${isActive ? 'text-blue-900' :
+                      isCompleted ? 'text-green-900' :
+                        'text-gray-500'
+                      }`}>
+                      {step.label}
+                    </span>
+                    
+                    {/* Show detailed progress for transcription */}
+                    {step.key === 'transcribe' && isActive && sessionProgress && (
+                      <div className="mt-2 space-y-2">
+                        {/* Progress bar */}
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${sessionProgress.transcriptionProgress}%` }}
+                          />
+                        </div>
+                        
+                        {/* Progress details */}
+                        <div className="flex justify-between text-xs text-gray-600">
+                          <span>
+                            {sessionProgress.currentStep === 'chunking' && 'Preparing audio chunks...'}
+                            {sessionProgress.currentStep === 'transcribing' && 
+                              `Transcribing chunk ${sessionProgress.chunksCompleted} of ${sessionProgress.totalChunks}`}
+                            {sessionProgress.currentStep === 'stitching' && 'Combining transcriptions...'}
+                            {sessionProgress.currentStep === 'completed' && 'Transcription complete!'}
+                          </span>
+                          <span>{sessionProgress.transcriptionProgress}%</span>
+                        </div>
+                        
+                        {/* Duration info */}
+                        {sessionProgress.duration && (
+                          <div className="text-xs text-gray-500">
+                            Audio duration: {Math.floor(sessionProgress.duration / 60)}m {sessionProgress.duration % 60}s
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {isActive && !sessionProgress && (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  )}
+                  {isCompleted && (
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  )}
+                </div>
               </div>
             );
           })}
