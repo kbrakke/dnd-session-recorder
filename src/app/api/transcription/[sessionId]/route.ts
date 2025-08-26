@@ -236,7 +236,7 @@ export async function POST(
 
 // GET /api/transcription/[sessionId] - Get transcriptions for a session
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
