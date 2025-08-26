@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 export async function GET() {
   try {
     // Check database connectivity
-    const dbCheck = await prisma.$queryRaw`SELECT 1 as health_check`;
+    await prisma.$queryRaw`SELECT 1 as health_check`;
     
     // Check if schema is initialized by testing User table and new columns
     let schemaStatus = 'unknown';

@@ -7,6 +7,9 @@ RUN apk add --no-cache \
     sqlite \
     curl \
     postgresql-client \
+    python3 \
+    make \
+    g++ \
     && rm -rf /var/cache/apk/*
 
 # Set working directory
@@ -20,19 +23,19 @@ RUN npm cache clean --force && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
-    (npm ci --only=production --no-optional || npm install --only=production --no-optional)
+    (npm ci --only=production || npm install --only=production)
 
 # Build the application
 FROM base AS builder
 COPY package.json package-lock.json ./
 
-# Try multiple approaches to handle npm registry issues
+# Install dependencies with retry configuration
 RUN npm cache clean --force && \
     npm config set registry https://registry.npmjs.org/ && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
-    (npm ci --no-optional || npm install --no-optional)
+    (npm ci || npm install)
 COPY . .
 
 # Generate Prisma client (using PostgreSQL provider from schema.prisma)
