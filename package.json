@@ -21,6 +21,7 @@
     "test:local": "playwright test --config=playwright.config.local.ts",
     "test:workflows": "playwright test --config=playwright.config.workflows.ts",
     "test:post-deploy": "playwright test --config=playwright.config.post-deploy.ts",
+    "test:staging": "playwright test --config=playwright.config.post-deploy.ts --grep \"Basic Staging Health Check\"",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
   },

@@ -15,7 +15,7 @@
 /nyc_output/
 
 # playwright testing
-/test-results/
+/test-results*
 /playwright-report/
 /playwright-report-workflows/
 /blob-report/

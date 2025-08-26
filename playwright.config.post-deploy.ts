@@ -25,7 +25,7 @@ export default defineConfig({
   ],
   use: {
     // This will be overridden by environment variable
-    baseURL: process.env.DEPLOY_URL || 'https://staging.example.com',
+    baseURL: process.env.DEPLOY_URL || 'https://dnd-recorder-staging.fly.dev',
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',

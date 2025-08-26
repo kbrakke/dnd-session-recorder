@@ -217,11 +217,21 @@ jobs:
           curl -f https://dnd-recorder-staging.fly.dev/ || exit 1
           curl -f https://dnd-recorder-staging.fly.dev/auth/signin || exit 1
 
+  # Post-Deploy Tests
+  staging-tests:
+    name: Run Staging Tests
+    needs: deploy-staging
+    uses: ./.github/workflows/post-deploy-tests.yml
+    with:
+      environment: staging
+      deploy_url: https://dnd-recorder-staging.fly.dev
+    secrets: inherit
+
   # Notification
   notify:
     name: Notify Deployment Status
     runs-on: ubuntu-latest
-    needs: [deploy-staging]
+    needs: [deploy-staging, staging-tests]
     if: always()
     
     steps:

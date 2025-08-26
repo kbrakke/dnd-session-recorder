@@ -92,6 +92,30 @@ The application uses a well-structured database with the following key entities:
 6. **Open the application**:
    Visit [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Testing
+
+The project includes comprehensive test suites for different environments:
+
+```bash
+# Unit tests (authentication, whitelist, etc.)
+npm run test:local
+
+# Integration tests (workflows, full features)  
+npm run test:workflows
+
+# Staging deployment verification
+npm run test:staging
+
+# Full post-deploy test suite
+npm run test:post-deploy
+```
+
+**Staging Health Check**: The `npm run test:staging` command runs essential tests against the live staging environment at https://dnd-recorder-staging.fly.dev to verify:
+- API health and database connectivity
+- Authentication system security
+- New features and endpoints
+- Performance and availability
+
 ### Environment Variables
 
 Create a `.env.local` file in the project root with the following variables:

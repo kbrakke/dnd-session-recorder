@@ -62,7 +62,14 @@ jobs:
           fi
       
       - name: Run Post-Deploy Tests
-        run: npm run test:post-deploy
+        run: |
+          if [ "${{ inputs.environment }}" = "staging" ]; then
+            echo "Running staging-specific health check tests..."
+            npm run test:staging
+          else
+            echo "Running full post-deploy test suite..."
+            npm run test:post-deploy
+          fi
         env:
           DEPLOY_URL: ${{ env.DEPLOY_URL }}
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
