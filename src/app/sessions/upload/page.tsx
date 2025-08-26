@@ -16,7 +16,6 @@ interface Upload {
   id: string;
   filename: string;
   originalName: string;
-  path: string;
   size: number;
   mimetype: string;
   duration?: number;
@@ -132,11 +131,11 @@ export default function SessionUploadPage() {
 
   // Transcription mutation
   const transcribeMutation = useMutation({
-    mutationFn: async ({ sessionId, upload }: { sessionId: string; upload: Upload }) => {
+    mutationFn: async ({ sessionId }: { sessionId: string }) => {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioFilePath: upload.path }),
+        body: JSON.stringify({}),  // No need to send file path - backend knows from session
       });
 
       if (!response.ok) {
@@ -272,7 +271,6 @@ export default function SessionUploadPage() {
         setProcessingStep('transcribe');
         await transcribeMutation.mutateAsync({
           sessionId: session.id,
-          upload: upload,
         });
 
         // Step 4: Generate summary

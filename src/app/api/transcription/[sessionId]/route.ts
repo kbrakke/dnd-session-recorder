@@ -86,10 +86,10 @@ export async function POST(
   const { sessionId } = await params;
   
   try {
-    const body = await request.json();
-    const { audioFilePath } = body;
-
-    // Check if session exists
+    // No need to read request body - all info comes from session
+    await request.json().catch(() => ({})); // Read body to prevent stream errors
+    
+    // Check if session exists and has an upload linked
     const session = await db.getSessionById(sessionId);
     if (!session) {
       return NextResponse.json(
@@ -98,25 +98,20 @@ export async function POST(
       );
     }
 
+    // Get the file path from the linked upload
     let fullPath: string;
     
-    // If audioFilePath is provided, use it (backwards compatibility)
-    if (audioFilePath) {
-      // Don't use path.resolve for relative paths - they're already correct
-      fullPath = audioFilePath.startsWith('/') ? audioFilePath : audioFilePath;
-    } 
-    // Otherwise, get the file path from the linked upload
-    else if (session.upload) {
-      // Upload paths are already relative to the app root
+    if (session.upload) {
+      // Upload paths are stored in the database
       fullPath = session.upload.path;
     } 
-    // Fallback to session's audioFilePath if it exists
+    // Legacy fallback to session's audioFilePath if it exists
     else if (session.audioFilePath) {
       fullPath = session.audioFilePath;
     } 
     else {
       return NextResponse.json(
-        { error: 'No audio file found for this session' },
+        { error: 'No audio file found for this session. Please upload an audio file first.' },
         { status: 400 }
       );
     }
