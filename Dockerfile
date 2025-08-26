@@ -15,27 +15,39 @@ WORKDIR /app
 # Install dependencies
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci --only=production
+RUN npm cache clean --force && \
+    npm config set registry https://registry.npmjs.org/ && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    (npm ci --only=production --no-optional || npm install --only=production --no-optional)
 
 # Build the application
 FROM base AS builder
 COPY package.json package-lock.json ./
-RUN npm ci
+
+# Try multiple approaches to handle npm registry issues
+RUN npm cache clean --force && \
+    npm config set registry https://registry.npmjs.org/ && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    (npm ci --no-optional || npm install --no-optional)
 COPY . .
 
 # Generate Prisma client (using PostgreSQL provider from schema.prisma)
 RUN npx prisma generate
 
 # Build the Next.js application
-ENV NODE_ENV production
+ENV NODE_ENV=production
 RUN npm run build
 
 # Production image
 FROM base AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
-ENV PORT 3000
+ENV NODE_ENV=production
+ENV PORT=3000
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
