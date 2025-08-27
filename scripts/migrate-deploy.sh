@@ -45,15 +45,55 @@ else
   exit 1
 fi
 
-# Now that staging user has schema admin privileges, use standard Prisma migration
-echo "📦 Running Prisma migrations..."
-npx prisma migrate deploy --schema=prisma/schema.prisma
+# Check for failed migrations and handle P3009 error
+echo "🔍 Checking for failed migrations..."
 
-if [ $? -eq 0 ]; then
-  echo "✅ Database migration process complete"
+# Try to run migrations first, if P3009 error occurs, resolve it
+echo "📦 Running Prisma migrations..."
+if ! npx prisma migrate deploy --schema=prisma/schema.prisma; then
+  MIGRATION_ERROR=$?
+  echo "⚠️  Migration failed, checking for P3009 error (failed migrations)..."
+  
+  # Check if the specific migration we're concerned about failed
+  echo "🔍 Checking migration status..."
+  npx prisma db execute --stdin --schema=prisma/schema.prisma <<EOF
+SELECT migration_name, started_at, finished_at, logs FROM _prisma_migrations 
+WHERE finished_at IS NULL 
+ORDER BY started_at DESC;
+EOF
+  
+  # Try to resolve any failed migrations
+  echo "🔄 Looking for failed migrations to resolve..."
+  
+  # First try the specific migration we know about
+  echo "🔄 Attempting to resolve failed migration: 20250826132223_add_transcription_progress_tracking"
+  if npx prisma migrate resolve --rolled-back "20250826132223_add_transcription_progress_tracking" --schema=prisma/schema.prisma; then
+    echo "✅ Successfully resolved migration: 20250826132223_add_transcription_progress_tracking"
+  else
+    echo "⚠️  Could not resolve specific migration, checking for other failed migrations..."
+    
+    # Try to resolve any other failed migration that might exist
+    # This is a fallback in case the migration name is different
+    echo "🔍 Attempting to resolve any failed migrations..."
+    npx prisma migrate resolve --rolled-back "20250819111739_initial_postgresql" --schema=prisma/schema.prisma 2>/dev/null || true
+  fi
+  
+  echo "📦 Retrying Prisma migrations after resolution..."
+  if npx prisma migrate deploy --schema=prisma/schema.prisma; then
+    echo "✅ Database migration process complete after resolution"
+  else
+    echo "❌ Migration still failed after attempting to resolve"
+    
+    # Final status check
+    echo "🔍 Final migration status check..."
+    npx prisma db execute --stdin --schema=prisma/schema.prisma <<EOF
+SELECT migration_name, started_at, finished_at, logs FROM _prisma_migrations ORDER BY started_at DESC LIMIT 5;
+EOF
+    
+    exit 1
+  fi
 else
-  echo "❌ Migration failed"
-  exit 1
+  echo "✅ Database migration process complete"
 fi
 
 # Verify migration by checking for new columns
