@@ -1,5 +1,6 @@
 #!/bin/sh
 # Migration script for Fly.io release phase
+# Note: This script assumes proper table ownership. See docs/fly-postgres-setup.md for setup instructions.
 set -e
 
 echo "🔄 Starting database migration process..."
@@ -8,6 +9,9 @@ echo "🔄 Starting database migration process..."
 if [ "$RELEASE_COMMAND" = "1" ]; then
   echo "✅ Running in release phase"
 fi
+
+# IMPORTANT: Table ownership must be correct for migrations to work
+# If you encounter "must be owner of table" errors, see docs/fly-postgres-setup.md
 
 # Debugging information
 echo "📍 Environment variables:"
