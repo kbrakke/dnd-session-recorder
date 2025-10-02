@@ -5,7 +5,7 @@ primary_region = "bos"  # Change to your preferred region
   dockerfile = "Dockerfile"
 
 [deploy]
-  release_command = "sh scripts/migrate-deploy-v2.sh"
+  release_command = "npx tsx scripts/init-database.ts"
 
 [env]
   NODE_ENV = "production"

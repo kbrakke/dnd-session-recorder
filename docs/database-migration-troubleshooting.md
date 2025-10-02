@@ -81,12 +81,13 @@ For new Fly.io PostgreSQL databases:
 
 ## Migration Script Features
 
-The `scripts/migrate-deploy.sh` script includes:
+The `scripts/init-database.ts` script includes:
 - Automatic P3009 failed migration resolution
-- Table ownership detection and reporting
-- Alternative schema sync using `db push` for permission issues
-- Comprehensive error logging and status checking
-- Column verification after migration attempts
+- Database connection verification
+- Schema validation
+- Migration status checking
+- Idempotent operation (safe to run multiple times)
+- Clean, machine-readable logging
 
 ## Emergency Recovery
 

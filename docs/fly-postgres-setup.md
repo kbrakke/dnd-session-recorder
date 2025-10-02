@@ -107,11 +107,8 @@ Update `fly.toml` to handle migrations properly:
 
 ```toml
 [deploy]
-  # Option A: Run migrations with fallback handling
-  release_command = "sh scripts/migrate-deploy.sh"
-  
-  # Option B: Skip automatic migrations and run manually
-  # release_command = "echo 'Skipping automatic migrations'"
+  # Run database initialization script
+  release_command = "npx tsx scripts/init-database.ts"
 ```
 
 ### 3. Use Baseline for Existing Databases

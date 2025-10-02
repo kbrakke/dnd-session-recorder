@@ -12,6 +12,7 @@
     "db:down": "docker-compose down",
     "db:reset": "docker-compose down -v && docker-compose up postgres -d && sleep 5 && npm run db:migrate",
     "db:migrate": "npx prisma migrate dev",
+    "db:init": "npx tsx scripts/init-database.ts",
     "db:deploy": "npx prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:generate": "npx prisma generate",
