@@ -4,6 +4,9 @@ primary_region = "bos"  # Change to your preferred region
 [build]
   dockerfile = "Dockerfile"
 
+[deploy]
+  release_command = "npx tsx scripts/init-database.ts"
+
 [env]
   NODE_ENV = "production"
   PORT = "3000"
