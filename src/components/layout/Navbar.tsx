@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Sword, Upload, BookOpen, Home, User, LogOut } from 'lucide-react';
+import { Sword, Upload, BookOpen, Home, User, LogOut, Settings } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -122,6 +122,14 @@ export default function Navbar() {
                           {session.user?.email}
                         </p>
                       </div>
+                      <Link
+                        href="/settings"
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
+                        onClick={() => setShowProfileDropdown(false)}
+                      >
+                        <Settings className="h-4 w-4" />
+                        <span>Settings</span>
+                      </Link>
                       <button
                         onClick={handleSignOut}
                         className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"

@@ -78,6 +78,7 @@ export const authOptions: NextAuthOptions = {
           // Check if user exists in database
           const existingUser = await prisma.user.findUnique({
             where: { email: user.email! },
+            include: { accounts: true },
           });
 
           if (!existingUser) {
@@ -91,10 +92,18 @@ export const authOptions: NextAuthOptions = {
             });
             user.id = newUser.id;
           } else {
+            // Check if this Google account is already linked
+            const googleAccount = existingUser.accounts.find(
+              acc => acc.provider === 'google' && acc.providerAccountId === account.providerAccountId
+            );
+
+            // If user exists and the account is either already linked or this is a new Google account for the user
             user.id = existingUser.id;
+
+            // Note: PrismaAdapter will handle creating the account link if it doesn't exist
           }
         }
-        
+
         return true;
       } catch (error) {
         console.error('SignIn callback error:', error);
