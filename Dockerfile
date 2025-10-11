@@ -42,7 +42,10 @@ COPY . .
 RUN npx prisma generate
 
 # Build the Next.js application
+# Accept NEXT_PUBLIC_* build args for client-side env vars
+ARG NEXT_PUBLIC_GOOGLE_ENABLED=true
 ENV NODE_ENV=production
+ENV NEXT_PUBLIC_GOOGLE_ENABLED=$NEXT_PUBLIC_GOOGLE_ENABLED
 RUN npm run build
 
 # Production image

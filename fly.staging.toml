@@ -11,7 +11,6 @@ primary_region = "bos"  # Change to your preferred region
   NODE_ENV = "production"
   PORT = "3000"
   NEXT_PUBLIC_GOOGLE_ENABLED = "true"
-  # DATABASE_URL is provided by Fly.io secrets (attached Postgres database)
 
 [http_service]
   internal_port = 3000
