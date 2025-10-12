@@ -43,15 +43,42 @@ const validateWhitelistAccessMock = (email: string): { allowed: boolean; message
   if (!isWhitelistEnabledMock()) {
     return { allowed: true };
   }
-  
+
   if (isEmailWhitelistedMock(email)) {
     return { allowed: true };
   }
-  
+
   return {
     allowed: false,
     message: getWhitelistMessageMock('signup')
   };
+};
+
+const isTestAccountMock = (email: string): boolean => {
+  if (!email) {
+    return false;
+  }
+
+  const normalizedEmail = email.toLowerCase();
+
+  // Check for test/example domains
+  const testDomains = ['@test.com', '@example.com', '@example.org'];
+  const hasTestDomain = testDomains.some(domain => normalizedEmail.includes(domain));
+
+  // Check for test-related email patterns
+  const testPatterns = [
+    /^test/,           // starts with 'test'
+    /test@/,           // test@anything
+    /demo@/,           // demo@anything
+    /example@/,        // example@anything
+    /^demo/,           // starts with 'demo'
+    /\+test@/,         // email+test@domain
+    /\+demo@/,         // email+demo@domain
+  ];
+
+  const matchesPattern = testPatterns.some(pattern => pattern.test(normalizedEmail));
+
+  return hasTestDomain || matchesPattern;
 };
 
 test.describe('Whitelist Functionality', () => {
@@ -183,6 +210,78 @@ test.describe('Whitelist Functionality', () => {
       const result = validateWhitelistAccessMock('unauthorized@gmail.com');
       expect(result.allowed).toBe(false);
       expect(result.message).toContain('Account creation is currently restricted');
+    });
+  });
+
+  test.describe('isTestAccount', () => {
+    test('should return false for empty email', async () => {
+      expect(isTestAccountMock('')).toBe(false);
+      expect(isTestAccountMock(null as any)).toBe(false);
+      expect(isTestAccountMock(undefined as any)).toBe(false);
+    });
+
+    test('should detect test domain emails', async () => {
+      expect(isTestAccountMock('user@test.com')).toBe(true);
+      expect(isTestAccountMock('admin@example.com')).toBe(true);
+      expect(isTestAccountMock('someone@example.org')).toBe(true);
+    });
+
+    test('should detect emails starting with test', async () => {
+      expect(isTestAccountMock('test@gmail.com')).toBe(true);
+      expect(isTestAccountMock('test123@company.com')).toBe(true);
+      expect(isTestAccountMock('testuser@domain.com')).toBe(true);
+    });
+
+    test('should detect emails starting with demo', async () => {
+      expect(isTestAccountMock('demo@gmail.com')).toBe(true);
+      expect(isTestAccountMock('demo123@company.com')).toBe(true);
+      expect(isTestAccountMock('demouser@domain.com')).toBe(true);
+    });
+
+    test('should detect email+test pattern', async () => {
+      expect(isTestAccountMock('user+test@gmail.com')).toBe(true);
+      expect(isTestAccountMock('john+test@company.com')).toBe(true);
+    });
+
+    test('should detect email+demo pattern', async () => {
+      expect(isTestAccountMock('user+demo@gmail.com')).toBe(true);
+      expect(isTestAccountMock('john+demo@company.com')).toBe(true);
+    });
+
+    test('should be case insensitive', async () => {
+      expect(isTestAccountMock('TEST@gmail.com')).toBe(true);
+      expect(isTestAccountMock('User@TEST.com')).toBe(true);
+      expect(isTestAccountMock('DEMO@company.com')).toBe(true);
+      expect(isTestAccountMock('user+TEST@gmail.com')).toBe(true);
+    });
+
+    test('should NOT flag real production emails', async () => {
+      expect(isTestAccountMock('john@gmail.com')).toBe(false);
+      expect(isTestAccountMock('kbrakke@gmail.com')).toBe(false);
+      expect(isTestAccountMock('user@company.com')).toBe(false);
+      expect(isTestAccountMock('admin@organization.org')).toBe(false);
+    });
+
+    test('should NOT flag emails containing test in domain', async () => {
+      // Only emails starting with test or having test in local part should match
+      expect(isTestAccountMock('user@latest.com')).toBe(false);
+      expect(isTestAccountMock('user@contest.org')).toBe(false);
+    });
+
+    test('should flag all common test patterns', async () => {
+      const testEmails = [
+        'test@test.com',
+        'demo@example.com',
+        'example@example.org',
+        'testuser@gmail.com',
+        'demouser@yahoo.com',
+        'user+test@hotmail.com',
+        'admin+demo@company.com',
+      ];
+
+      testEmails.forEach(email => {
+        expect(isTestAccountMock(email)).toBe(true);
+      });
     });
   });
 });

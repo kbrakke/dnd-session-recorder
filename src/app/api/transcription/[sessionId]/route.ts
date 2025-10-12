@@ -4,6 +4,7 @@ import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
 import { experimental_transcribe as transcribe } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { isTestAccount } from '@/lib/whitelist';
 import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
@@ -84,11 +85,28 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
+
   try {
     // No need to read request body - all info comes from session
     await request.json().catch(() => ({})); // Read body to prevent stream errors
-    
+
+    // Check authentication and get user info
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
+    // COST PROTECTION: Block test accounts from making AI API calls
+    if (isTestAccount(user.email!)) {
+      console.log(`[Transcription] Blocked test account ${user.email} from making AI API call for session ${sessionId}`);
+
+      return NextResponse.json(
+        {
+          error: 'Test accounts cannot use AI transcription services. Please use a real email address to access this feature.',
+          isTestAccount: true
+        },
+        { status: 403 }
+      );
+    }
+
     // Check if session exists and has an upload linked
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -96,6 +114,23 @@ export async function POST(
         { error: 'Session not found' },
         { status: 404 }
       );
+    }
+
+    // IDEMPOTENCY: Check if transcription already exists
+    const existingTranscriptions = await db.getTranscriptions(sessionId);
+    if (existingTranscriptions && existingTranscriptions.length > 0) {
+      console.log(`[Transcription] Transcription already exists for session ${sessionId}, skipping`);
+
+      // Update status to transcribed if not already
+      if (session.status !== 'transcribed' && session.status !== 'completed') {
+        await updateSessionStatus(sessionId, 'transcribed');
+      }
+
+      return NextResponse.json({
+        message: 'Transcription already exists',
+        transcriptionLength: existingTranscriptions[0].text.length,
+        skipped: true
+      });
     }
 
     // Get the file path from the linked upload

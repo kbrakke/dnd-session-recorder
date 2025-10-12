@@ -276,54 +276,102 @@ export default function SessionUploadPage() {
     }
 
     const hasUpload = uploadMode === 'skip' ? null : (uploadMode === 'new' ? selectedFile : selectedUpload);
+    let createdSessionId: string | null = null;
 
     try {
-      let upload: Upload | null = null;
-
-      if (hasUpload) {
-        if (uploadMode === 'new' && selectedFile) {
-          // Step 1: Upload file
-          setProcessingStep('upload');
-          const uploadResult = await uploadMutation.mutateAsync(selectedFile);
-          upload = uploadResult.upload;
-        } else if (selectedUpload) {
-          upload = selectedUpload;
-        }
-      }
-
-      // Step 2: Create session
+      // Step 1: Always create the session first (guaranteed to succeed)
+      console.log('[Session Creation] Creating session...');
       const sessionData = {
         title: formData.title,
         campaign_id: formData.campaignId,
         session_date: new Date(formData.sessionDate).toISOString(),
-        ...(upload && { upload_id: upload.id, duration: upload.duration }),
+        status: 'draft', // Always start as draft
       };
 
       const session = await createSessionMutation.mutateAsync(sessionData);
+      createdSessionId = session.id;
       setCurrentSession(session);
+      console.log(`[Session Creation] Session created: ${session.id}`);
 
-      // Only proceed with transcription and summarization if we have an upload
-      if (upload) {
-        // Step 3: Generate transcription
-        setProcessingStep('transcribe');
-        await transcribeMutation.mutateAsync({
-          sessionId: session.id,
-        });
+      // Step 2: If we have an upload, upload and link it
+      if (hasUpload) {
+        let upload: Upload | null = null;
 
-        // Step 4: Generate summary
-        setProcessingStep('summarize');
-        await summarizeMutation.mutateAsync(session.id);
+        // Upload file if it's a new one
+        if (uploadMode === 'new' && selectedFile) {
+          setProcessingStep('upload');
+          console.log('[Upload] Uploading file...');
 
-        // Step 5: Complete
-        setProcessingStep('complete');
+          try {
+            const uploadResult = await uploadMutation.mutateAsync(selectedFile);
+            upload = uploadResult.upload;
+            console.log(`[Upload] File uploaded: ${upload.id}`);
+          } catch (uploadError) {
+            console.error('[Upload] Failed:', uploadError);
+            alert(`Session created but upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}. You can retry from the session page.`);
+            router.push(`/sessions/${session.id}`);
+            return;
+          }
+        } else if (selectedUpload) {
+          upload = selectedUpload;
+        }
+
+        // Link upload to session
+        if (upload) {
+          try {
+            console.log(`[Link] Linking upload ${upload.id} to session ${session.id}...`);
+            const linkResponse = await fetch(`/api/sessions/${session.id}/upload`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                upload_id: upload.id,
+                duration: upload.duration
+              }),
+            });
+
+            if (!linkResponse.ok) {
+              throw new Error('Failed to link upload to session');
+            }
+
+            console.log('[Link] Upload linked successfully');
+
+            // Step 3: Trigger the processing pipeline
+            setProcessingStep('transcribe');
+            console.log('[Process] Triggering processing pipeline...');
+
+            // Call the orchestrator to start processing
+            fetch(`/api/sessions/${session.id}/process`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            }).catch(err => console.error('[Process] Failed to trigger:', err));
+
+            // Redirect to session page where user can watch progress
+            console.log('[Process] Redirecting to session page...');
+            router.push(`/sessions/${session.id}`);
+
+          } catch (linkError) {
+            console.error('[Link] Failed:', linkError);
+            alert(`Session created but failed to link audio: ${linkError instanceof Error ? linkError.message : 'Unknown error'}. You can retry from the session page.`);
+            router.push(`/sessions/${session.id}`);
+          }
+        }
       } else {
         // Session created without audio - redirect to session page
+        console.log('[Session Creation] No audio provided, redirecting...');
         router.push(`/sessions/${session.id}`);
       }
 
     } catch (error) {
-      console.error('Session processing error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('[Session Creation] Error:', error);
+
+      // If we created a session, redirect to it
+      if (createdSessionId) {
+        alert(`Session created but encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. You can continue from the session page.`);
+        router.push(`/sessions/${createdSessionId}`);
+      } else {
+        // Session creation failed - this is the only true failure case
+        alert(`Failed to create session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   };
 

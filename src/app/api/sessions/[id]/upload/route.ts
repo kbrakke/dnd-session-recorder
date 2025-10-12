@@ -6,6 +6,7 @@ import { db } from '@/services/database';
 
 const linkUploadSchema = z.object({
   upload_id: z.string().min(1, 'Upload ID is required'),
+  duration: z.number().optional(),
 });
 
 // POST /api/sessions/[id]/upload - Link upload to session
@@ -64,7 +65,12 @@ export async function POST(
     
     // Link upload to session
     const updatedSession = await db.linkSessionToUpload(sessionId, validatedData.upload_id);
-    
+
+    // Update session duration if provided
+    if (validatedData.duration) {
+      await db.updateSession(sessionId, { duration: validatedData.duration });
+    }
+
     return NextResponse.json({
       message: 'Upload linked to session successfully',
       session: updatedSession

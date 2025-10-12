@@ -8,13 +8,14 @@ import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from
 
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: PrismaAdapter(prisma) as any,
   providers: [
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? [
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true, // Allow linking accounts with same email
           }),
         ]
       : []),
@@ -66,7 +67,7 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/error',
   },
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       try {
         // Check whitelist for all sign-in attempts
         if (!isEmailWhitelisted(user.email!)) {
@@ -74,33 +75,40 @@ export const authOptions: NextAuthOptions = {
           return false; // Deny sign-in
         }
 
+        // For OAuth providers, PrismaAdapter handles user/account creation automatically
+        // We just need to verify the email is whitelisted
         if (account?.provider === 'google') {
-          // Check if user exists in database
+          console.log(`[Auth] Google OAuth sign-in for: ${user.email}`);
+
+          // Check if user exists
           const existingUser = await prisma.user.findUnique({
             where: { email: user.email! },
             include: { accounts: true },
           });
 
-          if (!existingUser) {
-            // Create user if doesn't exist
-            const newUser = await prisma.user.create({
-              data: {
-                name: user.name,
-                email: user.email!,
-                image: user.image,
-              },
-            });
-            user.id = newUser.id;
-          } else {
-            // Check if this Google account is already linked
-            const googleAccount = existingUser.accounts.find(
-              acc => acc.provider === 'google' && acc.providerAccountId === account.providerAccountId
+          if (existingUser) {
+            // User exists - check if this specific OAuth account is linked
+            const isAccountLinked = existingUser.accounts.some(
+              acc => acc.provider === account.provider && acc.providerAccountId === account.providerAccountId
             );
 
-            // If user exists and the account is either already linked or this is a new Google account for the user
-            user.id = existingUser.id;
+            if (!isAccountLinked) {
+              // User exists but this OAuth account is not linked
+              // Check if user has ANY Google account linked
+              const hasGoogleLinked = existingUser.accounts.some(acc => acc.provider === 'google');
 
-            // Note: PrismaAdapter will handle creating the account link if it doesn't exist
+              if (hasGoogleLinked) {
+                // Different Google account - don't allow
+                console.log(`[Auth] User ${user.email} tried to link different Google account`);
+                return false;
+              }
+
+              // User exists with email/password only - allow linking
+              console.log(`[Auth] Linking Google account to existing user: ${user.email}`);
+            }
+          } else {
+            // New user - PrismaAdapter will create it
+            console.log(`[Auth] Creating new user via Google OAuth: ${user.email}`);
           }
         }
 

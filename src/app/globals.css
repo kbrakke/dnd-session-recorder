@@ -1,31 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Source+Sans+Pro:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Source Sans Pro', system-ui, sans-serif;
   }
   
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-slate-50 text-slate-900;
+    background-image: 
+      radial-gradient(circle at 20% 80%, rgba(148, 163, 184, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(100, 116, 139, 0.02) 0%, transparent 50%);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Crimson Text', serif;
+    font-weight: 600;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-blue-900 hover:bg-blue-950 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md;
   }
   
   .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-slate-100 hover:bg-slate-200 text-slate-900 font-medium py-2 px-4 rounded-lg transition-all duration-200 border border-slate-300 hover:border-slate-400;
   }
   
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-lg shadow-sm border border-slate-200 p-6;
   }
   
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    @apply w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent bg-white text-slate-900;
+  }
+
+  .action-card {
+    @apply bg-gradient-to-r text-white p-4 rounded-lg hover:shadow-md transition-all duration-200 flex items-center space-x-3;
+  }
+
+  .stat-overview {
+    @apply bg-white rounded-lg border border-slate-200 p-4;
+  }
+
+  .session-list {
+    @apply bg-white rounded-lg border border-slate-200 overflow-hidden;
+  }
+
+  .session-item {
+    @apply p-4 hover:bg-slate-50 transition-colors;
+  }
+
+  .empty-state {
+    @apply bg-white rounded-lg border border-slate-200 p-8 text-center;
   }
 }

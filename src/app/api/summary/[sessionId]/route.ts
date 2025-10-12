@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
+import { isTestAccount } from '@/lib/whitelist';
 
 const model = openai('gpt-4o');
 
@@ -38,8 +39,25 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
+
   try {
+    // Check authentication and get user info
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
+    // COST PROTECTION: Block test accounts from making AI API calls
+    if (isTestAccount(user.email!)) {
+      console.log(`[Summary] Blocked test account ${user.email} from making AI API call for session ${sessionId}`);
+
+      return NextResponse.json(
+        {
+          error: 'Test accounts cannot use AI summary services. Please use a real email address to access this feature.',
+          isTestAccount: true
+        },
+        { status: 403 }
+      );
+    }
+
     // Check if session exists
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -47,6 +65,23 @@ export async function POST(
         { error: 'Session not found' },
         { status: 404 }
       );
+    }
+
+    // IDEMPOTENCY: Check if summary already exists
+    const existingSummary = await db.getSummary(sessionId);
+    if (existingSummary) {
+      console.log(`[Summary] Summary already exists for session ${sessionId}, skipping`);
+
+      // Update status to completed if not already
+      if (session.status !== 'completed') {
+        await updateSessionStatus(sessionId, 'completed');
+      }
+
+      return NextResponse.json({
+        message: 'Summary already exists',
+        summary: existingSummary.summaryText,
+        skipped: true
+      });
     }
 
     // Get campaign information to include system prompt
@@ -60,7 +95,7 @@ export async function POST(
 
     // Get transcriptions for this session
     const transcriptions = await db.getTranscriptions(sessionId);
-    
+
     if (!transcriptions || transcriptions.length === 0) {
       return NextResponse.json(
         { error: 'No transcriptions found for this session' },
@@ -69,7 +104,7 @@ export async function POST(
     }
 
     console.log(`[Summary] Starting summary generation for session ${sessionId}`);
-    await updateSessionStatus(sessionId, 'processing');
+    await updateSessionStatus(sessionId, 'summarizing');
 
     // Format transcriptions for summarization
     const formattedText = formatTranscriptionsForSummary(transcriptions);

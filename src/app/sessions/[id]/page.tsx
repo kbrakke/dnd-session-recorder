@@ -1,10 +1,10 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useState } from 'react';
-import { Calendar, Clock, BookOpen, FileText, Sparkles, ArrowLeft, AlertCircle, CheckCircle, Upload, FileAudio, Play, Edit3, Lock, Unlock, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, Clock, BookOpen, FileText, Sparkles, ArrowLeft, AlertCircle, CheckCircle, Upload, FileAudio, Play, Edit3, Lock, Unlock, RefreshCw, Trash2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
 interface Upload {
@@ -63,11 +63,23 @@ interface UploadResponse {
   upload: Upload;
 }
 
+interface SessionProgress {
+  status: string;
+  duration?: number;
+  transcriptionProgress: number;
+  totalChunks: number;
+  chunksCompleted: number;
+  currentStep?: string;
+  errorStep?: string;
+  errorMessage?: string;
+}
+
 export default function SessionDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.id as string;
   const queryClient = useQueryClient();
-  
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -75,6 +87,8 @@ export default function SessionDetailPage() {
   const [processingStep, setProcessingStep] = useState<'upload' | 'link' | 'transcribe' | 'summarize' | 'complete' | null>(null);
   const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [editedSummaryText, setEditedSummaryText] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
 
   const { data: session, isLoading: sessionLoading } = useQuery<Session>({
     queryKey: ['session', sessionId],
@@ -83,7 +97,41 @@ export default function SessionDetailPage() {
       if (!response.ok) throw new Error('Failed to fetch session');
       return response.json();
     },
+    refetchInterval: (data) => {
+      // Auto-refresh session when it's in a processing state
+      if (data?.status && ['transcribing', 'summarizing', 'uploaded'].includes(data.status)) {
+        return 2000; // Poll every 2 seconds
+      }
+      return false; // Don't auto-refresh otherwise
+    },
   });
+
+  // Poll for transcription progress when session is transcribing
+  useEffect(() => {
+    if (session?.status === 'transcribing') {
+      const pollProgress = async () => {
+        try {
+          const response = await fetch(`/api/sessions/${sessionId}/progress`);
+          if (response.ok) {
+            const progress = await response.json();
+            setSessionProgress(progress);
+          }
+        } catch (error) {
+          console.error('Failed to fetch progress:', error);
+        }
+      };
+
+      // Initial poll
+      pollProgress();
+
+      // Set up interval polling
+      const interval = setInterval(pollProgress, 1000); // Poll every second
+
+      return () => clearInterval(interval);
+    } else {
+      setSessionProgress(null);
+    }
+  }, [session?.status, sessionId]);
 
   const { data: transcriptions, isLoading: transcriptionsLoading } = useQuery<Transcription[]>({
     queryKey: ['transcriptions', sessionId],
@@ -214,6 +262,25 @@ export default function SessionDetailPage() {
     },
   });
 
+  // Delete session mutation
+  const deleteSessionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete session');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      router.push('/sessions');
+    },
+  });
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -309,12 +376,14 @@ export default function SessionDetailPage() {
 
     try {
       let upload: Upload;
-      
+
       if (uploadMode === 'new' && selectedFile) {
         // Step 1: Upload file
         setProcessingStep('upload');
+        console.log('[Upload] Uploading file...');
         const uploadResult = await uploadMutation.mutateAsync(selectedFile);
         upload = uploadResult.upload;
+        console.log(`[Upload] File uploaded: ${upload.id}`);
       } else if (selectedUpload) {
         upload = selectedUpload;
       } else {
@@ -323,61 +392,92 @@ export default function SessionDetailPage() {
 
       // Step 2: Link upload to session
       setProcessingStep('link');
-      await linkUploadMutation.mutateAsync(upload.id);
+      console.log(`[Link] Linking upload ${upload.id} to session ${sessionId}...`);
 
-      // Step 3: Generate transcription
+      const linkResponse = await fetch(`/api/sessions/${sessionId}/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          upload_id: upload.id,
+          duration: upload.duration
+        }),
+      });
+
+      if (!linkResponse.ok) {
+        throw new Error('Failed to link upload to session');
+      }
+
+      console.log('[Link] Upload linked successfully');
+
+      // Step 3: Trigger processing pipeline via orchestrator
       setProcessingStep('transcribe');
-      await transcribeMutation.mutateAsync({ upload });
+      console.log('[Process] Triggering processing pipeline...');
 
-      // Step 4: Generate summary
-      setProcessingStep('summarize');
-      await summarizeMutation.mutateAsync();
+      const processResponse = await fetch(`/api/sessions/${sessionId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
 
-      // Step 5: Complete
-      setProcessingStep('complete');
-      
-      // Refresh session data
+      if (!processResponse.ok) {
+        const error = await processResponse.json();
+        throw new Error(error.error || 'Failed to start processing');
+      }
+
+      console.log('[Process] Pipeline started successfully');
+
+      // Refresh session data - the page will show live progress
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['transcriptions', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
 
+      // Clear processing step after a moment - the session status will take over
+      setTimeout(() => {
+        setProcessingStep(null);
+      }, 1000);
+
     } catch (error) {
-      console.error('Audio upload and processing error:', error);
+      console.error('[Audio Upload] Error:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setProcessingStep(null);
+
+      // Refresh to show current state
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
     }
   };
 
-  // Handle re-transcription for sessions with linked audio
-  const handleRetranscribe = async () => {
+  // Handle processing/retry - uses the orchestrator for idempotent processing
+  const handleProcess = async () => {
     if (!session) return;
 
     try {
-      // Step 1: Generate transcription
+      console.log(`[Process] Starting processing for session ${sessionId}`);
       setProcessingStep('transcribe');
-      await transcribeMutation.mutateAsync({});
 
-      // Step 2: Generate summary
-      setProcessingStep('summarize');
-      await summarizeMutation.mutateAsync();
+      // Call the orchestrator endpoint - it will handle the entire pipeline
+      const response = await fetch(`/api/sessions/${sessionId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
 
-      // Step 3: Complete
-      setProcessingStep('complete');
-      
-      // Reset processing step after a delay to show completion
-      setTimeout(() => {
-        setProcessingStep(null);
-      }, 2000);
-      
-      // Refresh session data
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Processing failed');
+      }
+
+      const result = await response.json();
+      console.log(`[Process] Pipeline started:`, result);
+
+      // The session page will auto-refresh and show progress
+      // Refresh session data immediately to show updated status
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['transcriptions', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
 
     } catch (error) {
-      console.error('Re-transcription error:', error);
+      console.error('[Process] Error:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setProcessingStep(null);
+
+      // Refresh to show any status changes
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
     }
   };
 
@@ -436,6 +536,19 @@ export default function SessionDetailPage() {
   const handleCancelSummaryEdit = () => {
     setIsEditingSummary(false);
     setEditedSummaryText('');
+  };
+
+  const handleDeleteSession = async () => {
+    if (!window.confirm('Are you sure you want to delete this session? This will also delete all associated transcriptions and summaries. This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await deleteSessionMutation.mutateAsync();
+    } catch (error) {
+      console.error('Delete session error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to delete session'}`);
+    }
   };
 
   if (sessionLoading) {
@@ -517,14 +630,32 @@ export default function SessionDetailPage() {
       {/* Error Display */}
       {session.status === 'error' && session.errorMessage && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-          <div className="flex items-center space-x-3 mb-3">
-            <AlertCircle className="h-5 w-5 text-red-600" />
-            <h3 className="text-lg font-semibold text-red-900">Processing Error</h3>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-3">
+              <AlertCircle className="h-5 w-5 text-red-600" />
+              <h3 className="text-lg font-semibold text-red-900">Processing Error</h3>
+            </div>
+            {session.upload && (
+              <Button
+                onClick={handleProcess}
+                variant="outline"
+                size="sm"
+                className="flex items-center space-x-2 border-red-300 text-red-700 hover:bg-red-100"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>Retry Processing</span>
+              </Button>
+            )}
           </div>
           <p className="text-red-800 mb-2">
-            <strong>Step:</strong> {session.errorStep}
+            <strong>Failed at:</strong> {session.errorStep}
           </p>
-          <p className="text-red-800">{session.errorMessage}</p>
+          <p className="text-red-800 mb-4">{session.errorMessage}</p>
+          {!session.upload && (
+            <p className="text-red-700 text-sm">
+              This session has no audio file. Please upload an audio file below to start processing.
+            </p>
+          )}
         </div>
       )}
 
@@ -541,15 +672,14 @@ export default function SessionDetailPage() {
                 <p className="text-sm text-gray-600">Linked audio file for this session</p>
               </div>
             </div>
-            {(session.status === 'uploaded' || session.status === 'error') && !processingStep && (
+            {(session.status === 'uploaded' || session.status === 'draft' || session.status === 'error') && !processingStep && (
               <Button
-                onClick={handleRetranscribe}
+                onClick={handleProcess}
                 className="flex items-center space-x-2"
-                disabled={transcribeMutation.isPending}
               >
                 <Play className="h-4 w-4" />
                 <span>
-                  {transcribeMutation.isPending ? 'Processing...' : 'Run Transcription'}
+                  {session.status === 'error' ? 'Retry Processing' : 'Start Processing'}
                 </span>
               </Button>
             )}
@@ -744,10 +874,12 @@ export default function SessionDetailPage() {
       )}
 
       {/* Processing Status */}
-      {processingStep && (
+      {(processingStep || session?.status === 'transcribing' || session?.status === 'summarizing') && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {processingStep === 'summarize' && session?.upload ? 'Regenerating Summary' : 'Processing Audio'}
+            {session?.status === 'transcribing' ? 'Transcribing Audio' :
+             session?.status === 'summarizing' ? 'Generating Summary' :
+             processingStep === 'summarize' && session?.upload ? 'Regenerating Summary' : 'Processing Audio'}
           </h3>
           <div className="space-y-4">
             {[
@@ -765,30 +897,70 @@ export default function SessionDetailPage() {
               return true;
             }).map((step, index, filteredSteps) => {
               const Icon = step.icon;
-              const isActive = step.key === processingStep;
-              const isCompleted = filteredSteps.findIndex(s => s.key === processingStep) > index;
+              const currentStep = processingStep ||
+                (session?.status === 'transcribing' ? 'transcribe' :
+                 session?.status === 'summarizing' ? 'summarize' : null);
+              const isActive = step.key === currentStep;
+              const isCompleted = filteredSteps.findIndex(s => s.key === currentStep) > index;
 
               return (
-                <div key={step.key} className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
-                  isCompleted ? 'bg-green-50 border border-green-200' :
-                    'bg-gray-50 border border-gray-200'
-                  }`}>
-                  <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
-                    isCompleted ? 'text-green-600' :
-                      'text-gray-400'
-                    }`} />
-                  <span className={`font-medium ${isActive ? 'text-blue-900' :
-                    isCompleted ? 'text-green-900' :
-                      'text-gray-500'
+                <div key={step.key} className="space-y-2">
+                  <div className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
+                    isCompleted ? 'bg-green-50 border border-green-200' :
+                      'bg-gray-50 border border-gray-200'
                     }`}>
-                    {step.label}
-                  </span>
-                  {isActive && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 ml-auto"></div>
-                  )}
-                  {isCompleted && (
-                    <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />
-                  )}
+                    <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
+                      isCompleted ? 'text-green-600' :
+                        'text-gray-400'
+                      }`} />
+                    <div className="flex-1">
+                      <span className={`font-medium ${isActive ? 'text-blue-900' :
+                        isCompleted ? 'text-green-900' :
+                          'text-gray-500'
+                        }`}>
+                        {step.label}
+                      </span>
+
+                      {/* Show detailed progress for transcription */}
+                      {step.key === 'transcribe' && isActive && sessionProgress && (
+                        <div className="mt-2 space-y-2">
+                          {/* Progress bar */}
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${sessionProgress.transcriptionProgress}%` }}
+                            />
+                          </div>
+
+                          {/* Progress details */}
+                          <div className="flex justify-between text-xs text-gray-600">
+                            <span>
+                              {sessionProgress.currentStep === 'chunking' && 'Preparing audio chunks...'}
+                              {sessionProgress.currentStep === 'transcribing' &&
+                                `Transcribing chunk ${sessionProgress.chunksCompleted} of ${sessionProgress.totalChunks}`}
+                              {sessionProgress.currentStep === 'stitching' && 'Combining transcriptions...'}
+                              {sessionProgress.currentStep === 'completed' && 'Transcription complete!'}
+                            </span>
+                            <span>{sessionProgress.transcriptionProgress}%</span>
+                          </div>
+
+                          {/* Duration info */}
+                          {sessionProgress.duration && (
+                            <div className="text-xs text-gray-500">
+                              Audio duration: {Math.floor(sessionProgress.duration / 60)}m {sessionProgress.duration % 60}s
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {isActive && !sessionProgress && (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    )}
+                    {isCompleted && (
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -976,28 +1148,39 @@ export default function SessionDetailPage() {
       {/* Actions */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Actions</h3>
-        <div className="flex flex-wrap gap-3">
-          {session.status === 'completed' && (
-            <>
-              <Link href={`/sessions/${sessionId}/transcript`}>
-                <Button variant="outline" className="flex items-center space-x-2">
-                  <FileText className="h-4 w-4" />
-                  <span>View Full Transcript</span>
-                </Button>
-              </Link>
-              {summary && (
-                <Link href={`/sessions/${sessionId}/summary`}>
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex flex-wrap gap-3">
+            {session.status === 'completed' && (
+              <>
+                <Link href={`/sessions/${sessionId}/transcript`}>
                   <Button variant="outline" className="flex items-center space-x-2">
-                    <Sparkles className="h-4 w-4" />
-                    <span>View Full Summary</span>
+                    <FileText className="h-4 w-4" />
+                    <span>View Full Transcript</span>
                   </Button>
                 </Link>
-              )}
-            </>
-          )}
-          <Link href="/sessions">
-            <Button variant="outline">Back to All Sessions</Button>
-          </Link>
+                {summary && (
+                  <Link href={`/sessions/${sessionId}/summary`}>
+                    <Button variant="outline" className="flex items-center space-x-2">
+                      <Sparkles className="h-4 w-4" />
+                      <span>View Full Summary</span>
+                    </Button>
+                  </Link>
+                )}
+              </>
+            )}
+            <Link href="/sessions">
+              <Button variant="outline">Back to All Sessions</Button>
+            </Link>
+          </div>
+          <Button
+            onClick={handleDeleteSession}
+            disabled={deleteSessionMutation.isPending}
+            variant="outline"
+            className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>{deleteSessionMutation.isPending ? 'Deleting...' : 'Delete Session'}</span>
+          </Button>
         </div>
       </div>
     </div>
