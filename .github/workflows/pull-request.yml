@@ -144,7 +144,6 @@ jobs:
           echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
           echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
-          # DATABASE_URL will be set by testcontainers
 
       - name: Generate Prisma client
         run: npx prisma generate
@@ -186,7 +185,6 @@ jobs:
           echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
           echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
-          # DATABASE_URL will be set by testcontainers
 
       - name: Generate Prisma client
         run: npx prisma generate

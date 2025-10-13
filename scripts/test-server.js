@@ -35,14 +35,13 @@ async function startTestServer() {
       // Run Prisma migrations
       console.log('🔧 Running database migrations...');
       const { execSync } = require('child_process');
-      
-      // Generate Prisma client
+
+      // Generate Prisma client (doesn't need DATABASE_URL)
       execSync('npx prisma generate', {
-        env: { ...process.env, DATABASE_URL: databaseUrl },
         stdio: 'inherit'
       });
-      
-      // Push schema to database
+
+      // Push schema to database (needs DATABASE_URL)
       execSync('npx prisma db push --skip-generate', {
         env: { ...process.env, DATABASE_URL: databaseUrl },
         stdio: 'inherit'

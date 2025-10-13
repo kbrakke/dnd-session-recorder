@@ -78,12 +78,10 @@ export class TestDatabase {
     }
 
     try {
-      // Generate Prisma client
-      await execAsync('npx prisma generate', {
-        env: { ...process.env, DATABASE_URL: this.connectionString }
-      });
+      // Generate Prisma client (doesn't need DATABASE_URL)
+      await execAsync('npx prisma generate');
 
-      // Deploy migrations
+      // Deploy migrations (needs DATABASE_URL)
       await execAsync('npx prisma db push', {
         env: { ...process.env, DATABASE_URL: this.connectionString }
       });
