@@ -205,6 +205,19 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      - name: Add test results to summary
+        if: always()
+        run: |
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "playwright-report/index.html" ]; then
+            echo "✅ Playwright HTML report generated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📊 Download the \`playwright-report-pr-${{ github.event.pull_request.number }}\` artifact to view detailed test results" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No test report generated" >> $GITHUB_STEP_SUMMARY
+          fi
+
   # Bundle Size Check
   # Fast docs-only check
   docs-check:

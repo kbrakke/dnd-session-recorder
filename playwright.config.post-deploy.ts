@@ -19,10 +19,16 @@ export default defineConfig({
   forbidOnly: true,
   retries: 1,
   workers: 1, // Single worker to avoid overwhelming the deployed environment
-  reporter: [
-    ['html', { outputFolder: 'test-results-post-deploy' }],
-    ['list'],
-  ],
+  reporter: process.env.CI
+    ? [
+        ['html', { outputFolder: 'test-results-post-deploy' }],
+        ['github'],
+        ['list'],
+      ]
+    : [
+        ['html', { outputFolder: 'test-results-post-deploy' }],
+        ['list'],
+      ],
   use: {
     // This will be overridden by environment variable
     baseURL: process.env.DEPLOY_URL || 'https://dnd-recorder-staging.fly.dev',

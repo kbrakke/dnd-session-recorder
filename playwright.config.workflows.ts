@@ -13,10 +13,17 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 1,
   workers: process.env.CI ? 2 : 4, // Limit workers in CI for stability
-  reporter: [
-    ['html', { outputFolder: 'playwright-report-workflows' }],
-    ['json', { outputFile: 'test-results-workflows.json' }]
-  ],
+  reporter: process.env.CI
+    ? [
+        ['html', { outputFolder: 'playwright-report-workflows' }],
+        ['github'],
+        ['list'],
+        ['json', { outputFile: 'test-results-workflows.json' }]
+      ]
+    : [
+        ['html', { outputFolder: 'playwright-report-workflows' }],
+        ['json', { outputFile: 'test-results-workflows.json' }]
+      ],
   timeout: 60000, // 1 minute timeout for individual tests
   expect: {
     timeout: 10000 // 10 second timeout for assertions

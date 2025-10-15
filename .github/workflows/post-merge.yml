@@ -24,6 +24,8 @@ env:
 permissions:
   contents: read
   issues: write
+  pages: write
+  id-token: write
 
 jobs:
   # Check if files have changed that require comprehensive testing
@@ -160,6 +162,14 @@ jobs:
             test-results/
           retention-days: 14
 
+      - name: Upload HTML Report as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-html-report-workflows-${{ github.run_id }}
+          path: playwright-report-workflows/
+          retention-days: 30
+
   # Deploy to staging and run comprehensive tests
   staging-deployment:
     name: Deploy to Staging
@@ -245,6 +255,14 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 14
+
+      - name: Upload HTML Report for staging tests
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-html-report-staging-${{ github.run_id }}
+          path: test-results-post-deploy/
+          retention-days: 30
 
       - name: Staging smoke tests
         run: |

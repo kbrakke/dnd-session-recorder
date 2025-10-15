@@ -346,7 +346,7 @@ test.describe('Authentication Error Scenarios', () => {
       expect(['/auth/signin', '/auth/error', '/'].some(path => currentUrl.includes(path))).toBe(true);
     });
 
-    test('should handle session corruption', async ({ page: _page }) => {
+    test('should handle session corruption', async ({ page: _page, request }) => {
       const corruptedSessions = [
         '{"malformed": json',
         'corrupted-session-data',
