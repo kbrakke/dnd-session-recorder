@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { Page } from '@playwright/test';
 
 export class WaitHelper {
   constructor(private page: Page) {}
@@ -50,7 +50,7 @@ export class WaitHelper {
   /**
    * Wait for loading spinner to disappear
    */
-  async waitForLoadingComplete(timeout: number = 30000): Promise<void> {
+  async waitForLoadingComplete(_timeout: number = 30000): Promise<void> {
     const loadingSelectors = [
       '[data-testid="loading"]',
       '.loading',

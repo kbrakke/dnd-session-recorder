@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createUniqueTestUser, TEST_USERS } from '../../fixtures/users';
+import { createUniqueTestUser } from '../../fixtures/users';
 import { cleanupTestUsers, createTestUser as dbCreateTestUser } from '../../setup/auth';
 
 test.describe('Authentication Error Scenarios', () => {
@@ -204,7 +204,6 @@ test.describe('Authentication Error Scenarios', () => {
       await page.goto('/auth/signup');
 
       const longString = 'a'.repeat(1000);
-      const veryLongString = 'a'.repeat(10000);
 
       await page.getByPlaceholder('Enter your full name').fill(longString);
       await page.getByPlaceholder('Enter your email').fill(`${longString}@example.com`);
@@ -300,7 +299,7 @@ test.describe('Authentication Error Scenarios', () => {
       }
     });
 
-    test('should handle concurrent authentication attempts', async ({ page, request }) => {
+    test('should handle concurrent authentication attempts', async ({ request }) => {
       const testUser = createUniqueTestUser('concurrent');
       await dbCreateTestUser(testUser);
 
@@ -347,7 +346,7 @@ test.describe('Authentication Error Scenarios', () => {
       expect(['/auth/signin', '/auth/error', '/'].some(path => currentUrl.includes(path))).toBe(true);
     });
 
-    test('should handle session corruption', async ({ page, request }) => {
+    test('should handle session corruption', async ({ page: _page }) => {
       const corruptedSessions = [
         '{"malformed": json',
         'corrupted-session-data',

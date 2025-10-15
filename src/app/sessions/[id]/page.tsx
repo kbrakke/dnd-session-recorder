@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { Calendar, Clock, BookOpen, FileText, Sparkles, ArrowLeft, AlertCircle, CheckCircle, Upload, FileAudio, Play, Edit3, Lock, Unlock, RefreshCw, Trash2 } from 'lucide-react';
+import { marked } from 'marked';
 import Button from '@/components/ui/Button';
 
 interface Upload {
@@ -58,6 +59,15 @@ interface Summary {
   originalText: string | null;
 }
 
+interface DmTodoList {
+  id: number;
+  content: string;
+  createdAt: string;
+  isEdited: boolean;
+  editedAt: string | null;
+  originalText: string | null;
+}
+
 interface UploadResponse {
   message: string;
   upload: Upload;
@@ -87,7 +97,9 @@ export default function SessionDetailPage() {
   const [processingStep, setProcessingStep] = useState<'upload' | 'link' | 'transcribe' | 'summarize' | 'complete' | null>(null);
   const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [editedSummaryText, setEditedSummaryText] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isEditingTodoList, setIsEditingTodoList] = useState(false);
+  const [editedTodoContent, setEditedTodoContent] = useState('');
+  // const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // Kept for future use
   const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
 
   const { data: session, isLoading: sessionLoading } = useQuery<Session>({
@@ -97,8 +109,9 @@ export default function SessionDetailPage() {
       if (!response.ok) throw new Error('Failed to fetch session');
       return response.json();
     },
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Auto-refresh session when it's in a processing state
+      const data = query.state.data;
       if (data?.status && ['transcribing', 'summarizing', 'uploaded'].includes(data.status)) {
         return 2000; // Poll every 2 seconds
       }
@@ -156,6 +169,19 @@ export default function SessionDetailPage() {
     enabled: !!sessionId,
   });
 
+  const { data: dmTodoList, isLoading: dmTodoLoading } = useQuery<DmTodoList>({
+    queryKey: ['dmTodoList', sessionId],
+    queryFn: async () => {
+      const response = await fetch(`/api/dm-todo/${sessionId}`);
+      if (!response.ok) {
+        if (response.status === 404) return null;
+        throw new Error('Failed to fetch DM TODO list');
+      }
+      return response.json();
+    },
+    enabled: !!sessionId,
+  });
+
   // Fetch existing uploads for selection
   const { data: uploads = [], isLoading: uploadsLoading } = useQuery<Upload[]>({
     queryKey: ['uploads'],
@@ -188,8 +214,8 @@ export default function SessionDetailPage() {
     },
   });
 
-  // Link upload to session mutation
-  const linkUploadMutation = useMutation({
+  // Link upload to session mutation (kept for future use)
+  const _linkUploadMutation = useMutation({
     mutationFn: async (uploadId: string) => {
       const response = await fetch(`/api/sessions/${sessionId}/upload`, {
         method: 'POST',
@@ -206,8 +232,8 @@ export default function SessionDetailPage() {
     },
   });
 
-  // Transcription mutation
-  const transcribeMutation = useMutation({
+  // Transcription mutation (kept for future use)
+  const _transcribeMutation = useMutation({
     mutationFn: async ({ upload }: { upload?: Upload } = {}) => {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
@@ -259,6 +285,46 @@ export default function SessionDetailPage() {
       }
 
       return response.json();
+    },
+  });
+
+  // DM TODO List mutations
+  const generateTodoMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/dm-todo/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'TODO list generation failed');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
+    },
+  });
+
+  const updateTodoMutation = useMutation({
+    mutationFn: async (content: string) => {
+      const response = await fetch(`/api/dm-todo/${sessionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'TODO list update failed');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
     },
   });
 
@@ -536,6 +602,43 @@ export default function SessionDetailPage() {
   const handleCancelSummaryEdit = () => {
     setIsEditingSummary(false);
     setEditedSummaryText('');
+  };
+
+  // Handle TODO list editing
+  const handleEditTodoList = () => {
+    if (!dmTodoList) return;
+    setEditedTodoContent(dmTodoList.content);
+    setIsEditingTodoList(true);
+  };
+
+  const handleSaveTodoList = async () => {
+    if (!editedTodoContent.trim()) {
+      alert('TODO list cannot be empty');
+      return;
+    }
+
+    try {
+      await updateTodoMutation.mutateAsync(editedTodoContent);
+      setIsEditingTodoList(false);
+      setEditedTodoContent('');
+    } catch (error) {
+      console.error('TODO list update error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleCancelTodoEdit = () => {
+    setIsEditingTodoList(false);
+    setEditedTodoContent('');
+  };
+
+  const handleGenerateTodoList = async () => {
+    try {
+      await generateTodoMutation.mutateAsync();
+    } catch (error) {
+      console.error('TODO list generation error:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleDeleteSession = async () => {
@@ -1138,6 +1241,129 @@ export default function SessionDetailPage() {
                 >
                   <Sparkles className="h-4 w-4" />
                   <span>{summarizeMutation.isPending ? 'Generating...' : 'Generate Summary'}</span>
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* DM TODO List Section */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">DM Prep TODO List</h2>
+            <div className="flex items-center space-x-2">
+              {dmTodoList && (
+                <span className="text-sm text-gray-500">
+                  Generated {formatDate(dmTodoList.createdAt)}
+                  {dmTodoList.isEdited && dmTodoList.editedAt && (
+                    <span className="text-amber-600 ml-1">
+                      (edited {formatDate(dmTodoList.editedAt)})
+                    </span>
+                  )}
+                </span>
+              )}
+              {/* TODO Actions */}
+              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateTodoList}
+                    disabled={generateTodoMutation.isPending}
+                    className="flex items-center space-x-1"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    <span>{generateTodoMutation.isPending ? 'Generating...' : dmTodoList ? 'Regenerate' : 'Generate'}</span>
+                  </Button>
+                  {dmTodoList && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={isEditingTodoList ? handleCancelTodoEdit : handleEditTodoList}
+                      className="flex items-center space-x-1"
+                    >
+                      {isEditingTodoList ? (
+                        <>
+                          <Unlock className="h-3 w-3" />
+                          <span>Cancel</span>
+                        </>
+                      ) : (
+                        <>
+                          <Edit3 className="h-3 w-3" />
+                          <span>Edit</span>
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {dmTodoLoading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="text-gray-500 mt-2">Loading TODO list...</p>
+            </div>
+          ) : dmTodoList ? (
+            <div className="space-y-3">
+              {isEditingTodoList ? (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div className="flex items-center space-x-2">
+                      <Lock className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm text-amber-800 font-medium">
+                        TODO List Editing Mode
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Make your changes and save, or cancel to revert.
+                    </p>
+                  </div>
+                  <textarea
+                    value={editedTodoContent}
+                    onChange={(e) => setEditedTodoContent(e.target.value)}
+                    className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                    placeholder="Enter your TODO list in markdown format..."
+                  />
+                  <div className="flex justify-end space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelTodoEdit}
+                      disabled={updateTodoMutation.isPending}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveTodoList}
+                      disabled={updateTodoMutation.isPending || !editedTodoContent.trim()}
+                      className="flex items-center space-x-2"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      <span>{updateTodoMutation.isPending ? 'Saving...' : 'Save Changes'}</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="max-h-96 overflow-y-auto prose prose-sm max-w-none">
+                  <div dangerouslySetInnerHTML={{ __html: marked(dmTodoList.content) as string }} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-500">No DM TODO list available</p>
+              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
+                <Button
+                  onClick={handleGenerateTodoList}
+                  disabled={generateTodoMutation.isPending}
+                  className="mt-4 flex items-center space-x-2"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  <span>{generateTodoMutation.isPending ? 'Generating...' : 'Generate TODO List'}</span>
                 </Button>
               )}
             </div>

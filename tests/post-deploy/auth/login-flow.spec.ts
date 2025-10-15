@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createTestUser, createUniqueTestUser } from '../../fixtures/users';
+import { createUniqueTestUser } from '../../fixtures/users';
 import { cleanupTestUsers, createTestUser as dbCreateTestUser } from '../../setup/auth';
 
 test.describe('Login Flow Integration Tests', () => {

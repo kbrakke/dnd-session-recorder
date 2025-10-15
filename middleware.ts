@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 export default withAuth(
   // This middleware function only runs when authorized callback returns true
-  function middleware(req) {
+  function middleware(_req) {
     return NextResponse.next();
   },
   {

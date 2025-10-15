@@ -78,7 +78,7 @@ export class FormHelper {
               return button.type === 'submit' || text.includes('create') || text.includes('save') || text.includes('submit');
             });
           }, { timeout: 10000 });
-        } catch (waitError) {
+        } catch {
           console.log('Submit button remained disabled after 10s wait');
           
           // Try to diagnose why the button is disabled

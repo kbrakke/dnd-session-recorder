@@ -1,7 +1,7 @@
 import { chromium, FullConfig } from '@playwright/test';
 import { AudioFixtures } from '../fixtures/audio-files';
 
-async function globalSetup(config: FullConfig) {
+async function globalSetup(_config: FullConfig) {
   console.log('🔧 Setting up workflow tests...');
   
   try {
@@ -57,7 +57,7 @@ async function globalSetup(config: FullConfig) {
     
     try {
       await page.goto('http://localhost:3000/api/health', { timeout: 30000 });
-      const response = await page.textContent('body');
+      await page.textContent('body');
       console.log('✅ Server health check passed');
     } catch (error) {
       console.error('❌ Server health check failed:', error);

@@ -169,7 +169,7 @@ test.describe('Registration Flow Integration Tests', () => {
       try {
         await page.waitForURL('/', { timeout: 10000 });
         await expect(page).toHaveURL('/');
-      } catch (error) {
+      } catch {
         const errorElement = page.locator('[data-testid="error-message"], .error, [role="alert"]');
         if (await errorElement.isVisible()) {
           const errorText = await errorElement.textContent();

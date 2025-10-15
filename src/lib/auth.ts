@@ -8,6 +8,7 @@ import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from
 
 
 export const authOptions: NextAuthOptions = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   adapter: PrismaAdapter(prisma) as any,
   providers: [
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -67,7 +68,7 @@ export const authOptions: NextAuthOptions = {
     error: '/auth/error',
   },
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       try {
         // Check whitelist for all sign-in attempts
         if (!isEmailWhitelisted(user.email!)) {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createUniqueTestUser, TEST_USERS } from '../../fixtures/users';
+import { createUniqueTestUser } from '../../fixtures/users';
 import { cleanupTestUsers, createTestUser as dbCreateTestUser } from '../../setup/auth';
 
 test.describe('API Authentication Integration Tests', () => {
@@ -119,7 +119,7 @@ test.describe('API Authentication Integration Tests', () => {
       expect(uploadsResponse.status()).toBe(200);
     });
 
-    test('should maintain session across multiple API calls', async ({ request, page }) => {
+    test('should maintain session across multiple API calls', async ({ page }) => {
       const testUser = createUniqueTestUser('session-persistence');
       await dbCreateTestUser(testUser);
 
@@ -207,7 +207,7 @@ test.describe('API Authentication Integration Tests', () => {
       const sessions = await sessionsResponse.json();
       expect(Array.isArray(sessions)).toBe(true);
       
-      sessions.forEach((session: any) => {
+      sessions.forEach((session: { id: string }) => {
         expect(session).toHaveProperty('id');
       });
     });
@@ -254,7 +254,7 @@ test.describe('API Authentication Integration Tests', () => {
       });
     });
 
-    test('should return 429 when rate limit exceeded', async ({ request, page }) => {
+    test('should return 429 when rate limit exceeded', async ({ page }) => {
       const testUser = createUniqueTestUser('rate-limit');
       await dbCreateTestUser(testUser);
 

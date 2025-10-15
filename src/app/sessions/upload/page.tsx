@@ -166,8 +166,8 @@ export default function SessionUploadPage() {
     },
   });
 
-  // Transcription mutation
-  const transcribeMutation = useMutation({
+  // Transcription mutation (kept for future use)
+  const _transcribeMutation = useMutation({
     mutationFn: async ({ sessionId }: { sessionId: string }) => {
       const response = await fetch(`/api/transcription/${sessionId}`, {
         method: 'POST',
@@ -184,8 +184,8 @@ export default function SessionUploadPage() {
     },
   });
 
-  // Summary mutation
-  const summarizeMutation = useMutation({
+  // Summary mutation (kept for future use)
+  const _summarizeMutation = useMutation({
     mutationFn: async (sessionId: string) => {
       const response = await fetch(`/api/summary/${sessionId}`, {
         method: 'POST',

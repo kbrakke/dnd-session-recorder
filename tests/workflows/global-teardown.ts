@@ -1,7 +1,7 @@
 import { FullConfig } from '@playwright/test';
 import { AudioFixtures } from '../fixtures/audio-files';
 
-async function globalTeardown(config: FullConfig) {
+async function globalTeardown(_config: FullConfig) {
   console.log('🧹 Cleaning up workflow tests...');
   
   try {

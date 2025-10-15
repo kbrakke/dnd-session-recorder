@@ -14,7 +14,6 @@ export interface TestSession {
 
 export class CampaignFixtures {
   static createCampaign(overrides: Partial<TestCampaign> = {}): TestCampaign {
-    const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000);
     
     return {
@@ -54,7 +53,6 @@ export class CampaignFixtures {
 
 export class SessionFixtures {
   static createSession(overrides: Partial<TestSession> = {}): TestSession {
-    const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000);
     
     return {

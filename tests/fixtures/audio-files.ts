@@ -105,7 +105,7 @@ export class AudioFixtures {
       try {
         const filePath = this.getAudioPath(fixture.path);
         await fs.promises.unlink(filePath);
-      } catch (error) {
+      } catch {
         // Ignore if file doesn't exist
       }
     }

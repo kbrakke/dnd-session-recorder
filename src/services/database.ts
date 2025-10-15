@@ -307,6 +307,47 @@ export class DatabaseService {
     });
   }
 
+  // DM TODO List operations
+  async saveDmTodoList(sessionId: string, content: string) {
+    return prisma.dmTodoList.upsert({
+      where: { sessionId },
+      update: {
+        content,
+      },
+      create: {
+        sessionId,
+        content,
+      },
+    });
+  }
+
+  async updateDmTodoList(sessionId: string, content: string) {
+    // First get the current todo list to preserve original text
+    const currentTodoList = await prisma.dmTodoList.findUnique({
+      where: { sessionId },
+    });
+
+    if (!currentTodoList) {
+      throw new Error('DM TODO list not found');
+    }
+
+    return prisma.dmTodoList.update({
+      where: { sessionId },
+      data: {
+        content,
+        isEdited: true,
+        editedAt: new Date(),
+        originalText: currentTodoList.originalText || currentTodoList.content,
+      },
+    });
+  }
+
+  async getDmTodoList(sessionId: string) {
+    return prisma.dmTodoList.findUnique({
+      where: { sessionId },
+    });
+  }
+
   // Upload operations
   async createUpload(data: CreateUploadData): Promise<Upload> {
     return prisma.upload.create({

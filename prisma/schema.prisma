@@ -104,6 +104,7 @@ model GamingSession {
   campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: SetNull)
   summary        Summary?
+  dmTodoList     DmTodoList?
   transcriptions Transcription[]
 
   @@map("gaming_sessions")
@@ -138,6 +139,20 @@ model Summary {
   @@map("summaries")
 }
 
+model DmTodoList {
+  id          Int           @id @default(autoincrement())
+  sessionId   String        @unique @map("session_id")
+  content     String        @db.Text // Markdown formatted TODO list
+  isEdited    Boolean       @default(false) @map("is_edited")
+  editedAt    DateTime?     @map("edited_at")
+  originalText String?      @map("original_text") @db.Text
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at")
+  session     GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("dm_todo_lists")
+}
+
 model Upload {
   id               String          @id @default(cuid())
   userId           String          @map("user_id")
@@ -151,9 +166,9 @@ model Upload {
   chunkPaths       String?         @map("chunk_paths") @db.Text // JSON array of chunk file paths
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
-  
+
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   gamingSessions   GamingSession[]
-  
+
   @@map("uploads")
 }

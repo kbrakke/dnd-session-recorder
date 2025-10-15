@@ -132,8 +132,8 @@ test.describe('Whitelist Functionality', () => {
       mockEnvironment = undefined;
       
       expect(isEmailWhitelistedMock('')).toBe(false);
-      expect(isEmailWhitelistedMock(null as any)).toBe(false);
-      expect(isEmailWhitelistedMock(undefined as any)).toBe(false);
+      expect(isEmailWhitelistedMock(null as never)).toBe(false);
+      expect(isEmailWhitelistedMock(undefined as never)).toBe(false);
     });
 
     test('should whitelist specific production emails', async () => {
@@ -216,8 +216,8 @@ test.describe('Whitelist Functionality', () => {
   test.describe('isTestAccount', () => {
     test('should return false for empty email', async () => {
       expect(isTestAccountMock('')).toBe(false);
-      expect(isTestAccountMock(null as any)).toBe(false);
-      expect(isTestAccountMock(undefined as any)).toBe(false);
+      expect(isTestAccountMock(null as never)).toBe(false);
+      expect(isTestAccountMock(undefined as never)).toBe(false);
     });
 
     test('should detect test domain emails', async () => {
