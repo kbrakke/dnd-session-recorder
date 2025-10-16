@@ -1,5 +1,5 @@
 app = "dnd-recorder-staging"
-primary_region = "bos"  # Change to your preferred region
+primary_region = "ewr"  # Change to your preferred region
 
 [build]
   dockerfile = "Dockerfile"
