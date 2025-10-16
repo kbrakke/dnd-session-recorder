@@ -29,14 +29,14 @@ export interface CreateUploadData {
 }
 
 export interface SessionWithIncludes extends GamingSession {
-  campaign: { name: string };
+  campaign: { id: string; name: string };
   transcriptions: Transcription[];
   summary: Summary | null;
   upload: Upload | null;
 }
 
 export interface SessionListItem extends GamingSession {
-  campaign: { name: string };
+  campaign: { id: string; name: string };
   _count: {
     transcriptions: number;
   };
@@ -114,7 +114,7 @@ export class DatabaseService {
       },
       include: {
         campaign: {
-          select: { name: true },
+          select: { id: true, name: true },
         },
         _count: {
           select: { transcriptions: true },
@@ -132,7 +132,7 @@ export class DatabaseService {
       where: { id },
       include: {
         campaign: {
-          select: { name: true },
+          select: { id: true, name: true },
         },
         transcriptions: {
           orderBy: { startTime: 'asc' },

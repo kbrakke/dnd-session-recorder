@@ -23,7 +23,10 @@ const allowedMimeTypes = [
   'audio/wav',
   'audio/ogg',
   'audio/m4a',
+  'audio/x-m4a',
+  'audio/mp4',
   'audio/aac',
+  'audio/x-aac',
   'audio/flac',
   'audio/webm'
 ];

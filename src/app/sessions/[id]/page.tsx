@@ -1,53 +1,34 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
-import { Calendar, Clock, BookOpen, FileText, Sparkles, ArrowLeft, AlertCircle, CheckCircle, Upload, FileAudio, Play, Edit3, Lock, Unlock, RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Calendar, Clock, BookOpen, FileText, Sparkles,
+  ChevronDown, ChevronRight, Edit3, RefreshCw,
+  CheckCircle, Save
+} from 'lucide-react';
 import { marked } from 'marked';
-import Button from '@/components/ui/Button';
 
-interface Upload {
-  id: string;
-  filename: string;
-  originalName: string;
-  size: number;
-  mimetype: string;
-  duration?: number;
-  status: string;
-  createdAt: string;
-}
-
+// Interfaces
 interface Session {
   id: string;
   title: string;
   sessionDate: string;
   duration: number | null;
-  createdAt: string;
   status: string;
-  errorStep: string | null;
-  errorMessage: string | null;
-  uploadId: string | null;
-  audioFilePath: string | null;
   campaign: {
+    id: string;
     name: string;
   };
-  upload: Upload | null;
+}
+
+interface SessionDetail extends Session {
+  createdAt: string;
   _count: {
     transcriptions: number;
   };
-  summary: {
-    id: number;
-  } | null;
-}
-
-interface Transcription {
-  id: number;
-  startTime: number;
-  endTime: number;
-  text: string;
-  confidence: number | null;
 }
 
 interface Summary {
@@ -56,7 +37,6 @@ interface Summary {
   createdAt: string;
   isEdited: boolean;
   editedAt: string | null;
-  originalText: string | null;
 }
 
 interface DmTodoList {
@@ -65,98 +45,48 @@ interface DmTodoList {
   createdAt: string;
   isEdited: boolean;
   editedAt: string | null;
-  originalText: string | null;
 }
 
-interface UploadResponse {
-  message: string;
-  upload: Upload;
+interface Transcription {
+  id: number;
+  text: string;
+  startTime: number;
+  endTime: number;
 }
 
-interface SessionProgress {
-  status: string;
-  duration?: number;
-  transcriptionProgress: number;
-  totalChunks: number;
-  chunksCompleted: number;
-  currentStep?: string;
-  errorStep?: string;
-  errorMessage?: string;
-}
-
-export default function SessionDetailPage() {
+export default function SessionPageRedesign() {
   const params = useParams();
-  const router = useRouter();
   const sessionId = params.id as string;
   const queryClient = useQueryClient();
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [uploadMode, setUploadMode] = useState<'new' | 'existing'>('new');
-  const [processingStep, setProcessingStep] = useState<'upload' | 'link' | 'transcribe' | 'summarize' | 'complete' | null>(null);
+  // State
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [editedSummaryText, setEditedSummaryText] = useState('');
-  const [isEditingTodoList, setIsEditingTodoList] = useState(false);
-  const [editedTodoContent, setEditedTodoContent] = useState('');
-  // const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // Kept for future use
-  const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
+  const [isEditingTodo, setIsEditingTodo] = useState(false);
+  const [editedTodoText, setEditedTodoText] = useState('');
 
-  const { data: session, isLoading: sessionLoading } = useQuery<Session>({
+  // Data fetching
+  const { data: session, isLoading: sessionLoading } = useQuery<SessionDetail>({
     queryKey: ['session', sessionId],
     queryFn: async () => {
       const response = await fetch(`/api/sessions/${sessionId}`);
       if (!response.ok) throw new Error('Failed to fetch session');
       return response.json();
     },
-    refetchInterval: (query) => {
-      // Auto-refresh session when it's in a processing state
-      const data = query.state.data;
-      if (data?.status && ['transcribing', 'summarizing', 'uploaded'].includes(data.status)) {
-        return 2000; // Poll every 2 seconds
-      }
-      return false; // Don't auto-refresh otherwise
-    },
   });
 
-  // Poll for transcription progress when session is transcribing
-  useEffect(() => {
-    if (session?.status === 'transcribing') {
-      const pollProgress = async () => {
-        try {
-          const response = await fetch(`/api/sessions/${sessionId}/progress`);
-          if (response.ok) {
-            const progress = await response.json();
-            setSessionProgress(progress);
-          }
-        } catch (error) {
-          console.error('Failed to fetch progress:', error);
-        }
-      };
-
-      // Initial poll
-      pollProgress();
-
-      // Set up interval polling
-      const interval = setInterval(pollProgress, 1000); // Poll every second
-
-      return () => clearInterval(interval);
-    } else {
-      setSessionProgress(null);
-    }
-  }, [session?.status, sessionId]);
-
-  const { data: transcriptions, isLoading: transcriptionsLoading } = useQuery<Transcription[]>({
-    queryKey: ['transcriptions', sessionId],
+  const { data: campaignSessions = [] } = useQuery<Session[]>({
+    queryKey: ['campaign-sessions', session?.campaign.id],
     queryFn: async () => {
-      const response = await fetch(`/api/transcription/${sessionId}`);
-      if (!response.ok) throw new Error('Failed to fetch transcriptions');
+      const response = await fetch(`/api/sessions?campaignId=${session!.campaign.id}`);
+      if (!response.ok) throw new Error('Failed to fetch campaign sessions');
       return response.json();
     },
-    enabled: !!sessionId,
+    enabled: !!session?.campaign.id,
   });
 
-  const { data: summary, isLoading: summaryLoading } = useQuery<Summary>({
+  const { data: summary } = useQuery<Summary>({
     queryKey: ['summary', sessionId],
     queryFn: async () => {
       const response = await fetch(`/api/summary/${sessionId}`);
@@ -169,108 +99,33 @@ export default function SessionDetailPage() {
     enabled: !!sessionId,
   });
 
-  const { data: dmTodoList, isLoading: dmTodoLoading } = useQuery<DmTodoList>({
+  const { data: dmTodoList } = useQuery<DmTodoList>({
     queryKey: ['dmTodoList', sessionId],
     queryFn: async () => {
       const response = await fetch(`/api/dm-todo/${sessionId}`);
       if (!response.ok) {
         if (response.status === 404) return null;
-        throw new Error('Failed to fetch DM TODO list');
+        throw new Error('Failed to fetch TODO list');
       }
       return response.json();
     },
     enabled: !!sessionId,
   });
 
-  // Fetch existing uploads for selection
-  const { data: uploads = [], isLoading: uploadsLoading } = useQuery<Upload[]>({
-    queryKey: ['uploads'],
+  const { data: transcriptions = [] } = useQuery<Transcription[]>({
+    queryKey: ['transcriptions', sessionId],
     queryFn: async () => {
-      const response = await fetch('/api/uploads');
-      if (!response.ok) throw new Error('Failed to fetch uploads');
-      const data = await response.json();
-      return data.uploads || [];
-    },
-    enabled: session?.status === 'draft' && !session?.upload,
-  });
-
-  // File upload mutation
-  const uploadMutation = useMutation({
-    mutationFn: async (file: File): Promise<UploadResponse> => {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const response = await fetch('/api/uploads', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const response = await fetch(`/api/sessions/${sessionId}/transcriptions`);
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+        if (response.status === 404) return [];
+        throw new Error('Failed to fetch transcriptions');
       }
-
       return response.json();
     },
+    enabled: !!sessionId,
   });
 
-  // Link upload to session mutation (kept for future use)
-  const _linkUploadMutation = useMutation({
-    mutationFn: async (uploadId: string) => {
-      const response = await fetch(`/api/sessions/${sessionId}/upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_id: uploadId }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to link upload');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Transcription mutation (kept for future use)
-  const _transcribeMutation = useMutation({
-    mutationFn: async ({ upload }: { upload?: Upload } = {}) => {
-      const response = await fetch(`/api/transcription/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          // Don't pass audioFilePath - let the server figure it out from the session
-          ...(upload && { audioFilePath: upload.filename })
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Transcription failed');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Summary mutation
-  const summarizeMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/summary/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Summary generation failed');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Update summary mutation
+  // Mutations
   const updateSummaryMutation = useMutation({
     mutationFn: async (summaryText: string) => {
       const response = await fetch(`/api/summary/${sessionId}`, {
@@ -278,33 +133,12 @@ export default function SessionDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ summary_text: summaryText }),
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Summary update failed');
-      }
-
-      return response.json();
-    },
-  });
-
-  // DM TODO List mutations
-  const generateTodoMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/dm-todo/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'TODO list generation failed');
-      }
-
+      if (!response.ok) throw new Error('Failed to update summary');
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
+      setIsEditingSummary(false);
     },
   });
 
@@ -315,12 +149,34 @@ export default function SessionDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
+      if (!response.ok) throw new Error('Failed to update TODO');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
+      setIsEditingTodo(false);
+    },
+  });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'TODO list update failed');
-      }
+  const generateSummaryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/summary/${sessionId}`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error('Failed to generate summary');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
+    },
+  });
 
+  const generateTodoMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/dm-todo/${sessionId}`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error('Failed to generate TODO');
       return response.json();
     },
     onSuccess: () => {
@@ -328,24 +184,40 @@ export default function SessionDetailPage() {
     },
   });
 
-  // Delete session mutation
-  const deleteSessionMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/sessions/${sessionId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete session');
+  // Handlers
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(section)) {
+        next.delete(section);
+      } else {
+        next.add(section);
       }
+      return next;
+    });
+  };
 
-      return response.json();
-    },
-    onSuccess: () => {
-      router.push('/sessions');
-    },
-  });
+  const handleEditSummary = () => {
+    if (summary) {
+      setEditedSummaryText(summary.summaryText);
+      setIsEditingSummary(true);
+    }
+  };
+
+  const handleSaveSummary = () => {
+    updateSummaryMutation.mutate(editedSummaryText);
+  };
+
+  const handleEditTodo = () => {
+    if (dmTodoList) {
+      setEditedTodoText(dmTodoList.content);
+      setIsEditingTodo(true);
+    }
+  };
+
+  const handleSaveTodo = () => {
+    updateTodoMutation.mutate(editedTodoText);
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -355,1060 +227,307 @@ export default function SessionDetailPage() {
     });
   };
 
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return 'N/A';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
+  const formatDuration = (minutes: number | null) => {
+    if (!minutes) return 'Unknown';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
-
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800 border-green-200';
-      case 'processing': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'transcribing': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'summarizing': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'transcribed': return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'uploaded': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-      case 'draft': return 'bg-gray-100 text-gray-800 border-gray-200';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'error': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
+    const colors: Record<string, string> = {
+      draft: 'bg-gray-100 text-gray-800',
+      uploaded: 'bg-blue-100 text-blue-800',
+      transcribing: 'bg-yellow-100 text-yellow-800',
+      transcribed: 'bg-green-100 text-green-800',
+      summarizing: 'bg-purple-100 text-purple-800',
+      completed: 'bg-emerald-100 text-emerald-800',
+      error: 'bg-red-100 text-red-800',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed': return <CheckCircle className="h-5 w-5" />;
-      case 'processing': return <Clock className="h-5 w-5" />;
-      case 'pending': return <Clock className="h-5 w-5" />;
-      case 'draft': return <FileText className="h-5 w-5" />;
-      case 'uploaded': return <FileAudio className="h-5 w-5" />;
-      case 'transcribed': return <FileText className="h-5 w-5" />;
-      case 'error': return <AlertCircle className="h-5 w-5" />;
-      default: return <Clock className="h-5 w-5" />;
-    }
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // Handle file selection
-  const handleFileSelect = (file: File) => {
-    if (file.type.startsWith('audio/')) {
-      setSelectedFile(file);
-    } else {
-      alert('Please select an audio file');
-    }
-  };
-
-  // Handle drag and drop
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    const files = e.dataTransfer.files;
-    if (files && files[0]) {
-      handleFileSelect(files[0]);
-    }
-  };
-
-  // Handle audio upload and processing
-  const handleAudioUpload = async () => {
-    if (!session) return;
-
-    const hasUpload = uploadMode === 'new' ? selectedFile : selectedUpload;
-    if (!hasUpload) {
-      alert('Please select an audio file or upload a new one');
-      return;
-    }
-
-    try {
-      let upload: Upload;
-
-      if (uploadMode === 'new' && selectedFile) {
-        // Step 1: Upload file
-        setProcessingStep('upload');
-        console.log('[Upload] Uploading file...');
-        const uploadResult = await uploadMutation.mutateAsync(selectedFile);
-        upload = uploadResult.upload;
-        console.log(`[Upload] File uploaded: ${upload.id}`);
-      } else if (selectedUpload) {
-        upload = selectedUpload;
-      } else {
-        throw new Error('No valid upload selected');
-      }
-
-      // Step 2: Link upload to session
-      setProcessingStep('link');
-      console.log(`[Link] Linking upload ${upload.id} to session ${sessionId}...`);
-
-      const linkResponse = await fetch(`/api/sessions/${sessionId}/upload`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          upload_id: upload.id,
-          duration: upload.duration
-        }),
-      });
-
-      if (!linkResponse.ok) {
-        throw new Error('Failed to link upload to session');
-      }
-
-      console.log('[Link] Upload linked successfully');
-
-      // Step 3: Trigger processing pipeline via orchestrator
-      setProcessingStep('transcribe');
-      console.log('[Process] Triggering processing pipeline...');
-
-      const processResponse = await fetch(`/api/sessions/${sessionId}/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!processResponse.ok) {
-        const error = await processResponse.json();
-        throw new Error(error.error || 'Failed to start processing');
-      }
-
-      console.log('[Process] Pipeline started successfully');
-
-      // Refresh session data - the page will show live progress
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['transcriptions', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
-
-      // Clear processing step after a moment - the session status will take over
-      setTimeout(() => {
-        setProcessingStep(null);
-      }, 1000);
-
-    } catch (error) {
-      console.error('[Audio Upload] Error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setProcessingStep(null);
-
-      // Refresh to show current state
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-    }
-  };
-
-  // Handle processing/retry - uses the orchestrator for idempotent processing
-  const handleProcess = async () => {
-    if (!session) return;
-
-    try {
-      console.log(`[Process] Starting processing for session ${sessionId}`);
-      setProcessingStep('transcribe');
-
-      // Call the orchestrator endpoint - it will handle the entire pipeline
-      const response = await fetch(`/api/sessions/${sessionId}/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Processing failed');
-      }
-
-      const result = await response.json();
-      console.log(`[Process] Pipeline started:`, result);
-
-      // The session page will auto-refresh and show progress
-      // Refresh session data immediately to show updated status
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-
-    } catch (error) {
-      console.error('[Process] Error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setProcessingStep(null);
-
-      // Refresh to show any status changes
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-    }
-  };
-
-  // Handle summary regeneration
-  const handleRegenerateSummary = async () => {
-    if (!session) return;
-
-    try {
-      setProcessingStep('summarize');
-      await summarizeMutation.mutateAsync();
-      setProcessingStep('complete');
-      
-      // Reset processing step after a delay to show completion
-      setTimeout(() => {
-        setProcessingStep(null);
-      }, 2000);
-      
-      // Refresh session data
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
-
-    } catch (error) {
-      console.error('Summary regeneration error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setProcessingStep(null);
-    }
-  };
-
-  // Handle summary editing
-  const handleEditSummary = () => {
-    if (!summary) return;
-    setEditedSummaryText(summary.summaryText);
-    setIsEditingSummary(true);
-  };
-
-  const handleSaveSummary = async () => {
-    if (!editedSummaryText.trim()) {
-      alert('Summary cannot be empty');
-      return;
-    }
-
-    try {
-      await updateSummaryMutation.mutateAsync(editedSummaryText);
-      setIsEditingSummary(false);
-      setEditedSummaryText('');
-      
-      // Refresh summary data
-      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
-      
-    } catch (error) {
-      console.error('Summary update error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const handleCancelSummaryEdit = () => {
-    setIsEditingSummary(false);
-    setEditedSummaryText('');
-  };
-
-  // Handle TODO list editing
-  const handleEditTodoList = () => {
-    if (!dmTodoList) return;
-    setEditedTodoContent(dmTodoList.content);
-    setIsEditingTodoList(true);
-  };
-
-  const handleSaveTodoList = async () => {
-    if (!editedTodoContent.trim()) {
-      alert('TODO list cannot be empty');
-      return;
-    }
-
-    try {
-      await updateTodoMutation.mutateAsync(editedTodoContent);
-      setIsEditingTodoList(false);
-      setEditedTodoContent('');
-    } catch (error) {
-      console.error('TODO list update error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const handleCancelTodoEdit = () => {
-    setIsEditingTodoList(false);
-    setEditedTodoContent('');
-  };
-
-  const handleGenerateTodoList = async () => {
-    try {
-      await generateTodoMutation.mutateAsync();
-    } catch (error) {
-      console.error('TODO list generation error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const handleDeleteSession = async () => {
-    if (!window.confirm('Are you sure you want to delete this session? This will also delete all associated transcriptions and summaries. This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      await deleteSessionMutation.mutateAsync();
-    } catch (error) {
-      console.error('Delete session error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Failed to delete session'}`);
-    }
-  };
-
-  if (sessionLoading) {
+  if (sessionLoading || !session) {
     return (
-      <div className="text-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="text-gray-500 mt-2">Loading session...</p>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <div className="text-center py-12">
-        <AlertCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Session not found</h3>
-        <p className="text-gray-500 mb-6">The session you&apos;re looking for doesn&apos;t exist.</p>
-        <Link href="/sessions">
-          <Button>Back to Sessions</Button>
-        </Link>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Link href="/sessions">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Sessions
-            </Button>
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* Left Sidebar - Session Navigation */}
+      <aside className="w-80 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <Link
+            href={`/campaigns/${session.campaign.id}`}
+            className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-3"
+          >
+            <BookOpen className="h-4 w-4" />
+            <span className="font-medium">{session.campaign.name}</span>
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">{session.title}</h1>
-        </div>
-        <div className={`px-3 py-1 rounded-full border ${getStatusColor(session.status)}`}>
-          <div className="flex items-center space-x-2">
-            {getStatusIcon(session.status)}
-            <span className="capitalize font-medium">{session.status}</span>
+          <div className="text-xs text-gray-500">
+            {campaignSessions.length} session{campaignSessions.length !== 1 ? 's' : ''} in campaign
           </div>
         </div>
-      </div>
 
-      {/* Session Info */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <BookOpen className="h-5 w-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Campaign</p>
-              <p className="text-lg font-semibold text-gray-900">{session.campaign.name}</p>
-            </div>
+        <nav className="flex-1 overflow-y-auto p-3">
+          <div className="text-xs font-semibold text-gray-500 uppercase px-2 mb-3">
+            All Sessions
           </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Calendar className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Session Date</p>
-              <p className="text-lg font-semibold text-gray-900">{formatDate(session.sessionDate)}</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Clock className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Duration</p>
-              <p className="text-lg font-semibold text-gray-900">{formatDuration(session.duration)}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Error Display */}
-      {session.status === 'error' && session.errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-3">
-              <AlertCircle className="h-5 w-5 text-red-600" />
-              <h3 className="text-lg font-semibold text-red-900">Processing Error</h3>
-            </div>
-            {session.upload && (
-              <Button
-                onClick={handleProcess}
-                variant="outline"
-                size="sm"
-                className="flex items-center space-x-2 border-red-300 text-red-700 hover:bg-red-100"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>Retry Processing</span>
-              </Button>
-            )}
-          </div>
-          <p className="text-red-800 mb-2">
-            <strong>Failed at:</strong> {session.errorStep}
-          </p>
-          <p className="text-red-800 mb-4">{session.errorMessage}</p>
-          {!session.upload && (
-            <p className="text-red-700 text-sm">
-              This session has no audio file. Please upload an audio file below to start processing.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Audio File Info Section - Show for sessions with linked audio */}
-      {session.upload && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                <FileAudio className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Audio File</h3>
-                <p className="text-sm text-gray-600">Linked audio file for this session</p>
-              </div>
-            </div>
-            {(session.status === 'uploaded' || session.status === 'draft' || session.status === 'error') && !processingStep && (
-              <Button
-                onClick={handleProcess}
-                className="flex items-center space-x-2"
-              >
-                <Play className="h-4 w-4" />
-                <span>
-                  {session.status === 'error' ? 'Retry Processing' : 'Start Processing'}
-                </span>
-              </Button>
-            )}
-          </div>
-
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center space-x-4">
-              <FileAudio className="h-10 w-10 text-gray-600" />
-              <div className="flex-1">
-                <p className="font-medium text-gray-900">{session.upload.originalName}</p>
-                <div className="flex items-center space-x-4 text-sm text-gray-500 mt-1">
-                  <span>{formatFileSize(session.upload.size)}</span>
-                  <span>•</span>
-                  <span>{session.upload.mimetype}</span>
-                  {session.upload.duration && (
-                    <>
-                      <span>•</span>
-                      <span>{formatDuration(session.upload.duration)}</span>
-                    </>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Uploaded {formatDate(session.upload.createdAt)}
-                </p>
-              </div>
-              <div className={`px-2 py-1 rounded text-xs font-medium ${
-                session.upload.status === 'transcribed' 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-gray-100 text-gray-800'
-              }`}>
-                {session.upload.status}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Audio Upload Section - Show for draft sessions without audio */}
-      {session.status === 'draft' && !session.upload && !processingStep && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center space-x-3 mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <FileAudio className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Add Audio to Session</h3>
-              <p className="text-sm text-gray-600">Upload an audio file to generate transcription and summary</p>
-            </div>
-          </div>
-
-          {/* Upload Mode Selection */}
-          <div className="mb-6">
-            <div className="flex space-x-4">
-              <button
-                type="button"
-                onClick={() => setUploadMode('new')}
-                className={`flex-1 px-4 py-2 rounded-lg border-2 text-center transition-colors ${
-                  uploadMode === 'new'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                }`}
-              >
-                Upload New File
-              </button>
-              <button
-                type="button"
-                onClick={() => setUploadMode('existing')}
-                className={`flex-1 px-4 py-2 rounded-lg border-2 text-center transition-colors ${
-                  uploadMode === 'existing'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                }`}
-              >
-                Use Existing Upload
-              </button>
-            </div>
-          </div>
-
-          {uploadMode === 'new' ? (
-            <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-                ? 'border-blue-400 bg-blue-50'
-                : selectedFile
-                  ? 'border-green-400 bg-green-50'
-                  : 'border-gray-300 hover:border-gray-400'
-                }`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
+          {campaignSessions.map((s) => (
+            <Link
+              key={s.id}
+              href={`/sessions/${s.id}`}
+              className={`
+                block px-4 rounded-lg mb-2 border-l-4 transition-all
+                ${s.id === sessionId
+                  ? 'py-4 bg-blue-50 border-l-blue-600 text-blue-900 shadow-sm'
+                  : 'py-3 border-l-transparent hover:bg-gray-50 text-gray-700'
+                }
+              `}
             >
-              {selectedFile ? (
-                <div className="space-y-3">
-                  <FileAudio className="h-12 w-12 text-green-600 mx-auto" />
-                  <div>
-                    <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {formatFileSize(selectedFile.size)} • {selectedFile.type}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedFile(null)}
-                  >
-                    Remove File
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-                  <div>
-                    <p className="text-lg font-medium text-gray-900">
-                      Drop your audio file here, or{' '}
-                      <label className="text-blue-600 cursor-pointer hover:text-blue-700">
-                        browse
-                        <input
-                          type="file"
-                          accept="audio/*"
-                          onChange={(e) => e.target.files && handleFileSelect(e.target.files[0])}
-                          className="hidden"
-                        />
-                      </label>
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Supports MP3, WAV, OGG, M4A, AAC, FLAC, and WebM files
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {uploadsLoading ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                  <p className="text-gray-500 mt-2">Loading uploads...</p>
-                </div>
-              ) : uploads.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileAudio className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No uploaded files found</p>
-                  <p className="text-sm text-gray-400">Upload a file first to use this option</p>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  {uploads.map((upload) => (
-                    <div
-                      key={upload.id}
-                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${
-                        selectedUpload?.id === upload.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                      onClick={() => setSelectedUpload(upload)}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <FileAudio className="h-8 w-8 text-gray-600" />
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">{upload.originalName}</p>
-                          <p className="text-sm text-gray-500">
-                            {formatFileSize(upload.size)} • {upload.mimetype}
-                            {upload.duration && ` • ${Math.round(upload.duration)}s`}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            Uploaded {new Date(upload.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Upload Button */}
-          <div className="mt-6 flex justify-end">
-            <Button
-              onClick={handleAudioUpload}
-              disabled={
-                (uploadMode === 'new' && !selectedFile) ||
-                (uploadMode === 'existing' && !selectedUpload)
-              }
-              className="flex items-center space-x-2"
-            >
-              <Play className="h-4 w-4" />
-              <span>Upload and Process Audio</span>
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Processing Status */}
-      {(processingStep || session?.status === 'transcribing' || session?.status === 'summarizing') && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {session?.status === 'transcribing' ? 'Transcribing Audio' :
-             session?.status === 'summarizing' ? 'Generating Summary' :
-             processingStep === 'summarize' && session?.upload ? 'Regenerating Summary' : 'Processing Audio'}
-          </h3>
-          <div className="space-y-4">
-            {[
-              { key: 'upload', label: 'Uploading audio file', icon: Upload },
-              { key: 'link', label: 'Linking to session', icon: FileAudio },
-              { key: 'transcribe', label: 'Generating transcription', icon: FileText },
-              { key: 'summarize', label: 'Creating AI summary', icon: Sparkles },
-              { key: 'complete', label: 'Processing complete!', icon: CheckCircle },
-            ].filter(step => {
-              // Show only relevant steps based on the current processing context
-              if (processingStep === 'summarize' && session?.upload) {
-                // For summary regeneration, show only summarize and complete
-                return ['summarize', 'complete'].includes(step.key);
-              }
-              return true;
-            }).map((step, index, filteredSteps) => {
-              const Icon = step.icon;
-              const currentStep = processingStep ||
-                (session?.status === 'transcribing' ? 'transcribe' :
-                 session?.status === 'summarizing' ? 'summarize' : null);
-              const isActive = step.key === currentStep;
-              const isCompleted = filteredSteps.findIndex(s => s.key === currentStep) > index;
-
-              return (
-                <div key={step.key} className="space-y-2">
-                  <div className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
-                    isCompleted ? 'bg-green-50 border border-green-200' :
-                      'bg-gray-50 border border-gray-200'
-                    }`}>
-                    <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
-                      isCompleted ? 'text-green-600' :
-                        'text-gray-400'
-                      }`} />
-                    <div className="flex-1">
-                      <span className={`font-medium ${isActive ? 'text-blue-900' :
-                        isCompleted ? 'text-green-900' :
-                          'text-gray-500'
-                        }`}>
-                        {step.label}
-                      </span>
-
-                      {/* Show detailed progress for transcription */}
-                      {step.key === 'transcribe' && isActive && sessionProgress && (
-                        <div className="mt-2 space-y-2">
-                          {/* Progress bar */}
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                              style={{ width: `${sessionProgress.transcriptionProgress}%` }}
-                            />
-                          </div>
-
-                          {/* Progress details */}
-                          <div className="flex justify-between text-xs text-gray-600">
-                            <span>
-                              {sessionProgress.currentStep === 'chunking' && 'Preparing audio chunks...'}
-                              {sessionProgress.currentStep === 'transcribing' &&
-                                `Transcribing chunk ${sessionProgress.chunksCompleted} of ${sessionProgress.totalChunks}`}
-                              {sessionProgress.currentStep === 'stitching' && 'Combining transcriptions...'}
-                              {sessionProgress.currentStep === 'completed' && 'Transcription complete!'}
-                            </span>
-                            <span>{sessionProgress.transcriptionProgress}%</span>
-                          </div>
-
-                          {/* Duration info */}
-                          {sessionProgress.duration && (
-                            <div className="text-xs text-gray-500">
-                              Audio duration: {Math.floor(sessionProgress.duration / 60)}m {sessionProgress.duration % 60}s
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {isActive && !sessionProgress && (
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                    )}
-                    {isCompleted && (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Content Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Transcription Section */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Transcription</h2>
-            <span className="text-sm text-gray-500">
-              {session._count?.transcriptions > 0 ? 'Available' : 'Not Available'}
-            </span>
-          </div>
-          
-          {transcriptionsLoading ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading transcription...</p>
-            </div>
-          ) : transcriptions && transcriptions.length > 0 ? (
-            <div className="space-y-3">
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-800 leading-relaxed">
-                  {transcriptions[0].text.length > 500 
-                    ? `${transcriptions[0].text.substring(0, 500)}...` 
-                    : transcriptions[0].text
-                  }
-                </p>
+              <div className={`mb-2 ${s.id === sessionId ? 'text-base font-bold' : 'text-sm font-medium'}`}>
+                {s.title}
               </div>
-              <div className="text-center pt-4 border-t">
-                <Link href={`/sessions/${sessionId}/transcript`}>
-                  <Button variant="outline" size="sm" className="flex items-center space-x-2">
-                    <FileText className="h-4 w-4" />
-                    <span>View Full Transcript</span>
-                  </Button>
-                </Link>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>{new Date(s.sessionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                </div>
+                {s.duration && (
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    <span>{formatDuration(s.duration)}</span>
+                  </div>
+                )}
+                <div className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(s.status)}`}>
+                  {s.status}
+                </div>
+              </div>
+            </Link>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto bg-white">
+        {/* Summary Card */}
+        <div className="border-b border-gray-200">
+          <div className="bg-white p-8">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-gray-100">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-6 w-6 text-blue-600" />
+                <h2 className="text-2xl font-bold text-gray-900">AI Summary</h2>
+              </div>
+              <div className="flex gap-2">
+                {summary && (
+                  <>
+                    {!isEditingSummary && (
+                      <button
+                        onClick={handleEditSummary}
+                        className="px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => generateSummaryMutation.mutate()}
+                      disabled={generateSummaryMutation.isPending}
+                      className="px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${generateSummaryMutation.isPending ? 'animate-spin' : ''}`} />
+                      Regenerate
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="text-center py-8">
-              <FileText className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500">No transcription available</p>
-            </div>
-          )}
-        </div>
 
-        {/* Summary Section */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">AI Summary</h2>
-            <div className="flex items-center space-x-2">
-              {summary && (
-                <span className="text-sm text-gray-500">
-                  Generated {formatDate(summary.createdAt)}
-                  {summary.isEdited && summary.editedAt && (
-                    <span className="text-amber-600 ml-1">
-                      (edited {formatDate(summary.editedAt)})
-                    </span>
-                  )}
-                </span>
-              )}
-              {/* Summary Actions */}
-              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
-                <div className="flex items-center space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRegenerateSummary}
-                    disabled={summarizeMutation.isPending}
-                    className="flex items-center space-x-1"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    <span>{summarizeMutation.isPending ? 'Generating...' : 'Regenerate'}</span>
-                  </Button>
-                  {summary && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={isEditingSummary ? handleCancelSummaryEdit : handleEditSummary}
-                      className="flex items-center space-x-1"
-                    >
-                      {isEditingSummary ? (
-                        <>
-                          <Unlock className="h-3 w-3" />
-                          <span>Cancel</span>
-                        </>
-                      ) : (
-                        <>
-                          <Edit3 className="h-3 w-3" />
-                          <span>Edit</span>
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {summaryLoading ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading summary...</p>
-            </div>
-          ) : summary ? (
-            <div className="space-y-3">
-              {isEditingSummary ? (
+            {summary ? (
+              isEditingSummary ? (
                 <div className="space-y-4">
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <div className="flex items-center space-x-2">
-                      <Lock className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm text-amber-800 font-medium">
-                        Summary Editing Mode
-                      </span>
-                    </div>
-                    <p className="text-xs text-amber-700 mt-1">
-                      Make your changes and save, or cancel to revert.
-                    </p>
-                  </div>
                   <textarea
                     value={editedSummaryText}
                     onChange={(e) => setEditedSummaryText(e.target.value)}
-                    className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter your summary..."
+                    className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <div className="flex justify-end space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCancelSummaryEdit}
-                      disabled={updateSummaryMutation.isPending}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setIsEditingSummary(false)}
+                      className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
                     >
                       Cancel
-                    </Button>
-                    <Button
-                      size="sm"
+                    </button>
+                    <button
                       onClick={handleSaveSummary}
-                      disabled={updateSummaryMutation.isPending || !editedSummaryText.trim()}
-                      className="flex items-center space-x-2"
+                      disabled={updateSummaryMutation.isPending}
+                      className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2"
                     >
-                      <CheckCircle className="h-4 w-4" />
-                      <span>{updateSummaryMutation.isPending ? 'Saving...' : 'Save Changes'}</span>
-                    </Button>
+                      <Save className="h-4 w-4" />
+                      {updateSummaryMutation.isPending ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
                 </div>
               ) : (
-                <div className="max-h-96 overflow-y-auto">
-                  <p className="text-gray-800 leading-relaxed">{summary.summaryText}</p>
-                </div>
-              )}
-              {!isEditingSummary && (
-                <div className="text-center pt-4 border-t">
-                  <Link href={`/sessions/${sessionId}/summary`}>
-                    <Button variant="outline" size="sm" className="flex items-center space-x-2">
-                      <Sparkles className="h-4 w-4" />
-                      <span>View Full Summary</span>
-                    </Button>
-                  </Link>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <Sparkles className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500">No summary available</p>
-              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
-                <Button
-                  onClick={handleRegenerateSummary}
-                  disabled={summarizeMutation.isPending}
-                  className="mt-4 flex items-center space-x-2"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>{summarizeMutation.isPending ? 'Generating...' : 'Generate Summary'}</span>
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* DM TODO List Section */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">DM Prep TODO List</h2>
-            <div className="flex items-center space-x-2">
-              {dmTodoList && (
-                <span className="text-sm text-gray-500">
-                  Generated {formatDate(dmTodoList.createdAt)}
-                  {dmTodoList.isEdited && dmTodoList.editedAt && (
-                    <span className="text-amber-600 ml-1">
-                      (edited {formatDate(dmTodoList.editedAt)})
-                    </span>
-                  )}
-                </span>
-              )}
-              {/* TODO Actions */}
-              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
-                <div className="flex items-center space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleGenerateTodoList}
-                    disabled={generateTodoMutation.isPending}
-                    className="flex items-center space-x-1"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    <span>{generateTodoMutation.isPending ? 'Generating...' : dmTodoList ? 'Regenerate' : 'Generate'}</span>
-                  </Button>
-                  {dmTodoList && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={isEditingTodoList ? handleCancelTodoEdit : handleEditTodoList}
-                      className="flex items-center space-x-1"
-                    >
-                      {isEditingTodoList ? (
-                        <>
-                          <Unlock className="h-3 w-3" />
-                          <span>Cancel</span>
-                        </>
-                      ) : (
-                        <>
-                          <Edit3 className="h-3 w-3" />
-                          <span>Edit</span>
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {dmTodoLoading ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading TODO list...</p>
-            </div>
-          ) : dmTodoList ? (
-            <div className="space-y-3">
-              {isEditingTodoList ? (
-                <div className="space-y-4">
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <div className="flex items-center space-x-2">
-                      <Lock className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm text-amber-800 font-medium">
-                        TODO List Editing Mode
-                      </span>
-                    </div>
-                    <p className="text-xs text-amber-700 mt-1">
-                      Make your changes and save, or cancel to revert.
+                <div className="prose prose-slate max-w-none">
+                  <div className="text-gray-700 leading-relaxed text-base max-h-96 overflow-y-auto pr-4 custom-scrollbar">
+                    {summary.summaryText}
+                  </div>
+                  {summary.isEdited && summary.editedAt && (
+                    <p className="text-xs text-amber-600 mt-4">
+                      Edited {formatDate(summary.editedAt)}
                     </p>
-                  </div>
-                  <textarea
-                    value={editedTodoContent}
-                    onChange={(e) => setEditedTodoContent(e.target.value)}
-                    className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                    placeholder="Enter your TODO list in markdown format..."
-                  />
-                  <div className="flex justify-end space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCancelTodoEdit}
-                      disabled={updateTodoMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveTodoList}
-                      disabled={updateTodoMutation.isPending || !editedTodoContent.trim()}
-                      className="flex items-center space-x-2"
-                    >
-                      <CheckCircle className="h-4 w-4" />
-                      <span>{updateTodoMutation.isPending ? 'Saving...' : 'Save Changes'}</span>
-                    </Button>
-                  </div>
+                  )}
                 </div>
+              )
+            ) : (
+              <div className="text-center py-12">
+                <Sparkles className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500 mb-4">No summary generated yet</p>
+                {transcriptions.length > 0 && (
+                  <button
+                    onClick={() => generateSummaryMutation.mutate()}
+                    disabled={generateSummaryMutation.isPending}
+                    className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                  >
+                    {generateSummaryMutation.isPending ? 'Generating...' : 'Generate Summary'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Transcript Section */}
+          <div className="border-t border-gray-200">
+            <button
+              onClick={() => toggleSection('transcript')}
+              className="w-full px-8 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-gray-600" />
+                <span className="font-semibold text-gray-900">Full Transcript</span>
+                <span className="text-sm text-gray-500">
+                  ({transcriptions.length} segments)
+                </span>
+              </div>
+              {expandedSections.has('transcript') ? (
+                <ChevronDown className="h-5 w-5 text-gray-600" />
               ) : (
-                <div className="max-h-96 overflow-y-auto prose prose-sm max-w-none">
-                  <div dangerouslySetInnerHTML={{ __html: marked(dmTodoList.content) as string }} />
-                </div>
+                <ChevronRight className="h-5 w-5 text-gray-600" />
               )}
-            </div>
+            </button>
+            {expandedSections.has('transcript') && (
+              <div className="px-8 py-6 bg-gray-50 border-t border-gray-200 max-h-96 overflow-y-auto space-y-4">
+                {transcriptions.map((t) => (
+                  <div key={t.id} className="bg-white p-4 border-l-4 border-blue-500">
+                    <div className="text-xs text-gray-500 mb-2">
+                      {Math.floor(t.startTime / 60)}:{String(Math.floor(t.startTime % 60)).padStart(2, '0')} -
+                      {Math.floor(t.endTime / 60)}:{String(Math.floor(t.endTime % 60)).padStart(2, '0')}
+                    </div>
+                    <p className="text-gray-700">{t.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* Right Panel - TODO List */}
+      <aside className="w-96 bg-white border-l border-gray-200 overflow-y-auto flex-shrink-0">
+        <div className="sticky top-0 bg-white p-6 border-b border-gray-200">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle className="h-6 w-6 text-blue-600" />
+            <h2 className="text-xl font-bold text-gray-900">DM Prep TODO</h2>
+          </div>
+          <div className="flex gap-2 mt-4">
+            {dmTodoList && !isEditingTodo && (
+              <button
+                onClick={handleEditTodo}
+                className="px-3 py-1 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                <Edit3 className="h-3 w-3 inline mr-1" />
+                Edit
+              </button>
+            )}
+            <button
+              onClick={() => generateTodoMutation.mutate()}
+              disabled={generateTodoMutation.isPending}
+              className="px-3 py-1 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+            >
+              <RefreshCw className={`h-3 w-3 inline mr-1 ${generateTodoMutation.isPending ? 'animate-spin' : ''}`} />
+              {dmTodoList ? 'Regenerate' : 'Generate'}
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6">
+          {dmTodoList ? (
+            isEditingTodo ? (
+              <div className="space-y-4">
+                <textarea
+                  value={editedTodoText}
+                  onChange={(e) => setEditedTodoText(e.target.value)}
+                  className="w-full h-96 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsEditingTodo(false)}
+                    className="flex-1 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveTodo}
+                    disabled={updateTodoMutation.isPending}
+                    className="flex-1 px-3 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700"
+                  >
+                    {updateTodoMutation.isPending ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="prose prose-sm prose-slate max-w-none"
+                dangerouslySetInnerHTML={{ __html: marked(dmTodoList.content) as string }}
+              />
+            )
           ) : (
-            <div className="text-center py-8">
+            <div className="text-center py-12">
               <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-500">No DM TODO list available</p>
-              {session && transcriptions && transcriptions.length > 0 && !processingStep && (
-                <Button
-                  onClick={handleGenerateTodoList}
+              <p className="text-gray-700 mb-4">No TODO list yet</p>
+              {transcriptions.length > 0 && (
+                <button
+                  onClick={() => generateTodoMutation.mutate()}
                   disabled={generateTodoMutation.isPending}
-                  className="mt-4 flex items-center space-x-2"
+                  className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
                 >
-                  <CheckCircle className="h-4 w-4" />
-                  <span>{generateTodoMutation.isPending ? 'Generating...' : 'Generate TODO List'}</span>
-                </Button>
+                  {generateTodoMutation.isPending ? 'Generating...' : 'Generate TODO'}
+                </button>
               )}
             </div>
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Actions */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Actions</h3>
-        <div className="flex flex-wrap gap-3 items-center justify-between">
-          <div className="flex flex-wrap gap-3">
-            {session.status === 'completed' && (
-              <>
-                <Link href={`/sessions/${sessionId}/transcript`}>
-                  <Button variant="outline" className="flex items-center space-x-2">
-                    <FileText className="h-4 w-4" />
-                    <span>View Full Transcript</span>
-                  </Button>
-                </Link>
-                {summary && (
-                  <Link href={`/sessions/${sessionId}/summary`}>
-                    <Button variant="outline" className="flex items-center space-x-2">
-                      <Sparkles className="h-4 w-4" />
-                      <span>View Full Summary</span>
-                    </Button>
-                  </Link>
-                )}
-              </>
-            )}
-            <Link href="/sessions">
-              <Button variant="outline">Back to All Sessions</Button>
-            </Link>
-          </div>
-          <Button
-            onClick={handleDeleteSession}
-            disabled={deleteSessionMutation.isPending}
-            variant="outline"
-            className="flex items-center space-x-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
-          >
-            <Trash2 className="h-4 w-4" />
-            <span>{deleteSessionMutation.isPending ? 'Deleting...' : 'Delete Session'}</span>
-          </Button>
-        </div>
-      </div>
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .border-l-3 {
+          border-left-width: 3px;
+        }
+      `}</style>
     </div>
   );
 }
