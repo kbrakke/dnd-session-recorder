@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/services/database';
+import { requireAuth } from '@/lib/auth-utils';
 
 const updateSessionStatusSchema = z.object({
   status: z.enum(['pending', 'processing', 'completed', 'error']),
@@ -86,18 +87,36 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const { error: authError } = await requireAuth();
+    if (authError) return authError;
+
     const sessionId = (await params).id;
-    
+
     if (!sessionId) {
       return NextResponse.json(
         { error: 'Invalid session ID' },
         { status: 400 }
       );
     }
-    
+
+    // Get session to return campaign ID for redirect
+    const session = await db.getSessionById(sessionId);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    const campaignId = session.campaignId;
+
     await db.deleteSession(sessionId);
-    
-    return NextResponse.json({ message: 'Session deleted successfully' });
+
+    return NextResponse.json({
+      message: 'Session deleted successfully',
+      campaignId
+    });
   } catch (error) {
     console.error('Error deleting session:', error);
     return NextResponse.json(

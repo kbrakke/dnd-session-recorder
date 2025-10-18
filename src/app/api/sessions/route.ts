@@ -8,7 +8,6 @@ const createSessionSchema = z.object({
   title: z.string().min(1, 'Session title is required'),
   session_date: z.string().min(1, 'Invalid session date format'),
   upload_id: z.string().optional(),
-  audio_file_path: z.string().optional(),
   duration: z.number().int().positive().optional(),
   status: z.string().optional(),
 });
@@ -70,11 +69,11 @@ export async function POST(request: Request) {
     }
     
     const gamingSession = await db.createSession({
+      userId: user.id,
       campaignId: validatedData.campaign_id,
       title: validatedData.title,
       sessionDate: new Date(validatedData.session_date),
       uploadId: validatedData.upload_id,
-      audioFilePath: validatedData.audio_file_path,
       duration: validatedData.duration,
       status: validatedData.status,
     });
@@ -87,10 +86,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    
+
     console.error('Error creating session:', error);
     return NextResponse.json(
-      { error: 'Failed to create session' },
+      {
+        error: 'Failed to create session',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        ...(process.env.NODE_ENV === 'development' && { stack: error instanceof Error ? error.stack : undefined })
+      },
       { status: 500 }
     );
   }

@@ -16,11 +16,12 @@ model User {
   password      String?   // Keep for local auth
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
-  accounts  Account[]
-  sessions  Session[]
-  campaigns Campaign[]
-  uploads   Upload[]
+
+  accounts       Account[]
+  sessions       Session[] // NextAuth authentication sessions (login tokens)
+  campaigns      Campaign[]
+  uploads        Upload[]
+  gamingSessions GamingSession[] // D&D game sessions
 }
 
 model Account {
@@ -83,26 +84,33 @@ model Campaign {
 
 model GamingSession {
   id             String          @id @default(cuid())
+  userId         String          @map("user_id") // Direct user reference for faster queries
   campaignId     String          @map("campaign_id")
   title          String
   sessionDate    DateTime        @map("session_date")
   uploadId       String?         @map("upload_id")
-  audioFilePath  String?         @map("audio_file_path") // Keep for backwards compatibility
   duration       Int?
   status         String          @default("draft") // draft, uploaded, transcribing, transcribed, summarizing, completed, error
-  
+
   // Detailed transcription progress tracking
   transcriptionProgress   Int?            @default(0) @map("transcription_progress") // 0-100 percentage
   totalChunks            Int?            @map("total_chunks")
   chunksCompleted        Int?            @default(0) @map("chunks_completed")
   currentStep            String?         @map("current_step") // chunking, transcribing, stitching
-  
+
+  // Timeout tracking
+  processingStartedAt    DateTime?       @map("processing_started_at")
+  lastProgressAt         DateTime?       @map("last_progress_at")
+
   errorStep      String?         @map("error_step")
   errorMessage   String?         @map("error_message") @db.Text
+  lastError      DateTime?       @map("last_error")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   summary        Summary?
   dmTodoList     DmTodoList?
   transcriptions Transcription[]

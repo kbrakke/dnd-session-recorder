@@ -9,11 +9,11 @@ export interface CreateCampaignData {
 }
 
 export interface CreateSessionData {
+  userId: string;
   campaignId: string;
   title: string;
   sessionDate: Date;
   uploadId?: string;
-  audioFilePath?: string;
   duration?: number;
   status?: string;
 }
@@ -95,11 +95,11 @@ export class DatabaseService {
   async createSession(data: CreateSessionData): Promise<GamingSession> {
     return prisma.gamingSession.create({
       data: {
+        userId: data.userId,
         campaignId: data.campaignId,
         title: data.title,
         sessionDate: data.sessionDate,
         uploadId: data.uploadId,
-        audioFilePath: data.audioFilePath,
         duration: data.duration,
         status: data.status || (data.uploadId ? 'uploaded' : 'draft'),
       },
@@ -109,7 +109,7 @@ export class DatabaseService {
   async getSessions(userId?: string, campaignId?: string): Promise<SessionListItem[]> {
     return prisma.gamingSession.findMany({
       where: {
-        ...(userId && { campaign: { userId } }),
+        ...(userId && { userId }),
         ...(campaignId && { campaignId }),
       },
       include: {
@@ -155,7 +155,7 @@ export class DatabaseService {
   }
   
   async updateTranscriptionProgress(
-    id: string, 
+    id: string,
     data: {
       currentStep?: string;
       totalChunks?: number;
@@ -167,6 +167,7 @@ export class DatabaseService {
       where: { id },
       data: {
         ...data,
+        lastProgressAt: new Date(),
         updatedAt: new Date(),
       },
     });
@@ -178,6 +179,7 @@ export class DatabaseService {
       data: {
         errorStep: step,
         errorMessage: message,
+        lastError: new Date(),
         status: 'error',
         updatedAt: new Date(),
       },
@@ -190,6 +192,65 @@ export class DatabaseService {
       data: {
         errorStep: null,
         errorMessage: null,
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async startProcessing(id: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id },
+      data: {
+        processingStartedAt: new Date(),
+        lastProgressAt: new Date(),
+        errorStep: null,
+        errorMessage: null,
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async checkProcessingTimeout(id: string, timeoutMinutes: number = 30): Promise<{
+    isTimedOut: boolean;
+    minutesElapsed: number;
+  }> {
+    const session = await prisma.gamingSession.findUnique({
+      where: { id },
+      select: {
+        processingStartedAt: true,
+        lastProgressAt: true,
+        status: true,
+      },
+    });
+
+    if (!session || !session.processingStartedAt) {
+      return { isTimedOut: false, minutesElapsed: 0 };
+    }
+
+    const now = new Date();
+    const startTime = session.processingStartedAt;
+    const minutesElapsed = (now.getTime() - startTime.getTime()) / (1000 * 60);
+    const isTimedOut = minutesElapsed >= timeoutMinutes;
+
+    return { isTimedOut, minutesElapsed: Math.floor(minutesElapsed) };
+  }
+
+  async cancelTranscription(id: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id },
+      data: {
+        status: 'uploaded',
+        currentStep: null,
+        totalChunks: null,
+        chunksCompleted: 0,
+        transcriptionProgress: 0,
+        processingStartedAt: null,
+        lastProgressAt: null,
+        errorStep: null,
+        errorMessage: null,
+        lastError: null,
         updatedAt: new Date(),
       },
     });
@@ -200,7 +261,6 @@ export class DatabaseService {
     errorStep?: string | null;
     errorMessage?: string | null;
     duration?: number;
-    audioFilePath?: string;
     uploadId?: string | null;
   }): Promise<GamingSession> {
     return prisma.gamingSession.update({
@@ -364,10 +424,26 @@ export class DatabaseService {
     });
   }
 
-  async getUploads(userId: string): Promise<Upload[]> {
+  async getUploads(userId: string, includeSessions = false) {
     return prisma.upload.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      ...(includeSessions && {
+        include: {
+          gamingSessions: {
+            select: {
+              id: true,
+              title: true,
+              sessionDate: true,
+              campaign: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
     });
   }
 

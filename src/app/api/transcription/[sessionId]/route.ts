@@ -79,6 +79,19 @@ async function updateSessionStatus(sessionId: string, status: string, errorStep?
   }
 }
 
+// Helper to execute with timeout
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMessage: string
+): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]);
+}
+
 // POST /api/transcription/[sessionId] - Transcribe audio
 export async function POST(
   request: NextRequest,
@@ -134,22 +147,14 @@ export async function POST(
     }
 
     // Get the file path from the linked upload
-    let fullPath: string;
-    
-    if (session.upload) {
-      // Upload paths are stored in the database
-      fullPath = session.upload.path;
-    } 
-    // Legacy fallback to session's audioFilePath if it exists
-    else if (session.audioFilePath) {
-      fullPath = session.audioFilePath;
-    } 
-    else {
+    if (!session.upload) {
       return NextResponse.json(
         { error: 'No audio file found for this session. Please upload an audio file first.' },
         { status: 400 }
       );
     }
+
+    const fullPath = session.upload.path;
 
     if (!fs.existsSync(fullPath)) {
       console.log(`[Transcription] File not found at path: ${fullPath}, performing reconciliation`);
@@ -182,8 +187,11 @@ export async function POST(
     }
 
     console.log(`[Transcription] Starting transcription for session ${sessionId}`);
+
+    // Start processing timer
+    await db.startProcessing(sessionId);
     await updateSessionStatus(sessionId, 'transcribing');
-    
+
     // Update progress: Starting chunking
     await db.updateTranscriptionProgress(sessionId, {
       currentStep: 'chunking',
@@ -204,31 +212,57 @@ export async function POST(
 
     const allText: string[] = [];
     
+    // Set timeout for each chunk: 30 minutes per chunk
+    const CHUNK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
       console.log(`[Transcription] Transcribing chunk ${i + 1}/${chunkPaths.length}: ${chunkPath}`);
-      
-      // Read the file buffer for AI SDK
-      const fileBuffer = fs.readFileSync(chunkPath);
-      
-      const transcription = await transcribe({
-        model: openai.transcription('whisper-1'),
-        audio: fileBuffer,
-      });
 
-      if (!transcription.text) {
-        throw new Error(`No transcription text received for chunk ${i + 1}`);
+      try {
+        // Read the file buffer for AI SDK
+        const fileBuffer = fs.readFileSync(chunkPath);
+
+        const transcription = await withTimeout(
+          transcribe({
+            model: openai.transcription('whisper-1'),
+            audio: fileBuffer,
+          }),
+          CHUNK_TIMEOUT_MS,
+          `Transcription timeout: Chunk ${i + 1}/${chunkPaths.length} took longer than 30 minutes`
+        );
+
+        if (!transcription.text) {
+          throw new Error(`No transcription text received for chunk ${i + 1}`);
+        }
+
+        allText.push(transcription.text);
+        console.log(`[Transcription] Chunk ${i + 1} transcribed successfully.`);
+
+        // Update progress after each chunk
+        const progressPercentage = Math.floor(10 + ((i + 1) / chunkPaths.length) * 80); // 10-90% for transcription
+        await db.updateTranscriptionProgress(sessionId, {
+          chunksCompleted: i + 1,
+          transcriptionProgress: progressPercentage,
+        });
+      } catch (chunkError) {
+        console.error(`[Transcription] Error on chunk ${i + 1}/${chunkPaths.length}:`, chunkError);
+
+        // Clean up any chunks we created
+        chunkPaths.forEach(p => {
+          if (p !== fullPath && fs.existsSync(p)) {
+            try {
+              fs.unlinkSync(p);
+            } catch (cleanupErr) {
+              console.error(`[Transcription] Error cleaning up ${p}:`, cleanupErr);
+            }
+          }
+        });
+
+        throw new Error(
+          `Failed to transcribe chunk ${i + 1}/${chunkPaths.length}: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}`
+        );
       }
-
-      allText.push(transcription.text);
-      console.log(`[Transcription] Chunk ${i + 1} transcribed.`);
-      
-      // Update progress after each chunk
-      const progressPercentage = Math.floor(10 + ((i + 1) / chunkPaths.length) * 80); // 10-90% for transcription
-      await db.updateTranscriptionProgress(sessionId, {
-        chunksCompleted: i + 1,
-        transcriptionProgress: progressPercentage,
-      });
     }
     
     // Update progress: Starting stitching
@@ -283,15 +317,23 @@ export async function POST(
 
   } catch (error) {
     console.error('[Transcription Error]:', error);
-    await updateSessionStatus(
-      sessionId, 
-      'error', 
-      'transcription', 
-      error instanceof Error ? error.message : String(error)
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('Timeout');
+
+    await db.setSessionError(
+      sessionId,
+      isTimeout ? 'transcription_timeout' : 'transcription',
+      errorMessage
     );
-    
+
     return NextResponse.json(
-      { error: 'Failed to transcribe audio' },
+      {
+        error: 'Failed to transcribe audio',
+        details: errorMessage,
+        isTimeout,
+        canRetry: true,
+      },
       { status: 500 }
     );
   }
@@ -303,20 +345,64 @@ export async function GET(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
+
   try {
     // Check authentication
     const { error } = await requireAuth();
     if (error) return error;
 
     const transcriptions = await db.getTranscriptions(sessionId);
-    
+
     return NextResponse.json(transcriptions);
   } catch (error) {
     console.error('Error fetching transcriptions:', error);
-    
+
     return NextResponse.json(
       { error: 'Failed to fetch transcriptions' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/transcription/[sessionId] - Cancel transcription
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
+  const { sessionId } = await params;
+
+  try {
+    // Check authentication
+    const { error } = await requireAuth();
+    if (error) return error;
+
+    // Check if session exists
+    const session = await db.getSessionById(sessionId);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if processing has been running for more than 30 minutes
+    const { isTimedOut, minutesElapsed } = await db.checkProcessingTimeout(sessionId, 30);
+
+    // Cancel the transcription by resetting the session state
+    await db.cancelTranscription(sessionId);
+
+    console.log(`[Transcription] Cancelled for session ${sessionId} (${minutesElapsed} minutes elapsed, timeout: ${isTimedOut})`);
+
+    return NextResponse.json({
+      message: 'Transcription cancelled successfully',
+      wasTimedOut: isTimedOut,
+      minutesElapsed,
+    });
+  } catch (error) {
+    console.error('Error cancelling transcription:', error);
+
+    return NextResponse.json(
+      { error: 'Failed to cancel transcription' },
       { status: 500 }
     );
   }

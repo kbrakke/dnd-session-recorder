@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { unlink } from 'fs/promises';
+import { existsSync } from 'fs';
 
 // GET /api/uploads/[id] - Get specific upload
 export async function GET(
@@ -80,17 +82,21 @@ export async function DELETE(
 ) {
   try {
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
+    const { id } = await params;
+
+    if (!id) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
+        { error: 'Invalid upload ID' },
+        { status: 400 }
       );
     }
 
-    const { id } = await params;
+    // Get upload details
     const upload = await db.getUploadById(id);
-    
+
     if (!upload) {
       return NextResponse.json(
         { error: 'Upload not found' },
@@ -99,9 +105,9 @@ export async function DELETE(
     }
 
     // Check if user owns this upload
-    if (upload.userId !== session.user.id) {
+    if (upload.userId !== user.id) {
       return NextResponse.json(
-        { error: 'Forbidden' },
+        { error: 'Forbidden - You do not own this upload' },
         { status: 403 }
       );
     }
@@ -109,57 +115,86 @@ export async function DELETE(
     // Check if upload is being used by any sessions
     const usage = await db.getUploadUsage(id);
     if (usage.sessionCount > 0) {
+      console.log(`[Upload Delete] Cannot delete upload ${id}: Used by ${usage.sessionCount} session(s)`);
       return NextResponse.json(
-        { 
+        {
           error: 'Cannot delete upload that is being used by sessions',
+          message: `This upload is used by ${usage.sessionCount} session(s). Please remove it from all sessions first.`,
+          sessionCount: usage.sessionCount,
           sessions: usage.sessions.map(session => ({
             id: session.id,
             title: session.title,
             campaignId: session.campaignId,
+            status: session.status,
           }))
         },
         { status: 400 }
       );
     }
 
-    // Delete the file from filesystem
-    try {
-      await unlink(upload.path);
-    } catch (fileError) {
-      console.warn('Failed to delete file from filesystem:', fileError);
-      // Continue with database deletion even if file deletion fails
+    console.log(`[Upload Delete] Starting deletion for upload ${id}: ${upload.originalName}`);
+
+    // Delete the main file from filesystem
+    let filesDeleted = 0;
+    let filesFailedToDelete = 0;
+
+    if (existsSync(upload.path)) {
+      try {
+        await unlink(upload.path);
+        filesDeleted++;
+        console.log(`[Upload Delete] Deleted main file: ${upload.path}`);
+      } catch (fileError) {
+        filesFailedToDelete++;
+        console.error(`[Upload Delete] Failed to delete main file: ${upload.path}`, fileError);
+      }
+    } else {
+      console.warn(`[Upload Delete] Main file not found: ${upload.path}`);
     }
 
     // Delete chunk files if they exist
     if (upload.chunkPaths) {
       try {
         const chunkPaths = JSON.parse(upload.chunkPaths);
+        console.log(`[Upload Delete] Found ${chunkPaths.length} chunk files to delete`);
+
         for (const chunkPath of chunkPaths) {
-          try {
-            await unlink(chunkPath);
-          } catch (chunkError) {
-            console.warn('Failed to delete chunk file:', chunkError);
+          if (existsSync(chunkPath)) {
+            try {
+              await unlink(chunkPath);
+              filesDeleted++;
+            } catch (chunkError) {
+              filesFailedToDelete++;
+              console.error(`[Upload Delete] Failed to delete chunk: ${chunkPath}`, chunkError);
+            }
           }
         }
       } catch (parseError) {
-        console.warn('Failed to parse chunk paths:', parseError);
+        console.error('[Upload Delete] Failed to parse chunk paths:', parseError);
       }
     }
 
     // Delete upload record from database
     await db.deleteUpload(id);
 
-    console.log(`[Upload] Upload deleted successfully: ${id}`);
+    console.log(`[Upload Delete] Upload ${id} deleted successfully. Files deleted: ${filesDeleted}, Failed: ${filesFailedToDelete}`);
 
     return NextResponse.json({
-      message: 'Upload deleted successfully'
+      message: 'Upload deleted successfully',
+      details: {
+        uploadId: id,
+        filesDeleted,
+        filesFailedToDelete,
+      }
     });
 
   } catch (error) {
-    console.error('Delete upload error:', error);
-    
+    console.error('[Upload Delete] Error:', error);
+
     return NextResponse.json(
-      { error: 'Failed to delete upload' },
+      {
+        error: 'Failed to delete upload',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }

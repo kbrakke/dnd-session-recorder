@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/uploads - Get user's uploads
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     // Check authentication
     const session = await getServerSession(authOptions);
@@ -159,7 +159,11 @@ export async function GET() {
       );
     }
 
-    const uploads = await db.getUploads(session.user.id);
+    // Check if we should include session associations
+    const { searchParams } = new URL(request.url);
+    const includeSessions = searchParams.get('includeSessions') === 'true';
+
+    const uploads = await db.getUploads(session.user.id, includeSessions);
     
     // File reconciliation: Filter out uploads whose files don't exist on disk
     const validUploads = [];

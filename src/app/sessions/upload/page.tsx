@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, FileAudio, Calendar, BookOpen, Play, CheckCircle, Sparkles, Plus } from 'lucide-react';
+import { Upload, FileAudio, Calendar, BookOpen, CheckCircle, Sparkles, Plus } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
 interface Campaign {
@@ -59,6 +59,7 @@ const formatFileSize = (bytes: number) => {
 
 export default function SessionUploadPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
@@ -68,37 +69,18 @@ export default function SessionUploadPage() {
     campaignId: '',
     sessionDate: new Date().toISOString().split('T')[0],
   });
-  const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [_currentSession, _setCurrentSession] = useState<Session | null>(null);
   const [processingStep, setProcessingStep] = useState<'upload' | 'transcribe' | 'summarize' | 'complete' | null>(null);
   const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
   const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
   const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
-  const [sessionProgress, setSessionProgress] = useState<SessionProgress | null>(null);
-  
-  // Poll for transcription progress
-  useEffect(() => {
-    if (processingStep === 'transcribe' && currentSession) {
-      const pollProgress = async () => {
-        try {
-          const response = await fetch(`/api/sessions/${currentSession.id}/progress`);
-          if (response.ok) {
-            const progress = await response.json();
-            setSessionProgress(progress);
-          }
-        } catch (error) {
-          console.error('Failed to fetch progress:', error);
-        }
-      };
-      
-      // Initial poll
-      pollProgress();
-      
-      // Set up interval polling
-      const interval = setInterval(pollProgress, 1000); // Poll every second
-      
-      return () => clearInterval(interval);
-    }
-  }, [processingStep, currentSession]);
+  const [sessionProgress, _setSessionProgress] = useState<SessionProgress | null>(null);
+
+  // Get uploadId from query params if present
+  const preSelectedUploadId = searchParams.get('uploadId');
+
+  // Poll for transcription progress - now handled on session detail page
+  // This component immediately redirects to the session page after creation
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -121,8 +103,19 @@ export default function SessionUploadPage() {
     },
   });
 
-  // File upload mutation
-  const uploadMutation = useMutation({
+  // Pre-select upload if uploadId query param is present
+  useEffect(() => {
+    if (preSelectedUploadId && uploads.length > 0 && !selectedUpload) {
+      const upload = uploads.find(u => u.id === preSelectedUploadId);
+      if (upload) {
+        setSelectedUpload(upload);
+        setUploadMode('existing');
+      }
+    }
+  }, [preSelectedUploadId, uploads, selectedUpload]);
+
+  // File upload mutation (kept for backwards compatibility with existing upload mode)
+  const _uploadMutation = useMutation({
     mutationFn: async (file: File): Promise<UploadResponse> => {
       const formData = new FormData();
       formData.append('audio', file);
@@ -148,7 +141,6 @@ export default function SessionUploadPage() {
       campaign_id: string;
       session_date: string;
       upload_id?: string;
-      audio_file_path?: string;
       duration?: number;
     }): Promise<Session> => {
       const response = await fetch('/api/sessions', {
@@ -275,103 +267,99 @@ export default function SessionUploadPage() {
       return;
     }
 
-    const hasUpload = uploadMode === 'skip' ? null : (uploadMode === 'new' ? selectedFile : selectedUpload);
-    let createdSessionId: string | null = null;
-
     try {
-      // Step 1: Always create the session first (guaranteed to succeed)
-      console.log('[Session Creation] Creating session...');
-      const sessionData = {
-        title: formData.title,
-        campaign_id: formData.campaignId,
-        session_date: new Date(formData.sessionDate).toISOString(),
-        status: 'draft', // Always start as draft
-      };
+      setProcessingStep('upload');
 
-      const session = await createSessionMutation.mutateAsync(sessionData);
-      createdSessionId = session.id;
-      setCurrentSession(session);
-      console.log(`[Session Creation] Session created: ${session.id}`);
+      // Use atomic session creation endpoint with file upload
+      if (uploadMode === 'new' && selectedFile) {
+        // Atomic creation: upload file + create session in one request
+        const formDataToSend = new FormData();
+        formDataToSend.append('title', formData.title);
+        formDataToSend.append('campaign_id', formData.campaignId);
+        formDataToSend.append('session_date', new Date(formData.sessionDate).toISOString());
+        formDataToSend.append('audio', selectedFile);
 
-      // Step 2: If we have an upload, upload and link it
-      if (hasUpload) {
-        let upload: Upload | null = null;
+        const response = await fetch('/api/sessions/create-with-upload', {
+          method: 'POST',
+          body: formDataToSend,
+        });
 
-        // Upload file if it's a new one
-        if (uploadMode === 'new' && selectedFile) {
-          setProcessingStep('upload');
-          console.log('[Upload] Uploading file...');
+        const result = await response.json();
 
-          try {
-            const uploadResult = await uploadMutation.mutateAsync(selectedFile);
-            upload = uploadResult.upload;
-            console.log(`[Upload] File uploaded: ${upload.id}`);
-          } catch (uploadError) {
-            console.error('[Upload] Failed:', uploadError);
-            alert(`Session created but upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}. You can retry from the session page.`);
-            router.push(`/sessions/${session.id}`);
+        if (!response.ok && response.status !== 207) {
+          // If we got a session ID despite the error, navigate to it
+          if (result.sessionId) {
+            alert(result.message || 'Session created but encountered an error');
+            router.push(`/sessions/${result.sessionId}`);
             return;
           }
-        } else if (selectedUpload) {
-          upload = selectedUpload;
+          throw new Error(result.error || 'Failed to create session');
         }
 
-        // Link upload to session
-        if (upload) {
-          try {
-            console.log(`[Link] Linking upload ${upload.id} to session ${session.id}...`);
-            const linkResponse = await fetch(`/api/sessions/${session.id}/upload`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                upload_id: upload.id,
-                duration: upload.duration
-              }),
-            });
+        // Success - navigate to session page to watch processing
+        setProcessingStep('transcribe');
+        console.log(`[Session Creation] Session created: ${result.session.id}`);
+        router.push(`/sessions/${result.session.id}`);
 
-            if (!linkResponse.ok) {
-              throw new Error('Failed to link upload to session');
-            }
+      } else if (uploadMode === 'existing' && selectedUpload) {
+        // Link existing upload to new session
+        const session = await createSessionMutation.mutateAsync({
+          title: formData.title,
+          campaign_id: formData.campaignId,
+          session_date: new Date(formData.sessionDate).toISOString(),
+        });
 
-            console.log('[Link] Upload linked successfully');
+        // Link the existing upload
+        const linkResponse = await fetch(`/api/sessions/${session.id}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            upload_id: selectedUpload.id,
+            duration: selectedUpload.duration
+          }),
+        });
 
-            // Step 3: Trigger the processing pipeline
-            setProcessingStep('transcribe');
-            console.log('[Process] Triggering processing pipeline...');
-
-            // Call the orchestrator to start processing
-            fetch(`/api/sessions/${session.id}/process`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-            }).catch(err => console.error('[Process] Failed to trigger:', err));
-
-            // Redirect to session page where user can watch progress
-            console.log('[Process] Redirecting to session page...');
-            router.push(`/sessions/${session.id}`);
-
-          } catch (linkError) {
-            console.error('[Link] Failed:', linkError);
-            alert(`Session created but failed to link audio: ${linkError instanceof Error ? linkError.message : 'Unknown error'}. You can retry from the session page.`);
-            router.push(`/sessions/${session.id}`);
-          }
+        if (!linkResponse.ok) {
+          alert('Session created but failed to link upload. You can link it from the session page.');
+        } else {
+          // Trigger processing
+          fetch(`/api/sessions/${session.id}/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(err => console.error('[Process] Failed to trigger:', err));
         }
+
+        router.push(`/sessions/${session.id}`);
+
       } else {
-        // Session created without audio - redirect to session page
-        console.log('[Session Creation] No audio provided, redirecting...');
+        // No upload - just create session
+        const session = await createSessionMutation.mutateAsync({
+          title: formData.title,
+          campaign_id: formData.campaignId,
+          session_date: new Date(formData.sessionDate).toISOString(),
+        });
+
         router.push(`/sessions/${session.id}`);
       }
 
     } catch (error) {
       console.error('[Session Creation] Error:', error);
-
-      // If we created a session, redirect to it
-      if (createdSessionId) {
-        alert(`Session created but encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. You can continue from the session page.`);
-        router.push(`/sessions/${createdSessionId}`);
-      } else {
-        // Session creation failed - this is the only true failure case
-        alert(`Failed to create session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        // Try to extract details from error message if it's a JSON parse error
+        try {
+          const match = error.message.match(/\{.*\}/);
+          if (match) {
+            const details = JSON.parse(match[0]);
+            if (details.details) errorMessage += `\n\nDetails: ${details.details}`;
+          }
+        } catch {
+          // Ignore parse errors
+        }
       }
+      alert(`Failed to create session: ${errorMessage}`);
+      setProcessingStep(null);
     }
   };
 
@@ -458,34 +446,6 @@ export default function SessionUploadPage() {
           })}
         </div>
 
-        {processingStep === 'complete' && currentSession && (
-          <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
-            <div className="flex items-center space-x-2 mb-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="font-medium text-green-900">Session Created Successfully!</span>
-            </div>
-            <p className="text-green-700 text-sm mb-3">
-              Your D&D session has been processed and is ready to view.
-            </p>
-            <div className="flex space-x-3">
-              <Button
-                size="sm"
-                onClick={() => router.push(`/sessions/${currentSession.id}`)}
-                className="flex items-center space-x-2"
-              >
-                <Play className="h-4 w-4" />
-                <span>View Session</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push('/sessions')}
-              >
-                All Sessions
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
     );
   };

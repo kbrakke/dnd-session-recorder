@@ -60,10 +60,8 @@ export class FileCleanupService {
         await this.cleanupUploadFiles(session.uploadId);
       }
 
-      // If session has a direct audio file path (backwards compatibility), clean it up
-      if (session.audioFilePath && session.audioFilePath !== session.upload?.path) {
-        await this.deleteFileIfExists(session.audioFilePath);
-      }
+      // Audio file cleanup is now handled through the Upload relationship only
+      // No need for legacy audioFilePath handling
 
       console.log(`[FileCleanup] Successfully cleaned up files for session ${sessionId}`);
 

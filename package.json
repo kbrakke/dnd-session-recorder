@@ -55,6 +55,7 @@
     "@playwright/test": "^1.54.2",
     "@testcontainers/postgresql": "^11.5.1",
     "@types/ffprobe-static": "^2.0.3",
+    "@types/lodash": "^4.17.20",
     "@types/node": "^20.19.8",
     "@types/pg": "^8.15.5",
     "@types/react": "^19",

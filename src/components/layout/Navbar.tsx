@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Home, User, LogOut, Settings, Scroll, PenTool, Archive } from 'lucide-react';
+import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, HardDrive } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -122,6 +122,14 @@ export default function Navbar() {
                           {session.user?.email}
                         </p>
                       </div>
+                      <Link
+                        href="/uploads"
+                        className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center space-x-2"
+                        onClick={() => setShowProfileDropdown(false)}
+                      >
+                        <HardDrive className="h-4 w-4" />
+                        <span>My Uploads</span>
+                      </Link>
                       <Link
                         href="/settings"
                         className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center space-x-2"

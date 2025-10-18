@@ -35,7 +35,7 @@ export async function POST(
 
     console.log(`[Process] Starting processing pipeline for session ${sessionId}, current status: ${session.status}`);
 
-    // If session is already completed or currently processing, return current state
+    // If session is already completed, return current state
     if (session.status === 'completed') {
       return NextResponse.json({
         message: 'Session already completed',
@@ -44,12 +44,21 @@ export async function POST(
       });
     }
 
-    if (['transcribing', 'summarizing', 'processing'].includes(session.status)) {
-      return NextResponse.json({
-        message: 'Session is currently being processed',
-        status: session.status,
-        session
-      });
+    // If currently processing (not stopped), return current state
+    if (['transcribing', 'summarizing'].includes(session.status)) {
+      // Check if it's actually stuck (processing started more than 30 min ago)
+      const { isTimedOut } = await db.checkProcessingTimeout(sessionId, 30);
+
+      if (!isTimedOut) {
+        return NextResponse.json({
+          message: 'Session is currently being processed',
+          status: session.status,
+          session
+        });
+      }
+
+      // If timed out, allow restart
+      console.log(`[Process] Session ${sessionId} timed out, allowing restart`);
     }
 
     // Check if session has an upload
@@ -83,12 +92,22 @@ export async function POST(
       await db.updateSession(sessionId, { status: 'transcribing' });
 
       // Trigger transcription asynchronously (fire and forget)
+      // Forward the cookies from the original request
+      const cookieHeader = request.headers.get('cookie');
       fetch(`${request.nextUrl.origin}/api/transcription/${sessionId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cookieHeader && { 'Cookie': cookieHeader }),
+        },
         body: JSON.stringify({}),
+        // @ts-ignore - Node.js fetch signal timeout option
+        signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
       }).catch(err => {
-        console.error(`[Process] Failed to trigger transcription:`, err);
+        // Ignore timeout errors - transcription runs in background
+        if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
+          console.error(`[Process] Failed to trigger transcription:`, err);
+        }
       });
 
       return NextResponse.json({
@@ -110,12 +129,21 @@ export async function POST(
       await db.updateSession(sessionId, { status: 'summarizing' });
 
       // Trigger summary generation asynchronously
+      const cookieHeader = request.headers.get('cookie');
       fetch(`${request.nextUrl.origin}/api/summary/${sessionId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cookieHeader && { 'Cookie': cookieHeader }),
+        },
         body: JSON.stringify({}),
+        // @ts-ignore - Node.js fetch signal timeout option
+        signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
       }).catch(err => {
-        console.error(`[Process] Failed to trigger summary:`, err);
+        // Ignore timeout errors - summary generation runs in background
+        if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
+          console.error(`[Process] Failed to trigger summary:`, err);
+        }
       });
 
       return NextResponse.json({
