@@ -15,17 +15,22 @@ export default defineConfig({
     '**/complete-workflow.spec.ts',
     '**/login.spec.ts'
   ],
+  // Only run verification tests
+  testMatch: [
+    '**/basic-staging-check.spec.ts',
+    '**/staging-verification.spec.ts'
+  ],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 1,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI
     ? [
-        ['html'],
+        ['html', { outputFolder: 'test-results-staging' }],
         ['github'],
         ['list']
       ]
-    : 'html',
+    : [['html', { outputFolder: 'test-results-staging' }]],
   use: {
     // No baseURL - tests use full URLs
     trace: 'on-first-retry',

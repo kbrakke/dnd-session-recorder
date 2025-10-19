@@ -80,15 +80,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-test-results-${{ inputs.environment }}
-          path: test-results-post-deploy/
+          path: |
+            test-results-staging/
+            test-results-post-deploy/
           retention-days: 30
-      
+
       - name: Upload Test Videos
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-test-videos-${{ inputs.environment }}
-          path: test-results-post-deploy/**/*.webm
+          path: |
+            test-results-staging/**/*.webm
+            test-results-post-deploy/**/*.webm
           retention-days: 7
       
       - name: Notify on Failure
