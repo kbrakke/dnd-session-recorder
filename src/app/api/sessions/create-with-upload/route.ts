@@ -171,7 +171,6 @@ export async function POST(request: NextRequest) {
           'Content-Type': 'application/json',
           ...(cookieHeader && { 'Cookie': cookieHeader }),
         },
-        // @ts-ignore - Node.js fetch signal timeout option
         signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
       }).catch(err => {
         // Ignore timeout errors - processing runs in background

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, FileAudio, Calendar, BookOpen, CheckCircle, Sparkles, Plus } from 'lucide-react';
@@ -57,7 +57,7 @@ const formatFileSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-export default function SessionUploadPage() {
+function SessionUploadPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -787,5 +787,17 @@ export default function SessionUploadPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SessionUploadPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <SessionUploadPageInner />
+    </Suspense>
   );
 }

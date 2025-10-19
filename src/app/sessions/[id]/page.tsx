@@ -281,7 +281,7 @@ export default function SessionPageRedesign() {
       return response.json();
     },
     enabled: !!sessionId,
-    refetchInterval: (query) => {
+    refetchInterval: () => {
       // Poll when transcribing
       if (session?.status === 'transcribing') return 2000;
       return false;
@@ -480,7 +480,7 @@ export default function SessionPageRedesign() {
     },
   });
 
-  const retryTranscriptionMutation = useMutation({
+  const _retryTranscriptionMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/sessions/${sessionId}/process`, {
         method: 'POST',
@@ -650,7 +650,7 @@ export default function SessionPageRedesign() {
 
   const needsAudio = !session?.uploadId;
   const hasError = session?.status === 'error';
-  const isProcessing =
+  const _isProcessing =
     session?.uploadId &&
     !hasError &&
     (session.status === 'uploaded' ||
@@ -672,7 +672,7 @@ export default function SessionPageRedesign() {
   const hasUpload = !!session?.uploadId;
   const hasTranscription = transcriptions.length > 0;
   const hasSummary = !!summary;
-  const hasTodoList = !!dmTodoList;
+  const _hasTodoList = !!dmTodoList;
 
   const getStepStatus = (step: 'upload' | 'transcribe' | 'summarize' | 'complete'): 'pending' | 'active' | 'complete' | 'error' => {
     if (hasError && (
@@ -1307,7 +1307,7 @@ export default function SessionPageRedesign() {
                   Delete Session
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Are you sure you want to delete "{sessionToDelete.title}"? This action cannot be undone and will permanently delete:
+                  Are you sure you want to delete &quot;{sessionToDelete.title}&quot;? This action cannot be undone and will permanently delete:
                 </p>
                 <ul className="text-sm text-gray-600 list-disc list-inside space-y-1 mb-4">
                   <li>All transcriptions</li>

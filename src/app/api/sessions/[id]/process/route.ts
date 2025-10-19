@@ -101,7 +101,6 @@ export async function POST(
           ...(cookieHeader && { 'Cookie': cookieHeader }),
         },
         body: JSON.stringify({}),
-        // @ts-ignore - Node.js fetch signal timeout option
         signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
       }).catch(err => {
         // Ignore timeout errors - transcription runs in background
@@ -137,7 +136,6 @@ export async function POST(
           ...(cookieHeader && { 'Cookie': cookieHeader }),
         },
         body: JSON.stringify({}),
-        // @ts-ignore - Node.js fetch signal timeout option
         signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
       }).catch(err => {
         // Ignore timeout errors - summary generation runs in background
