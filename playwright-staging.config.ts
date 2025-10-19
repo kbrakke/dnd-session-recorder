@@ -3,9 +3,18 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Playwright configuration for staging/production environment tests
  * No local web server is started - tests run against remote staging URL
+ *
+ * IMPORTANT: Only runs verification tests that don't require database access
+ * Integration tests with DB setup are in post-deploy-tests.yml for controlled environments
  */
 export default defineConfig({
   testDir: './tests/post-deploy',
+  // Exclude auth integration tests - they need DB access and test user creation
+  testIgnore: [
+    '**/auth/**',
+    '**/complete-workflow.spec.ts',
+    '**/login.spec.ts'
+  ],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 1,

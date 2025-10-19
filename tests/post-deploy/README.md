@@ -9,15 +9,32 @@ This directory contains tests that verify the application is working correctly i
 ## Quick Start
 
 ```bash
-# Run all staging tests
+# Run staging verification tests (read-only, no DB writes)
+npm run test:staging
+
+# Run verification tests only (basic + comprehensive)
 npx playwright test --config=playwright-staging.config.ts
 
-# Run complete workflow test (signup → campaigns → sessions)
-npx playwright test tests/post-deploy/complete-workflow.spec.ts --config=playwright-staging.config.ts --headed
-
-# Run quick health checks
-npx playwright test tests/post-deploy/staging-verification.spec.ts --config=playwright-staging.config.ts
+# Run full post-deploy suite (includes integration tests that need DB access)
+npm run test:post-deploy
 ```
+
+## ⚠️ Important: Test Organization
+
+Tests in this directory are organized by their requirements:
+
+### Staging-Safe Tests (Read-Only)
+- `basic-staging-check.spec.ts` - Quick health verification
+- `staging-verification.spec.ts` - Comprehensive read-only checks
+
+These run via `npm run test:staging` and **do not** create users or modify data.
+
+### Integration Tests (Require DB Access)
+- `auth/` - Authentication flow tests with test user creation
+- `complete-workflow.spec.ts` - Full E2E workflow with data creation
+- `login.spec.ts` - Login flow with test users
+
+These run via `npm run test:post-deploy` in **controlled environments only** (not public staging).
 
 ## Test Types
 
@@ -183,9 +200,27 @@ When adding new features to the application:
 
 A successful staging deployment should:
 
-- Pass all basic health checks (6/6 tests)
-- Return healthy status from API
-- Have database properly connected and migrated
-- Secure all protected endpoints
-- Respond to requests within performance thresholds
-- Support new features and API endpoints
+- ✅ Pass all staging verification tests (23/23 tests)
+  - 6 basic health checks
+  - 17 comprehensive verification checks
+- ✅ Return healthy status from API
+- ✅ Have database properly connected and migrated
+- ✅ Secure all protected endpoints (return 401, not 404)
+- ✅ Respond to requests within performance thresholds
+- ✅ Support new features and API endpoints
+- ✅ All static assets loading correctly
+- ✅ Authentication pages accessible
+
+## Test Count Summary
+
+- **Staging-Safe Tests**: 23 tests (2 files)
+  - `basic-staging-check.spec.ts`: 6 tests
+  - `staging-verification.spec.ts`: 17 tests
+
+- **Integration Tests**: ~75 tests (excluded from staging runs)
+  - `auth/api-auth.spec.ts`: ~25 tests
+  - `auth/error-scenarios.spec.ts`: ~25 tests
+  - `auth/login-flow.spec.ts`: ~10 tests
+  - `auth/registration.spec.ts`: ~10 tests
+  - `complete-workflow.spec.ts`: 4 tests
+  - `login.spec.ts`: ~6 tests
