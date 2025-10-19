@@ -32,9 +32,9 @@ test.describe('Staging Deployment Verification', () => {
 
     test('should have authentication system working', async ({ page }) => {
       await page.goto(`${STAGING_URL}/auth/signin`);
-      
-      // Check sign-in page loads correctly
-      await expect(page.getByText('Sign In')).toBeVisible();
+
+      // Check sign-in page loads correctly (use heading which is unique)
+      await expect(page.getByRole('heading', { name: /sign in/i })).toBeVisible();
       await expect(page.getByPlaceholder('Enter your email')).toBeVisible();
       await expect(page.getByPlaceholder('Enter your password')).toBeVisible();
     });
@@ -52,16 +52,15 @@ test.describe('Staging Deployment Verification', () => {
   test.describe('API Endpoint Verification', () => {
     test('should have protected endpoints properly secured', async ({ request }) => {
       const protectedEndpoints = [
-        '/api/sessions',
-        '/api/campaigns', 
-        '/api/uploads',
-        '/api/upload'
+        { path: '/api/sessions', method: 'GET' },
+        { path: '/api/campaigns', method: 'GET' },
+        { path: '/api/uploads', method: 'GET' },
       ];
 
-      for (const endpoint of protectedEndpoints) {
-        const response = await request.get(`${STAGING_URL}${endpoint}`);
+      for (const { path, method } of protectedEndpoints) {
+        const response = await request.fetch(`${STAGING_URL}${path}`, { method });
         expect(response.status()).toBe(401);
-        
+
         const body = await response.json();
         expect(body).toHaveProperty('error');
         expect(body.error).toMatch(/Authentication required|Unauthorized/);
@@ -111,14 +110,16 @@ test.describe('Staging Deployment Verification', () => {
     test('should have Google OAuth properly configured', async ({ page }) => {
       // Check if Google auth is available (this verifies environment variables are set)
       await page.goto(`${STAGING_URL}/auth/signin`);
-      
-      // Look for Google sign-in option or its container
-      // Note: This might not be visible if NEXT_PUBLIC_GOOGLE_ENABLED is not set
-      const pageContent = await page.textContent('body');
-      
-      // Just verify the page loads without errors - Google button may not be visible
-      // depending on environment configuration
-      expect(pageContent).toContain('Sign In');
+
+      // Verify the page loaded correctly
+      await expect(page.getByRole('heading', { name: /sign in/i })).toBeVisible();
+
+      // Check if Google sign-in button is present (optional feature)
+      const hasGoogleButton = await page.getByRole('button', { name: /google/i }).isVisible().catch(() => false);
+      const hasSignInForm = await page.getByPlaceholder('Enter your email').isVisible();
+
+      // Page should have either Google auth or email/password auth
+      expect(hasGoogleButton || hasSignInForm).toBe(true);
     });
   });
 

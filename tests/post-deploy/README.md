@@ -6,7 +6,38 @@ This directory contains tests that verify the application is working correctly i
 
 **URL**: https://dnd-recorder-staging.fly.dev/
 
+## Quick Start
+
+```bash
+# Run all staging tests
+npx playwright test --config=playwright-staging.config.ts
+
+# Run complete workflow test (signup → campaigns → sessions)
+npx playwright test tests/post-deploy/complete-workflow.spec.ts --config=playwright-staging.config.ts --headed
+
+# Run quick health checks
+npx playwright test tests/post-deploy/staging-verification.spec.ts --config=playwright-staging.config.ts
+```
+
 ## Test Types
+
+### Complete Workflow Test (`complete-workflow.spec.ts`) ⭐ NEW
+
+Full end-to-end user journey testing:
+
+1. **Sign Up** - Create new test user account
+2. **Sign In** - Log in with credentials
+3. **Create Campaign** - Create new D&D campaign
+4. **Create Session** - Create session without audio upload
+5. **Delete Session** - Remove session from campaign
+6. **Delete Campaign** - Clean up test campaign
+7. **Verify** - Ensure all resources cleaned up
+
+Features:
+- ✅ Unique test data per run (timestamp-based)
+- ✅ Google OAuth availability check
+- ✅ Automatic resource cleanup
+- ✅ Individual feature tests (campaigns, sessions)
 
 ### Basic Staging Health Check (`basic-staging-check.spec.ts`)
 

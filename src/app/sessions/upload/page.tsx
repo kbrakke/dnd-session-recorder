@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, FileAudio, Calendar, BookOpen, CheckCircle, Sparkles, Plus } from 'lucide-react';
+import { Upload, Calendar, BookOpen, Plus, FileAudio, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 
 interface Campaign {
@@ -28,24 +28,11 @@ interface UploadResponse {
   upload: Upload;
 }
 
-interface SessionProgress {
-  status: string;
-  duration?: number;
-  transcriptionProgress: number;
-  totalChunks: number;
-  chunksCompleted: number;
-  currentStep?: string;
-  errorStep?: string;
-  errorMessage?: string;
-}
-
 interface Session {
   id: string;
   title: string;
   campaignId: string;
   sessionDate: string;
-  uploadId?: string;
-  audioFilePath?: string;
   status: string;
 }
 
@@ -69,18 +56,12 @@ function SessionUploadPageInner() {
     campaignId: '',
     sessionDate: new Date().toISOString().split('T')[0],
   });
-  const [_currentSession, _setCurrentSession] = useState<Session | null>(null);
-  const [processingStep, setProcessingStep] = useState<'upload' | 'transcribe' | 'summarize' | 'complete' | null>(null);
   const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
   const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
   const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
-  const [sessionProgress, _setSessionProgress] = useState<SessionProgress | null>(null);
 
   // Get uploadId from query params if present
   const preSelectedUploadId = searchParams.get('uploadId');
-
-  // Poll for transcription progress - now handled on session detail page
-  // This component immediately redirects to the session page after creation
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -268,8 +249,6 @@ function SessionUploadPageInner() {
     }
 
     try {
-      setProcessingStep('upload');
-
       // Use atomic session creation endpoint with file upload
       if (uploadMode === 'new' && selectedFile) {
         // Atomic creation: upload file + create session in one request
@@ -297,7 +276,6 @@ function SessionUploadPageInner() {
         }
 
         // Success - navigate to session page to watch processing
-        setProcessingStep('transcribe');
         console.log(`[Session Creation] Session created: ${result.session.id}`);
         router.push(`/sessions/${result.session.id}`);
 
@@ -359,107 +337,8 @@ function SessionUploadPageInner() {
         }
       }
       alert(`Failed to create session: ${errorMessage}`);
-      setProcessingStep(null);
     }
   };
-
-  // Render processing status
-  const renderProcessingStatus = () => {
-    if (!processingStep) return null;
-
-    const steps = [
-      { key: 'upload', label: 'Uploading audio file', icon: Upload },
-      { key: 'transcribe', label: 'Generating transcription', icon: FileAudio },
-      { key: 'summarize', label: 'Creating AI summary', icon: Sparkles },
-      { key: 'complete', label: 'Session ready!', icon: CheckCircle },
-    ];
-
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Processing Session</h3>
-        <div className="space-y-4">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isActive = step.key === processingStep;
-            const isCompleted = steps.findIndex(s => s.key === processingStep) > index;
-
-            return (
-              <div key={step.key} className="space-y-2">
-                <div className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
-                  isCompleted ? 'bg-green-50 border border-green-200' :
-                    'bg-gray-50 border border-gray-200'
-                  }`}>
-                  <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
-                    isCompleted ? 'text-green-600' :
-                      'text-gray-400'
-                    }`} />
-                  <div className="flex-1">
-                    <span className={`font-medium ${isActive ? 'text-blue-900' :
-                      isCompleted ? 'text-green-900' :
-                        'text-gray-500'
-                      }`}>
-                      {step.label}
-                    </span>
-                    
-                    {/* Show detailed progress for transcription */}
-                    {step.key === 'transcribe' && isActive && sessionProgress && (
-                      <div className="mt-2 space-y-2">
-                        {/* Progress bar */}
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${sessionProgress.transcriptionProgress}%` }}
-                          />
-                        </div>
-                        
-                        {/* Progress details */}
-                        <div className="flex justify-between text-xs text-gray-600">
-                          <span>
-                            {sessionProgress.currentStep === 'chunking' && 'Preparing audio chunks...'}
-                            {sessionProgress.currentStep === 'transcribing' && 
-                              `Transcribing chunk ${sessionProgress.chunksCompleted} of ${sessionProgress.totalChunks}`}
-                            {sessionProgress.currentStep === 'stitching' && 'Combining transcriptions...'}
-                            {sessionProgress.currentStep === 'completed' && 'Transcription complete!'}
-                          </span>
-                          <span>{sessionProgress.transcriptionProgress}%</span>
-                        </div>
-                        
-                        {/* Duration info */}
-                        {sessionProgress.duration && (
-                          <div className="text-xs text-gray-500">
-                            Audio duration: {Math.floor(sessionProgress.duration / 60)}m {sessionProgress.duration % 60}s
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {isActive && !sessionProgress && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                  )}
-                  {isCompleted && (
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-      </div>
-    );
-  };
-
-  if (processingStep) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Processing Session</h1>
-        </div>
-        {renderProcessingStatus()}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
