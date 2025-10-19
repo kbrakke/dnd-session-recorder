@@ -648,7 +648,7 @@ export default function SessionPageRedesign() {
     );
   }
 
-  const needsAudio = !session?.uploadId;
+  const needsAudio = !session?.uploadId && transcriptions.length === 0;
   const hasError = session?.status === 'error';
   const _isProcessing =
     session?.uploadId &&
