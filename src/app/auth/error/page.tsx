@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 const errorMessages = {
   'Configuration': 'There is a problem with the server configuration.',
@@ -29,7 +30,7 @@ function AuthErrorForm() {
   const errorMessage = errorMessages[error as keyof typeof errorMessages] || errorMessages.Default;
 
   // Log the error for debugging
-  console.error('Authentication error:', { error, errorMessage });
+  logger.error('Authentication error page displayed', new Error(`Auth error: ${error}`), { error, errorMessage });
 
   const getErrorTitle = (error: string) => {
     switch (error) {

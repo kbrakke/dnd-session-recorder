@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { logger } from '@/lib/logger';
 
 export async function GET() {
   try {
@@ -31,7 +32,9 @@ export async function GET() {
         schemaStatus = 'migration_needed';
       }
     } catch (schemaError) {
-      console.warn('Schema check failed:', schemaError);
+      logger.warn('Schema check failed', {
+        error: schemaError instanceof Error ? schemaError.message : String(schemaError)
+      });
       schemaStatus = 'not_initialized';
     }
     
@@ -45,8 +48,8 @@ export async function GET() {
       databaseUrl: process.env.DATABASE_URL?.replace(/:[^@]*@/, ':***@').replace(/\/[^\/]*$/, '/***'),
     });
   } catch (error) {
-    console.error('Health check failed:', error);
-    
+    logger.error('Health check failed', error as Error);
+
     return NextResponse.json({
       status: 'ERROR',
       timestamp: new Date().toISOString(),

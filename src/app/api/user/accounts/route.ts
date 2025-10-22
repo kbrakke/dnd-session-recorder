@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { logger } from '@/lib/logger';
 
 export async function GET() {
   try {
@@ -42,7 +43,7 @@ export async function GET() {
 
     return NextResponse.json({ accounts: allAccounts });
   } catch (error) {
-    console.error('Error fetching user accounts:', error);
+    logger.error('Failed to fetch user accounts', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch accounts' },
       { status: 500 }

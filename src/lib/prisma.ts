@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { logger } from '@/lib/logger';
 
 declare global {
   var prisma: PrismaClient | undefined;
@@ -8,9 +9,10 @@ const createPrismaClient = () => {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
-    console.log('[Prisma] Initializing Prisma Client');
-    console.log('[Prisma] NODE_ENV:', process.env.NODE_ENV);
-    console.log('[Prisma] DATABASE_URL:', process.env.DATABASE_URL ? '[SET]' : '[NOT SET]');
+    logger.debug('Initializing Prisma Client', {
+      nodeEnv: process.env.NODE_ENV,
+      databaseUrl: process.env.DATABASE_URL ? '[SET]' : '[NOT SET]'
+    });
   }
 
   const client = new PrismaClient({
@@ -24,10 +26,10 @@ const createPrismaClient = () => {
   if (!isProduction) {
     client.$connect()
       .then(() => {
-        console.log('[Prisma] ✅ Database connected successfully');
+        logger.info('Database connected successfully');
       })
       .catch((error) => {
-        console.error('[Prisma] ❌ Failed to connect to database:', error);
+        logger.error('Failed to connect to database', error);
       });
   }
 

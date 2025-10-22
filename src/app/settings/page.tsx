@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { User, Mail, Link as LinkIcon, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 interface Account {
   provider: string;
@@ -34,7 +35,7 @@ export default function SettingsPage() {
           setAccounts(data.accounts || []);
         }
       } catch (error) {
-        console.error('Failed to fetch accounts:', error);
+        logger.error('Failed to fetch accounts', error instanceof Error ? error : new Error(String(error)));
       } finally {
         setIsLoading(false);
       }
@@ -61,7 +62,7 @@ export default function SettingsPage() {
         setError('Failed to link Google account. Please try again.');
       }
     } catch (error) {
-      console.error('Google linking error:', error);
+      logger.error('Google linking failed', error instanceof Error ? error : new Error(String(error)));
       setError('Failed to link Google account. Please try again.');
     } finally {
       setIsLoading(false);

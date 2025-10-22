@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/services/database';
 import { requireAuth } from '@/lib/auth-utils';
+import { logger } from '@/lib/logger';
 
 const updateSessionStatusSchema = z.object({
   status: z.enum(['pending', 'processing', 'completed', 'error']),
@@ -38,7 +39,7 @@ export async function GET(
     
     return NextResponse.json(transformedSession);
   } catch (error) {
-    console.error('Error fetching session:', error);
+    logger.error('Failed to fetch session', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch session' },
       { status: 500 }
@@ -73,8 +74,8 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    
-    console.error('Error updating session status:', error);
+
+    logger.error('Failed to update session status', error as Error);
     return NextResponse.json(
       { error: 'Failed to update session status' },
       { status: 500 }
@@ -118,7 +119,7 @@ export async function DELETE(
       campaignId
     });
   } catch (error) {
-    console.error('Error deleting session:', error);
+    logger.error('Failed to delete session', error as Error);
     return NextResponse.json(
       { error: 'Failed to delete session' },
       { status: 500 }

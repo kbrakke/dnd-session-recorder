@@ -8,6 +8,7 @@ import { exec } from 'child_process';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import ffprobe from 'ffprobe-static';
+import { logger, getUserContext } from '@/lib/logger';
 
 // Configure upload settings
 const uploadDir = process.env.UPLOAD_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/uploads' : './uploads');
@@ -45,7 +46,7 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
     const duration = parseFloat(stdout.trim());
     return isNaN(duration) ? null : Math.round(duration);
   } catch (error) {
-    console.error('Error getting audio duration:', error);
+    logger.error('Failed to get audio duration', error as Error);
     return null;
   }
 }
@@ -68,6 +69,8 @@ export async function POST(request: NextRequest) {
   try {
     const { error, user } = await requireAuth();
     if (error) return error;
+
+    logger.apiRequest('POST', '/api/sessions/create-with-upload', getUserContext({ user }));
 
     await ensureUploadDir();
 
@@ -126,7 +129,11 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(bytes);
       await writeFile(uploadedFilePath, buffer);
 
-      console.log(`[Session Creation] Audio file saved: ${uniqueName}`);
+      logger.info('Audio file saved for session creation', {
+        filename: uniqueName,
+        size: audioFile.size,
+        userId: user.id
+      });
 
       // Get audio duration
       duration = await getAudioDuration(uploadedFilePath) ?? undefined;
@@ -143,7 +150,10 @@ export async function POST(request: NextRequest) {
       });
 
       uploadId = upload.id;
-      console.log(`[Session Creation] Upload record created: ${upload.id}`);
+      logger.info('Upload record created', {
+        uploadId: upload.id,
+        userId: user.id
+      });
     }
 
     // Create gaming session (with or without upload)
@@ -158,7 +168,13 @@ export async function POST(request: NextRequest) {
     });
 
     createdSessionId = session.id;
-    console.log(`[Session Creation] Session created: ${session.id}`);
+    logger.info('Session created', {
+      sessionId: session.id,
+      campaignId,
+      uploadId,
+      status: session.status,
+      userId: user.id
+    });
 
     // If audio was uploaded, trigger processing pipeline
     if (uploadId) {
@@ -175,11 +191,17 @@ export async function POST(request: NextRequest) {
       }).catch(err => {
         // Ignore timeout errors - processing runs in background
         if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
-          console.error('[Session Creation] Failed to trigger processing:', err);
+          logger.error('Failed to trigger processing pipeline', err, {
+            sessionId: session.id,
+            userId: user.id
+          });
         }
       });
 
-      console.log(`[Session Creation] Processing pipeline triggered for session ${session.id}`);
+      logger.info('Processing pipeline triggered', {
+        sessionId: session.id,
+        userId: user.id
+      });
     }
 
     return NextResponse.json({
@@ -197,7 +219,9 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
 
   } catch (error) {
-    console.error('[Session Creation] Error:', error);
+    logger.apiError('POST', '/api/sessions/create-with-upload', error as Error, {
+      sessionId: createdSessionId ?? undefined
+    });
 
     // If we have a session ID, return it so user can navigate to it
     if (createdSessionId) {

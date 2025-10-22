@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 function SignInForm() {
   const [email, setEmail] = useState('');
@@ -20,8 +21,8 @@ function SignInForm() {
   useEffect(() => {
     const urlError = searchParams.get('error');
     if (urlError) {
-      console.error('Authentication error from URL:', urlError);
-      
+      logger.warn('Authentication error from URL', { error: urlError });
+
       const errorMessages = {
         'CredentialsSignin': 'Invalid email or password. Please check your credentials.',
         'OAuthCallback': 'Google authentication failed. Please try again.',
@@ -29,7 +30,7 @@ function SignInForm() {
         'OAuthAccountNotLinked': 'This account is linked to a different sign-in method.',
         'Default': 'An authentication error occurred. Please try again.',
       };
-      
+
       setError(errorMessages[urlError as keyof typeof errorMessages] || errorMessages.Default);
     }
   }, [searchParams]);
@@ -62,30 +63,30 @@ function SignInForm() {
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setError(''); // Clear any existing errors
-    
+
     try {
-      console.log('Starting Google OAuth sign in...');
-      
-      const result = await signIn('google', { 
+      logger.debug('Starting Google OAuth sign in');
+
+      const result = await signIn('google', {
         callbackUrl: '/',
         redirect: false
       });
-      
-      console.log('Google sign in result:', result);
-      
+
+      logger.debug('Google sign in result received', { hasError: !!result?.error, ok: result?.ok });
+
       if (result?.error) {
-        console.error('Google sign in error:', result.error);
+        logger.error('Google sign in failed', new Error(result.error));
         setError(`Google sign in failed: ${result.error}`);
         setIsLoading(false);
       } else if (result?.ok) {
-        console.log('Google sign in successful, redirecting...');
+        logger.info('Google sign in successful, redirecting');
         router.push('/');
       } else {
-        console.log('Google sign in - no result, may be redirecting...');
+        logger.debug('Google sign in - no result, may be redirecting');
         // In case of redirect, don't set loading to false
       }
     } catch (error) {
-      console.error('Google sign in exception:', error);
+      logger.error('Google sign in exception', error instanceof Error ? error : new Error(String(error)));
       setError('Google sign in failed. Please try again.');
       setIsLoading(false);
     }

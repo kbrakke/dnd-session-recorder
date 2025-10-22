@@ -5,6 +5,7 @@ import { db } from '@/services/database';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import { isTestAccount } from '@/lib/whitelist';
+import { logger } from '@/lib/logger';
 
 const model = openai('gpt-4o');
 
@@ -34,7 +35,10 @@ export async function POST(
 
     // COST PROTECTION: Block test accounts from making AI API calls
     if (isTestAccount(user.email!)) {
-      console.log(`[DM TODO] Blocked test account ${user.email} from making AI API call for session ${sessionId}`);
+      logger.warn('Blocked test account from DM TODO generation', {
+        sessionId,
+        userEmail: user.email
+      });
 
       return NextResponse.json(
         {
@@ -57,7 +61,7 @@ export async function POST(
     // IDEMPOTENCY: Check if TODO list already exists
     const existingTodoList = await db.getDmTodoList(sessionId);
     if (existingTodoList) {
-      console.log(`[DM TODO] TODO list already exists for session ${sessionId}, skipping`);
+      logger.info('DM TODO list already exists, skipping', { sessionId });
 
       return NextResponse.json({
         message: 'DM TODO list already exists',
@@ -85,7 +89,7 @@ export async function POST(
       );
     }
 
-    console.log(`[DM TODO] Starting TODO list generation for session ${sessionId}`);
+    logger.info('Starting DM TODO list generation', { sessionId });
 
     // Format transcriptions
     const formattedText = formatTranscriptionsForTodo(transcriptions);
@@ -125,7 +129,7 @@ Avoid adding simple generic items, only include TODO items that come out of the 
     // Save TODO list to database
     await db.saveDmTodoList(sessionId, todoContent);
 
-    console.log(`[DM TODO] TODO list generation completed for session ${sessionId}`);
+    logger.info('DM TODO list generation completed', { sessionId });
 
     return NextResponse.json({
       message: 'DM TODO list generated successfully',
@@ -133,7 +137,7 @@ Avoid adding simple generic items, only include TODO items that come out of the 
     });
 
   } catch (error) {
-    console.error('[DM TODO Error]:', error);
+    logger.error('DM TODO generation error', error as Error, { sessionId });
 
     return NextResponse.json(
       { error: 'Failed to generate DM TODO list' },
@@ -165,7 +169,7 @@ export async function GET(
 
     return NextResponse.json(todoList);
   } catch (error) {
-    console.error('Error fetching DM TODO list:', error);
+    logger.error('Failed to fetch DM TODO list', error as Error);
 
     return NextResponse.json(
       { error: 'Failed to fetch DM TODO list' },
@@ -226,7 +230,7 @@ export async function PUT(
     // Update TODO list
     const updatedTodoList = await db.updateDmTodoList(sessionId, validatedData.content);
 
-    console.log(`[DM TODO] TODO list updated for session ${sessionId}`);
+    logger.info('DM TODO list updated', { sessionId });
 
     return NextResponse.json({
       message: 'DM TODO list updated successfully',
@@ -241,7 +245,7 @@ export async function PUT(
       );
     }
 
-    console.error('Error updating DM TODO list:', error);
+    logger.error('Failed to update DM TODO list', error as Error);
 
     return NextResponse.json(
       { error: 'Failed to update DM TODO list' },

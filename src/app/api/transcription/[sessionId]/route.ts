@@ -8,6 +8,7 @@ import { isTestAccount } from '@/lib/whitelist';
 import fs from 'fs';
 import path from 'path';
 import ffmpeg from 'fluent-ffmpeg';
+import { logger } from '@/lib/logger';
 
 // Helper to split audio into 24MB chunks
 async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<string[]> {
@@ -21,7 +22,10 @@ async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<st
   const chunkPaths: string[] = [];
 
   if (numChunks === 1) {
-    console.log(`[Audio Split] File is under ${chunkSizeMB}MB, no split needed.`);
+    logger.debug('Audio file under size limit, no split needed', {
+      chunkSizeMB,
+      path: inputPath
+    });
     return [inputPath];
   }
 
@@ -36,7 +40,12 @@ async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<st
   const duration = await getDuration();
   const chunkDuration = duration / numChunks;
 
-  console.log(`[Audio Split] Splitting ${inputPath} into ${numChunks} chunks of ~${chunkSizeMB}MB each (~${chunkDuration.toFixed(2)}s per chunk)`);
+  logger.info('Splitting audio file into chunks', {
+    path: inputPath,
+    numChunks,
+    chunkSizeMB,
+    chunkDuration: chunkDuration.toFixed(2)
+  });
 
   const splitPromises: Promise<void>[] = [];
   for (let i = 0; i < numChunks; i++) {
@@ -50,11 +59,11 @@ async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<st
         .setDuration(chunkDuration)
         .output(output)
         .on('end', () => {
-          console.log(`[Audio Split] Created chunk: ${output}`);
+          logger.debug('Audio chunk created', { output });
           resolve();
         })
         .on('error', (err) => {
-          console.error(`[Audio Split] Error creating chunk ${output}:`, err);
+          logger.error('Failed to create audio chunk', err, { output });
           reject(err);
         })
         .run();
@@ -74,7 +83,7 @@ async function updateSessionStatus(sessionId: string, status: string, errorStep?
       errorMessage: errorMessage || null,
     });
   } catch (error) {
-    console.error('Error updating session status:', error);
+    logger.error('Failed to update session status', error as Error, { sessionId });
     throw error;
   }
 }
@@ -109,7 +118,10 @@ export async function POST(
 
     // COST PROTECTION: Block test accounts from making AI API calls
     if (isTestAccount(user.email!)) {
-      console.log(`[Transcription] Blocked test account ${user.email} from making AI API call for session ${sessionId}`);
+      logger.warn('Blocked test account from transcription', {
+        sessionId,
+        userEmail: user.email
+      });
 
       return NextResponse.json(
         {
@@ -132,7 +144,7 @@ export async function POST(
     // IDEMPOTENCY: Check if transcription already exists
     const existingTranscriptions = await db.getTranscriptions(sessionId);
     if (existingTranscriptions && existingTranscriptions.length > 0) {
-      console.log(`[Transcription] Transcription already exists for session ${sessionId}, skipping`);
+      logger.info('Transcription already exists, skipping', { sessionId });
 
       // Update status to transcribed if not already
       if (session.status !== 'transcribed' && session.status !== 'completed') {
@@ -157,24 +169,30 @@ export async function POST(
     const fullPath = session.upload.path;
 
     if (!fs.existsSync(fullPath)) {
-      console.log(`[Transcription] File not found at path: ${fullPath}, performing reconciliation`);
+      logger.warn('Audio file not found, performing reconciliation', {
+        sessionId,
+        path: fullPath
+      });
       
       // File reconciliation: Remove database references to missing files
       try {
         if (session.upload) {
-          console.log(`[Transcription] Removing upload record ${session.upload.id} for missing file`);
+          logger.info('Removing upload record for missing file', {
+            sessionId,
+            uploadId: session.upload.id
+          });
           await db.deleteUpload(session.upload.id);
         }
-        
+
         // Clear the session's upload link and revert to draft status
-        await db.updateSession(sessionId, { 
-          uploadId: null, 
+        await db.updateSession(sessionId, {
+          uploadId: null,
           status: 'draft'
         });
-        
-        console.log(`[Transcription] Cleaned up database records for missing file`);
+
+        logger.info('Cleaned up database records for missing file', { sessionId });
       } catch (cleanupError) {
-        console.error('Error during file reconciliation cleanup:', cleanupError);
+        logger.error('File reconciliation cleanup failed', cleanupError as Error, { sessionId });
       }
       
       return NextResponse.json(
@@ -186,7 +204,7 @@ export async function POST(
       );
     }
 
-    console.log(`[Transcription] Starting transcription for session ${sessionId}`);
+    logger.info('Starting transcription', { sessionId });
 
     // Start processing timer
     await db.startProcessing(sessionId);
@@ -200,7 +218,10 @@ export async function POST(
 
     // Split audio into 24MB chunks
     const chunkPaths = await splitAudioBySize(fullPath, 18);
-    console.log(`[Transcription] Audio split into ${chunkPaths.length} chunk(s)`);
+    logger.info('Audio split into chunks', {
+      sessionId,
+      chunkCount: chunkPaths.length
+    });
     
     // Update progress: Chunking complete, starting transcription
     await db.updateTranscriptionProgress(sessionId, {
@@ -217,7 +238,12 @@ export async function POST(
 
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
-      console.log(`[Transcription] Transcribing chunk ${i + 1}/${chunkPaths.length}: ${chunkPath}`);
+      logger.debug('Transcribing chunk', {
+        sessionId,
+        chunkNumber: i + 1,
+        totalChunks: chunkPaths.length,
+        path: chunkPath
+      });
 
       try {
         // Read the file buffer for AI SDK
@@ -237,7 +263,11 @@ export async function POST(
         }
 
         allText.push(transcription.text);
-        console.log(`[Transcription] Chunk ${i + 1} transcribed successfully.`);
+        logger.info('Chunk transcribed successfully', {
+          sessionId,
+          chunkNumber: i + 1,
+          totalChunks: chunkPaths.length
+        });
 
         // Update progress after each chunk
         const progressPercentage = Math.floor(10 + ((i + 1) / chunkPaths.length) * 80); // 10-90% for transcription
@@ -246,7 +276,11 @@ export async function POST(
           transcriptionProgress: progressPercentage,
         });
       } catch (chunkError) {
-        console.error(`[Transcription] Error on chunk ${i + 1}/${chunkPaths.length}:`, chunkError);
+        logger.error('Chunk transcription failed', chunkError as Error, {
+          sessionId,
+          chunkNumber: i + 1,
+          totalChunks: chunkPaths.length
+        });
 
         // Clean up any chunks we created
         chunkPaths.forEach(p => {
@@ -254,7 +288,10 @@ export async function POST(
             try {
               fs.unlinkSync(p);
             } catch (cleanupErr) {
-              console.error(`[Transcription] Error cleaning up ${p}:`, cleanupErr);
+              logger.error('Chunk cleanup failed', cleanupErr as Error, {
+                sessionId,
+                path: p
+              });
             }
           }
         });
@@ -277,14 +314,14 @@ export async function POST(
         fs.unlinkSync(p);
       }
     });
-    console.log(`[Transcription] All chunks transcribed and cleaned up.`);
+    logger.info('All chunks transcribed and cleaned up', { sessionId });
 
     // Combine all text chunks into a single transcription
     const fullText = allText.join(' ');
 
     // Save transcription to database
     await db.saveTranscription(sessionId, fullText);
-    console.log(`[Transcription] Transcription saved.`);
+    logger.info('Transcription saved', { sessionId, textLength: fullText.length });
     
     // Update progress: Complete
     await db.updateTranscriptionProgress(sessionId, {
@@ -304,11 +341,14 @@ export async function POST(
     try {
       await fileCleanup.cleanupSessionFiles(sessionId);
     } catch (cleanupError) {
-      console.warn(`[Transcription] File cleanup failed for session ${sessionId}:`, cleanupError);
+      logger.warn('File cleanup failed', {
+        sessionId,
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+      });
       // Don't fail the transcription if cleanup fails
     }
 
-    console.log(`[Transcription] Transcription completed for session ${sessionId}`);
+    logger.info('Transcription completed', { sessionId });
 
     return NextResponse.json({
       message: 'Transcription completed successfully',
@@ -316,10 +356,13 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('[Transcription Error]:', error);
-
     const errorMessage = error instanceof Error ? error.message : String(error);
     const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('Timeout');
+
+    logger.error('Transcription error', error as Error, {
+      sessionId,
+      isTimeout
+    });
 
     await db.setSessionError(
       sessionId,
@@ -355,7 +398,7 @@ export async function GET(
 
     return NextResponse.json(transcriptions);
   } catch (error) {
-    console.error('Error fetching transcriptions:', error);
+    logger.error('Failed to fetch transcriptions', error as Error);
 
     return NextResponse.json(
       { error: 'Failed to fetch transcriptions' },
@@ -391,7 +434,11 @@ export async function DELETE(
     // Cancel the transcription by resetting the session state
     await db.cancelTranscription(sessionId);
 
-    console.log(`[Transcription] Cancelled for session ${sessionId} (${minutesElapsed} minutes elapsed, timeout: ${isTimedOut})`);
+    logger.info('Transcription cancelled', {
+      sessionId,
+      minutesElapsed,
+      wasTimedOut: isTimedOut
+    });
 
     return NextResponse.json({
       message: 'Transcription cancelled successfully',
@@ -399,7 +446,7 @@ export async function DELETE(
       minutesElapsed,
     });
   } catch (error) {
-    console.error('Error cancelling transcription:', error);
+    logger.error('Failed to cancel transcription', error as Error);
 
     return NextResponse.json(
       { error: 'Failed to cancel transcription' },

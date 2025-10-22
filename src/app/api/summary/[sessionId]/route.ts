@@ -5,6 +5,7 @@ import { db } from '@/services/database';
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import { isTestAccount } from '@/lib/whitelist';
+import { logger } from '@/lib/logger';
 
 const model = openai('gpt-4o');
 
@@ -21,7 +22,7 @@ async function updateSessionStatus(sessionId: string, status: string, errorStep?
       errorMessage: errorMessage || null,
     });
   } catch (error) {
-    console.error('Error updating session status:', error);
+    logger.error('Failed to update session status', error as Error, { sessionId });
     throw error;
   }
 }
@@ -47,7 +48,10 @@ export async function POST(
 
     // COST PROTECTION: Block test accounts from making AI API calls
     if (isTestAccount(user.email!)) {
-      console.log(`[Summary] Blocked test account ${user.email} from making AI API call for session ${sessionId}`);
+      logger.warn('Blocked test account from summary generation', {
+        sessionId,
+        userEmail: user.email
+      });
 
       return NextResponse.json(
         {
@@ -70,7 +74,7 @@ export async function POST(
     // IDEMPOTENCY: Check if summary already exists
     const existingSummary = await db.getSummary(sessionId);
     if (existingSummary) {
-      console.log(`[Summary] Summary already exists for session ${sessionId}, skipping`);
+      logger.info('Summary already exists, skipping', { sessionId });
 
       // Update status to completed if not already
       if (session.status !== 'completed') {
@@ -103,7 +107,7 @@ export async function POST(
       );
     }
 
-    console.log(`[Summary] Starting summary generation for session ${sessionId}`);
+    logger.info('Starting summary generation', { sessionId });
     await updateSessionStatus(sessionId, 'summarizing');
 
     // Format transcriptions for summarization
@@ -135,8 +139,8 @@ export async function POST(
     // Save summary to database
     await db.saveSummary(sessionId, summaryText);
     await updateSessionStatus(sessionId, 'completed');
-    
-    console.log(`[Summary] Summary generation completed for session ${sessionId}`);
+
+    logger.info('Summary generation completed', { sessionId });
 
     return NextResponse.json({
       message: 'Summary generated successfully',
@@ -144,14 +148,14 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('[Summary Error]:', error);
+    logger.error('Summary generation error', error as Error, { sessionId });
     await updateSessionStatus(
-      sessionId, 
-      'error', 
-      'summary', 
+      sessionId,
+      'error',
+      'summary',
       error instanceof Error ? error.message : String(error)
     );
-    
+
     return NextResponse.json(
       { error: 'Failed to generate summary' },
       { status: 500 }
@@ -165,25 +169,25 @@ export async function GET(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
+
   try {
     // Check authentication
     const { error } = await requireAuth();
     if (error) return error;
 
     const summary = await db.getSummary(sessionId);
-    
+
     if (!summary) {
       return NextResponse.json(
         { error: 'Summary not found' },
         { status: 404 }
       );
     }
-    
+
     return NextResponse.json(summary);
   } catch (error) {
-    console.error('Error fetching summary:', error);
-    
+    logger.error('Failed to fetch summary', error as Error);
+
     return NextResponse.json(
       { error: 'Failed to fetch summary' },
       { status: 500 }
@@ -242,8 +246,8 @@ export async function PUT(
     
     // Update summary
     const updatedSummary = await db.updateSummary(sessionId, validatedData.summary_text);
-    
-    console.log(`[Summary] Summary updated for session ${sessionId}`);
+
+    logger.info('Summary updated', { sessionId });
     
     return NextResponse.json({
       message: 'Summary updated successfully',
@@ -257,9 +261,9 @@ export async function PUT(
         { status: 400 }
       );
     }
-    
-    console.error('Error updating summary:', error);
-    
+
+    logger.error('Failed to update summary', error as Error);
+
     return NextResponse.json(
       { error: 'Failed to update summary' },
       { status: 500 }

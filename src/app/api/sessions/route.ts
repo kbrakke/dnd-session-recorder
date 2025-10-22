@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 const createSessionSchema = z.object({
   campaign_id: z.string().min(1, 'Campaign ID must be a positive integer'),
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
     
     return NextResponse.json(transformedSessions);
   } catch (error) {
-    console.error('Error fetching sessions:', error);
+    logger.error('Failed to fetch sessions', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch sessions' },
       { status: 500 }
@@ -44,10 +45,10 @@ export async function POST(request: Request) {
   try {
     const { error, user } = await requireAuth();
     if (error) return error;
-    
+
     const body = await request.json();
     const validatedData = createSessionSchema.parse(body);
-    
+
     // Verify campaign exists and belongs to user
     const campaign = await db.getCampaignById(validatedData.campaign_id);
     if (!campaign || campaign.userId !== user.id) {
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
-    
+
     // If upload_id is provided, verify it exists and belongs to user
     if (validatedData.upload_id) {
       const upload = await db.getUploadById(validatedData.upload_id);
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
         );
       }
     }
-    
+
     const gamingSession = await db.createSession({
       userId: user.id,
       campaignId: validatedData.campaign_id,
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
       duration: validatedData.duration,
       status: validatedData.status,
     });
-    
+
     return NextResponse.json(gamingSession, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       );
     }
 
-    console.error('Error creating session:', error);
+    logger.error('Failed to create session', error as Error);
     return NextResponse.json(
       {
         error: 'Failed to create session',

@@ -5,6 +5,7 @@ import GoogleProvider from 'next-auth/providers/google';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
+import { logger } from '@/lib/logger';
 
 
 export const authOptions: NextAuthOptions = {
@@ -72,14 +73,17 @@ export const authOptions: NextAuthOptions = {
       try {
         // Check whitelist for all sign-in attempts
         if (!isEmailWhitelisted(user.email!)) {
-          console.log(`[Auth] Whitelist check failed for email: ${user.email} - ${getWhitelistMessage('login')}`);
+          logger.warn('Whitelist check failed for email', {
+            email: user.email,
+            message: getWhitelistMessage('login')
+          });
           return false; // Deny sign-in
         }
 
         // For OAuth providers, PrismaAdapter handles user/account creation automatically
         // We just need to verify the email is whitelisted
         if (account?.provider === 'google') {
-          console.log(`[Auth] Google OAuth sign-in for: ${user.email}`);
+          logger.debug('Google OAuth sign-in', { email: user.email });
 
           // Check if user exists
           const existingUser = await prisma.user.findUnique({
@@ -100,22 +104,22 @@ export const authOptions: NextAuthOptions = {
 
               if (hasGoogleLinked) {
                 // Different Google account - don't allow
-                console.log(`[Auth] User ${user.email} tried to link different Google account`);
+                logger.warn('User tried to link different Google account', { email: user.email });
                 return false;
               }
 
               // User exists with email/password only - allow linking
-              console.log(`[Auth] Linking Google account to existing user: ${user.email}`);
+              logger.info('Linking Google account to existing user', { email: user.email });
             }
           } else {
             // New user - PrismaAdapter will create it
-            console.log(`[Auth] Creating new user via Google OAuth: ${user.email}`);
+            logger.info('Creating new user via Google OAuth', { email: user.email });
           }
         }
 
         return true;
       } catch (error) {
-        console.error('SignIn callback error:', error);
+        logger.error('SignIn callback error', error as Error);
         return false;
       }
     },
@@ -134,26 +138,26 @@ export const authOptions: NextAuthOptions = {
         }
         return session;
       } catch (error) {
-        console.error('Session callback error:', error);
+        logger.error('Session callback error', error as Error);
         return session;
       }
     },
   },
   events: {
     async signIn({ user, account, profile, isNewUser }) {
-      console.log('SignIn event - Success:', { user, account, profile, isNewUser });
+      logger.trace('SignIn event - Success', { user, account, profile, isNewUser });
     },
     async signOut({ session, token }) {
-      console.log('SignOut event:', { session, token });
+      logger.trace('SignOut event', { session, token });
     },
     async createUser({ user }) {
-      console.log('CreateUser event:', user);
+      logger.info('CreateUser event', { user });
     },
     async linkAccount({ user, account, profile }) {
-      console.log('LinkAccount event:', { user, account, profile });
+      logger.info('LinkAccount event', { user, account, profile });
     },
     async session({ session, token }) {
-      console.log('Session event:', { session, token });
+      logger.trace('Session event', { session, token });
     },
   },
   debug: process.env.NODE_ENV === 'development',

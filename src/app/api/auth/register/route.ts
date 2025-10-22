@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { authRateLimiter, getRateLimitIdentifier } from '@/lib/rate-limiter';
 import { validateWhitelistAccess } from '@/lib/whitelist';
+import { logger } from '@/lib/logger';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.error('Registration error:', error);
+    logger.error('Registration error', error as Error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

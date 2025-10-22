@@ -25,6 +25,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { marked } from 'marked';
+import { logger } from '@/lib/logger';
 
 // Interfaces
 interface Session {
@@ -403,9 +404,7 @@ export default function SessionPageRedesign() {
       );
 
       if (!processResponse.ok) {
-        console.warn(
-          'Failed to trigger transcription, but upload was successful'
-        );
+        logger.warn('Failed to trigger transcription, but upload was successful', { sessionId });
       }
 
       return linkResponse.json();
@@ -458,9 +457,7 @@ export default function SessionPageRedesign() {
       );
 
       if (!processResponse.ok) {
-        console.warn(
-          'Failed to trigger transcription, but upload was linked successfully'
-        );
+        logger.warn('Failed to trigger transcription, but upload was linked successfully', { sessionId });
       }
 
       return linkResponse.json();

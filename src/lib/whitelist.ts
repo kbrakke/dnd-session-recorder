@@ -1,3 +1,5 @@
+import { logger } from '@/lib/logger';
+
 // Parse whitelist from environment variable
 // Format: comma-separated email addresses
 // Example: "user1@example.com,user2@example.com"
@@ -5,7 +7,7 @@ function getStagingWhitelist(): string[] {
   const whitelistEnv = process.env.STAGING_WHITELIST || process.env.NEXT_PUBLIC_STAGING_WHITELIST;
 
   if (!whitelistEnv) {
-    console.warn('[Whitelist] STAGING_WHITELIST environment variable not set, defaulting to empty whitelist');
+    logger.warn('STAGING_WHITELIST environment variable not set, defaulting to empty whitelist');
     return [];
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 /**
  * POST /api/sessions/[id]/process
@@ -33,7 +34,10 @@ export async function POST(
       );
     }
 
-    console.log(`[Process] Starting processing pipeline for session ${sessionId}, current status: ${session.status}`);
+    logger.info('Starting processing pipeline', {
+      sessionId,
+      status: session.status
+    });
 
     // If session is already completed, return current state
     if (session.status === 'completed') {
@@ -58,7 +62,10 @@ export async function POST(
       }
 
       // If timed out, allow restart
-      console.log(`[Process] Session ${sessionId} timed out, allowing restart`);
+      logger.warn('Session processing timed out, allowing restart', {
+        sessionId,
+        status: session.status
+      });
     }
 
     // Check if session has an upload
@@ -86,7 +93,7 @@ export async function POST(
 
     // Step 1: Trigger transcription if needed
     if (!hasTranscription) {
-      console.log(`[Process] No transcription found, triggering transcription for session ${sessionId}`);
+      logger.info('Triggering transcription', { sessionId });
 
       // Update status to transcribing
       await db.updateSession(sessionId, { status: 'transcribing' });
@@ -105,7 +112,7 @@ export async function POST(
       }).catch(err => {
         // Ignore timeout errors - transcription runs in background
         if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
-          console.error(`[Process] Failed to trigger transcription:`, err);
+          logger.error('Failed to trigger transcription', err, { sessionId });
         }
       });
 
@@ -122,7 +129,7 @@ export async function POST(
     const hasSummary = !!summary;
 
     if (!hasSummary) {
-      console.log(`[Process] Transcription exists, triggering summary for session ${sessionId}`);
+      logger.info('Triggering summary generation', { sessionId });
 
       // Update status to summarizing
       await db.updateSession(sessionId, { status: 'summarizing' });
@@ -140,7 +147,7 @@ export async function POST(
       }).catch(err => {
         // Ignore timeout errors - summary generation runs in background
         if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
-          console.error(`[Process] Failed to trigger summary:`, err);
+          logger.error('Failed to trigger summary generation', err, { sessionId });
         }
       });
 
@@ -162,7 +169,7 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('[Process Error]:', error);
+    logger.error('Processing pipeline error', error as Error, { sessionId });
 
     // Update session to error state
     try {
@@ -172,7 +179,7 @@ export async function POST(
         errorMessage: error instanceof Error ? error.message : String(error)
       });
     } catch (updateError) {
-      console.error('[Process] Failed to update session status:', updateError);
+      logger.error('Failed to update session status', updateError as Error, { sessionId });
     }
 
     return NextResponse.json(

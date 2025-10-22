@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Sparkles, Download, Copy, Edit3, Lock, Unlock, RefreshCw, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { useState } from 'react';
+import { logger } from '@/lib/logger';
 
 interface Session {
   id: number;
@@ -161,7 +162,7 @@ export default function SessionSummaryPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy summary to clipboard', err instanceof Error ? err : new Error(String(err)));
     }
   };
 
@@ -183,7 +184,7 @@ export default function SessionSummaryPage() {
       queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
 
     } catch (error) {
-      console.error('Summary regeneration error:', error);
+      logger.error('Summary regeneration failed', error instanceof Error ? error : new Error(String(error)), { sessionId });
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setProcessingStep(null);
     }
@@ -211,7 +212,7 @@ export default function SessionSummaryPage() {
       queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
 
     } catch (error) {
-      console.error('Summary update error:', error);
+      logger.error('Summary update failed', error instanceof Error ? error : new Error(String(error)), { sessionId });
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };

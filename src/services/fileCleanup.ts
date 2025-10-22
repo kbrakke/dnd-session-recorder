@@ -1,6 +1,7 @@
 import { unlink, access } from 'fs/promises';
 import { constants } from 'fs';
 import { db } from './database';
+import { logger } from '@/lib/logger';
 
 export class FileCleanupService {
   /**
@@ -15,7 +16,10 @@ export class FileCleanupService {
 
       // Check if upload is in a state where files can be cleaned up
       if (upload.status !== 'transcribed') {
-        console.warn(`[FileCleanup] Upload ${uploadId} is not in transcribed state (${upload.status}), skipping cleanup`);
+        logger.warn('Upload not in transcribed state, skipping cleanup', {
+          uploadId,
+          status: upload.status
+        });
         return;
       }
 
@@ -30,17 +34,17 @@ export class FileCleanupService {
             await this.deleteFileIfExists(chunkPath);
           }
         } catch (parseError) {
-          console.warn(`[FileCleanup] Failed to parse chunk paths for upload ${uploadId}:`, parseError);
+          logger.warn('Failed to parse chunk paths for upload', { uploadId, error: parseError });
         }
       }
 
       // Update upload status to indicate files have been cleaned
       await db.updateUploadStatus(uploadId, 'cleaned', []);
 
-      console.log(`[FileCleanup] Successfully cleaned up files for upload ${uploadId}`);
+      logger.info('Successfully cleaned up files for upload', { uploadId });
 
     } catch (error) {
-      console.error(`[FileCleanup] Error cleaning up files for upload ${uploadId}:`, error);
+      logger.error('Error cleaning up files for upload', error as Error, { uploadId });
       throw error;
     }
   }
@@ -63,10 +67,10 @@ export class FileCleanupService {
       // Audio file cleanup is now handled through the Upload relationship only
       // No need for legacy audioFilePath handling
 
-      console.log(`[FileCleanup] Successfully cleaned up files for session ${sessionId}`);
+      logger.info('Successfully cleaned up files for session', { sessionId });
 
     } catch (error) {
-      console.error(`[FileCleanup] Error cleaning up files for session ${sessionId}:`, error);
+      logger.error('Error cleaning up files for session', error as Error, { sessionId });
       throw error;
     }
   }
@@ -84,11 +88,11 @@ export class FileCleanupService {
       .map((result, index) => `Upload ${uploadIds[index]}: ${result.reason}`);
 
     if (errors.length > 0) {
-      console.error(`[FileCleanup] Batch cleanup had ${errors.length} errors:`, errors);
+      logger.error('Batch cleanup had errors', undefined, { errorCount: errors.length, errors });
     }
 
     const successful = results.filter(result => result.status === 'fulfilled').length;
-    console.log(`[FileCleanup] Batch cleanup completed: ${successful}/${uploadIds.length} successful`);
+    logger.info('Batch cleanup completed', { successful, total: uploadIds.length });
   }
 
   /**
@@ -101,10 +105,10 @@ export class FileCleanupService {
 
       // This would require a new database method to find old transcribed uploads
       // For now, we'll skip this implementation as it requires additional database queries
-      console.log(`[FileCleanup] Automated cleanup for uploads older than ${olderThanDays} days is not yet implemented`);
+      logger.info('Automated cleanup not yet implemented', { olderThanDays });
 
     } catch (error) {
-      console.error('[FileCleanup] Error during automated cleanup:', error);
+      logger.error('Error during automated cleanup', error as Error);
       throw error;
     }
   }
@@ -119,14 +123,14 @@ export class FileCleanupService {
       
       // Delete the file
       await unlink(filePath);
-      
-      console.log(`[FileCleanup] Deleted file: ${filePath}`);
+
+      logger.debug('Deleted file', { filePath });
     } catch (error: unknown) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         // File doesn't exist, which is fine
-        console.log(`[FileCleanup] File already deleted or doesn't exist: ${filePath}`);
+        logger.debug('File already deleted or does not exist', { filePath });
       } else {
-        console.error(`[FileCleanup] Error deleting file ${filePath}:`, error);
+        logger.error('Error deleting file', error as Error, { filePath });
         throw error;
       }
     }

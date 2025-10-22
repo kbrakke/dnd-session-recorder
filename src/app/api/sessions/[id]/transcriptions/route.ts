@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/transcriptions - Get transcriptions for a session
 export async function GET(
@@ -28,7 +29,7 @@ export async function GET(
 
     return NextResponse.json(transcriptions);
   } catch (error) {
-    console.error('Error fetching transcriptions:', error);
+    logger.error('Failed to fetch transcriptions', error as Error);
 
     return NextResponse.json(
       { error: 'Failed to fetch transcriptions' },

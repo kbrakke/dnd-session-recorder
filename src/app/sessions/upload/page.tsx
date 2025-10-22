@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, Calendar, BookOpen, Plus, FileAudio, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 interface Campaign {
   id: string;
@@ -276,7 +277,7 @@ function SessionUploadPageInner() {
         }
 
         // Success - navigate to session page to watch processing
-        console.log(`[Session Creation] Session created: ${result.session.id}`);
+        logger.info('Session created successfully', { sessionId: result.session.id });
         router.push(`/sessions/${result.session.id}`);
 
       } else if (uploadMode === 'existing' && selectedUpload) {
@@ -304,7 +305,7 @@ function SessionUploadPageInner() {
           fetch(`/api/sessions/${session.id}/process`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-          }).catch(err => console.error('[Process] Failed to trigger:', err));
+          }).catch(err => logger.error('Failed to trigger processing', err instanceof Error ? err : new Error(String(err)), { sessionId: session.id }));
         }
 
         router.push(`/sessions/${session.id}`);
@@ -321,7 +322,7 @@ function SessionUploadPageInner() {
       }
 
     } catch (error) {
-      console.error('[Session Creation] Error:', error);
+      logger.error('Session creation failed', error instanceof Error ? error : new Error(String(error)));
       let errorMessage = 'Unknown error';
       if (error instanceof Error) {
         errorMessage = error.message;

@@ -1,12 +1,13 @@
 /**
- * Structured logging utility with OpenTelemetry-compatible format
+ * Structured logging utility using Pino
  *
- * Logs are structured JSON with trace context for easy searching and debugging
+ * Provides trace, debug, info, warn, and error levels with structured JSON logging
+ * Optimized for Elasticsearch ingestion via Fly.io
  */
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+import pino from 'pino';
 
-interface LogContext {
+export interface LogContext {
   [key: string]: unknown;
   traceId?: string;
   spanId?: string;
@@ -14,63 +15,52 @@ interface LogContext {
   sessionId?: string;
   uploadId?: string;
   campaignId?: string;
+  httpMethod?: string;
+  httpPath?: string;
+  httpStatus?: number;
 }
 
-interface LogEntry {
-  timestamp: string;
-  level: LogLevel;
-  message: string;
-  context?: LogContext;
-  error?: {
-    name: string;
-    message: string;
-    stack?: string;
-  };
-}
+// Configure Pino for structured JSON logging
+// Perfect for Elasticsearch ingestion - no pretty printing needed
+const pinoLogger = pino({
+  level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'debug' : 'info'),
+  base: {
+    service: 'dnd-session-recorder',
+    environment: process.env.NODE_ENV || 'development',
+  },
+  // Ensure proper timestamp format for Elasticsearch
+  timestamp: pino.stdTimeFunctions.isoTime,
+  // Format error objects properly for Elasticsearch
+  formatters: {
+    level(label) {
+      return { level: label };
+    },
+  },
+});
 
 class Logger {
-  private serviceName = 'dnd-session-recorder';
-  private environment = process.env.NODE_ENV || 'development';
-
-  private generateTraceId(): string {
-    // Generate a simple trace ID (in production, use actual OTEL trace context)
-    return `${Date.now()}-${Math.random().toString(36).substring(7)}`;
-  }
-
-  private formatLog(level: LogLevel, message: string, context?: LogContext, error?: Error): string {
-    const entry: LogEntry = {
-      timestamp: new Date().toISOString(),
-      level,
-      message,
-      ...(context && { context: { ...context, service: this.serviceName, environment: this.environment } }),
-      ...(error && {
-        error: {
-          name: error.name,
-          message: error.message,
-          ...(this.environment === 'development' && { stack: error.stack }),
-        },
-      }),
-    };
-
-    return JSON.stringify(entry);
+  trace(message: string, context?: LogContext): void {
+    pinoLogger.trace(context, message);
   }
 
   debug(message: string, context?: LogContext): void {
-    if (this.environment === 'development') {
-      console.debug(this.formatLog('debug', message, context));
-    }
+    pinoLogger.debug(context, message);
   }
 
   info(message: string, context?: LogContext): void {
-    console.info(this.formatLog('info', message, context));
+    pinoLogger.info(context, message);
   }
 
   warn(message: string, context?: LogContext): void {
-    console.warn(this.formatLog('warn', message, context));
+    pinoLogger.warn(context, message);
   }
 
   error(message: string, error?: Error, context?: LogContext): void {
-    console.error(this.formatLog('error', message, context, error));
+    if (error) {
+      pinoLogger.error({ ...context, err: error }, message);
+    } else {
+      pinoLogger.error(context, message);
+    }
   }
 
   // API-specific helpers

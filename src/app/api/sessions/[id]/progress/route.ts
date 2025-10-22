@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/progress - Get session progress
 export async function GET(
@@ -48,9 +49,10 @@ export async function GET(
       errorStep: session.errorStep || null,
       errorMessage: session.errorMessage || null,
     });
-    
+
+
   } catch (error) {
-    console.error('Error fetching session progress:', error);
+    logger.error('Failed to fetch session progress', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch session progress' },
       { status: 500 }

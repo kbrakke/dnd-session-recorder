@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Play, Edit3, Save, X, FileText, Sparkles, Trash2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 interface Campaign {
   id: string;
@@ -157,7 +158,7 @@ export default function CampaignDetailsPage() {
     try {
       await deleteSessionMutation.mutateAsync(sessionId);
     } catch (error) {
-      console.error('Delete session error:', error);
+      logger.error('Failed to delete session', error instanceof Error ? error : new Error(String(error)), { sessionId });
       alert(`Error: ${error instanceof Error ? error.message : 'Failed to delete session'}`);
     }
   };

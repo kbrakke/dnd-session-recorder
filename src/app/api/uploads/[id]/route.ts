@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { unlink } from 'fs/promises';
 import { existsSync } from 'fs';
+import { logger } from '@/lib/logger';
 
 // GET /api/uploads/[id] - Get specific upload
 export async function GET(
@@ -66,8 +67,8 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('Get upload error:', error);
-    
+    logger.error('Failed to get upload', error as Error);
+
     return NextResponse.json(
       { error: 'Failed to get upload' },
       { status: 500 }
@@ -115,7 +116,11 @@ export async function DELETE(
     // Check if upload is being used by any sessions
     const usage = await db.getUploadUsage(id);
     if (usage.sessionCount > 0) {
-      console.log(`[Upload Delete] Cannot delete upload ${id}: Used by ${usage.sessionCount} session(s)`);
+      logger.warn('Cannot delete upload in use', {
+        uploadId: id,
+        sessionCount: usage.sessionCount,
+        userId: user.id
+      });
       return NextResponse.json(
         {
           error: 'Cannot delete upload that is being used by sessions',
@@ -132,7 +137,11 @@ export async function DELETE(
       );
     }
 
-    console.log(`[Upload Delete] Starting deletion for upload ${id}: ${upload.originalName}`);
+    logger.info('Starting upload deletion', {
+      uploadId: id,
+      originalName: upload.originalName,
+      userId: user.id
+    });
 
     // Delete the main file from filesystem
     let filesDeleted = 0;
@@ -142,20 +151,26 @@ export async function DELETE(
       try {
         await unlink(upload.path);
         filesDeleted++;
-        console.log(`[Upload Delete] Deleted main file: ${upload.path}`);
+        logger.debug('Deleted main file', { path: upload.path, uploadId: id });
       } catch (fileError) {
         filesFailedToDelete++;
-        console.error(`[Upload Delete] Failed to delete main file: ${upload.path}`, fileError);
+        logger.error('Failed to delete main file', fileError as Error, {
+          path: upload.path,
+          uploadId: id
+        });
       }
     } else {
-      console.warn(`[Upload Delete] Main file not found: ${upload.path}`);
+      logger.warn('Main file not found', { path: upload.path, uploadId: id });
     }
 
     // Delete chunk files if they exist
     if (upload.chunkPaths) {
       try {
         const chunkPaths = JSON.parse(upload.chunkPaths);
-        console.log(`[Upload Delete] Found ${chunkPaths.length} chunk files to delete`);
+        logger.debug('Deleting chunk files', {
+          uploadId: id,
+          chunkCount: chunkPaths.length
+        });
 
         for (const chunkPath of chunkPaths) {
           if (existsSync(chunkPath)) {
@@ -164,19 +179,27 @@ export async function DELETE(
               filesDeleted++;
             } catch (chunkError) {
               filesFailedToDelete++;
-              console.error(`[Upload Delete] Failed to delete chunk: ${chunkPath}`, chunkError);
+              logger.error('Failed to delete chunk', chunkError as Error, {
+                path: chunkPath,
+                uploadId: id
+              });
             }
           }
         }
       } catch (parseError) {
-        console.error('[Upload Delete] Failed to parse chunk paths:', parseError);
+        logger.error('Failed to parse chunk paths', parseError as Error, { uploadId: id });
       }
     }
 
     // Delete upload record from database
     await db.deleteUpload(id);
 
-    console.log(`[Upload Delete] Upload ${id} deleted successfully. Files deleted: ${filesDeleted}, Failed: ${filesFailedToDelete}`);
+    logger.info('Upload deleted successfully', {
+      uploadId: id,
+      filesDeleted,
+      filesFailedToDelete,
+      userId: user.id
+    });
 
     return NextResponse.json({
       message: 'Upload deleted successfully',
@@ -188,7 +211,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('[Upload Delete] Error:', error);
+    logger.error('Upload deletion error', error as Error);
 
     return NextResponse.json(
       {

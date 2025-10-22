@@ -9,6 +9,7 @@ import { exec } from 'child_process';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 import ffprobe from 'ffprobe-static';
 
@@ -51,7 +52,7 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
     const duration = parseFloat(stdout.trim());
     return isNaN(duration) ? null : Math.round(duration);
   } catch (error) {
-    console.error('Error getting audio duration:', error);
+    logger.error('Failed to get audio duration', error as Error);
     return null;
   }
 }
@@ -69,10 +70,10 @@ export async function POST(request: NextRequest) {
     }
 
     await ensureUploadDir();
-    
+
     const formData = await request.formData();
     const file = formData.get('audio') as File;
-    
+
     if (!file) {
       return NextResponse.json(
         { error: 'No audio file provided' },
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
     // Convert file to buffer and save
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    
+
     await writeFile(filePath, buffer);
 
     // Get audio duration
@@ -121,7 +122,11 @@ export async function POST(request: NextRequest) {
       duration: duration ?? undefined,
     });
 
-    console.log(`[Upload] File uploaded successfully: ${uniqueName} (ID: ${upload.id})`);
+    logger.info('File uploaded successfully', {
+      filename: uniqueName,
+      uploadId: upload.id,
+      userId: session.user.id
+    });
 
     return NextResponse.json({
       message: 'File uploaded successfully',
@@ -138,8 +143,8 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Upload error:', error);
-    
+    logger.error('Upload error', error as Error);
+
     return NextResponse.json(
       { error: 'Failed to upload file' },
       { status: 500 }
@@ -173,20 +178,25 @@ export async function GET(request: NextRequest) {
       if (fs.existsSync(upload.path)) {
         validUploads.push(upload);
       } else {
-        console.log(`[Uploads] File not found for upload ${upload.id}: ${upload.path}`);
+        logger.warn('File not found for upload', {
+          uploadId: upload.id,
+          path: upload.path
+        });
         invalidUploadIds.push(upload.id);
       }
     }
-    
+
     // Clean up database records for missing files
     if (invalidUploadIds.length > 0) {
-      console.log(`[Uploads] Cleaning up ${invalidUploadIds.length} upload records with missing files`);
+      logger.info('Cleaning up upload records with missing files', {
+        count: invalidUploadIds.length
+      });
       try {
         for (const uploadId of invalidUploadIds) {
           await db.deleteUpload(uploadId);
         }
       } catch (cleanupError) {
-        console.error('Error cleaning up invalid uploads:', cleanupError);
+        logger.error('Failed to clean up invalid uploads', cleanupError as Error);
       }
     }
     
@@ -206,8 +216,8 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Get uploads error:', error);
-    
+    logger.error('Failed to get uploads', error as Error);
+
     return NextResponse.json(
       { error: 'Failed to get uploads' },
       { status: 500 }

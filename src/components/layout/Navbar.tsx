@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, HardDrive } from 'lucide-react';
+import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, HardDrive, Info } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -85,6 +85,16 @@ export default function Navbar() {
 
             {/* Authentication Section */}
             <div className="flex items-center space-x-3 border-l border-slate-200 pl-4">
+              {/* About Link */}
+              <Link
+                href="/about"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 hover:text-blue-900 hover:bg-blue-50 transition-colors"
+                title="About"
+              >
+                <Info className="h-5 w-5" />
+                <span className="hidden sm:inline">About</span>
+              </Link>
+
               {status === 'loading' ? (
                 <div className="w-8 h-8 bg-slate-200 rounded-full animate-pulse"></div>
               ) : session ? (
