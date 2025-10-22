@@ -30,8 +30,8 @@ primary_region = "ewr"  # Change to your preferred region
 
 [vm]
   cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  cpus = 4
+  memory_mb = 1024
 
 # Mount for file uploads
 [[mounts]]
