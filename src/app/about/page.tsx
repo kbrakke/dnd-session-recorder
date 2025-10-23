@@ -25,7 +25,7 @@ export default function AboutPage() {
             You can also generate a to-do list, having the text of the transcript fed in to an AI to look for any things mentioed in the session, or loose threads that you might want to keep in mind.
           </p>
           <p className="mb-4">
-            In addition to the basic campaign -> session setup. There are plans to add more DM management features, like building our character chronicles, so you can quickly see how each character is progressing in their personal quests, or important events for them.
+            In addition to the basic campaign and session setup. There are plans to add more DM management features, like building our character chronicles, so you can quickly see how each character is progressing in their personal quests, or important events for them.
             Adding overatching plot trackers, so you can remember all the threads you have put out there and when the players inteact with them.
             Add session search and interaction. Trying to remember a specific event? Just search through your past sessions to find exactly what happened.
             Finally, the technology is there to support streaming, both streaming from somethig like discord and to the session transcription, allowing real time transcription and effortless tracking.
@@ -88,7 +88,7 @@ export default function AboutPage() {
             <p className="text-gray-700">
               The answers are slightly different between the two main endpoints. For transcription the answer is "No." full stop.The OpenAI audio transcription endpoints do not retain any data, nor do they train on any data.
               The text endpoints do not train on any data, but they do retain data for up to 30 days for Abuse Monitoring. There is an option to apply for Zero Retention Polciies, but at this time, I have no actual use of any endpoits, but if demand grows I will pursue it.
-              For further details you can read the OpenAI documentation on the topic: <a href="https://platform.openai.com/docs/guides/your-data" target="_blank" rel="noopener noreferrer">Zero Retention Policy</a> and <a href="https://openai.com/policies/audio-transcription-policy/" target="_blank" rel="noopener noreferrer">Audio Transcription Policy</a>.
+              For further details you can read the OpenAI documentation on the topic: <a className="text-blue-500 hover:text-blue-700 underline" href="https://platform.openai.com/docs/guides/your-data" target="_blank" rel="noopener noreferrer">Your Data</a>.
             </p>
           </div>
         </div>
