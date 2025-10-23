@@ -10,6 +10,7 @@ primary_region = "ewr"  # Change to your preferred region
 [env]
   NODE_ENV = "production"
   PORT = "3000"
+  HOSTNAME = "0.0.0.0"
   NEXT_PUBLIC_GOOGLE_ENABLED = "true"
   LOG_LEVEL = "debug"
 

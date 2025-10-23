@@ -10,7 +10,7 @@ primary_region = "ewr"  # Change to your preferred region
 [env]
   NODE_ENV = "production"
   PORT = "3000"
-  # DATABASE_URL is provided by Fly.io secrets (attached Postgres database)
+  HOSTNAME = "0.0.0.0"
 
 [http_service]
   internal_port = 3000
