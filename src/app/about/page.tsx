@@ -71,7 +71,7 @@ export default function AboutPage() {
           <div>
             <h3 className="text-lg font-semibold mb-2">How long does transcription take?</h3>
             <p className="text-gray-700">
-              Transcription time is depending on session lenght. Currently Whipser only can handle 10 minutes of audio, so the trancription will split the audio and transcribe each chunk.
+              Transcription time is depending on session length. Currently Whipser only can handle 10 minutes of audio, so the trancription will split the audio and transcribe each chunk.
               This can take a few minutes per chunk. The session page will show the progress of the transcription.
             </p>
           </div>
@@ -86,9 +86,9 @@ export default function AboutPage() {
           <div>
             <h3 className="text-lg font-semibold mb-2">Is my audio or text used to train AI systems or stored on any other servers?</h3>
             <p className="text-gray-700">
-              The answers are slightly different between the two main endpoints. For transcription the answer is "No." full stop.The OpenAI audio transcription endpoints do not retain any data, nor do they train on any data.
-              The text endpoints do not train on any data, but they do retain data for up to 30 days for Abuse Monitoring. There is an option to apply for Zero Retention Polciies, but at this time, I have no actual use of any endpoits, but if demand grows I will pursue it.
-              For further details you can read the OpenAI documentation on the topic: <a className="text-blue-500 hover:text-blue-700 underline" href="https://platform.openai.com/docs/guides/your-data" target="_blank" rel="noopener noreferrer">Your Data</a>.
+              <p>The answers are slightly different between the two main endpoints. For transcription the answer is &#39;No&#39;. full stop. The OpenAI audio transcription endpoints do not retain any data, nor do they train on any data.</p>
+              <p>The text endpoints do not train on any data, but they do retain data for up to 30 days for Abuse Monitoring. There is an option to apply for Zero Retention Polciies, but at this time, I do not have the volume of requests to justify it.</p>
+              <p>For further details you can read the OpenAI documentation on the topic: <a className="text-blue-500 hover:text-blue-700 underline" href="https://platform.openai.com/docs/guides/your-data" target="_blank" rel="noopener noreferrer">Your Data</a>.</p>
             </p>
           </div>
         </div>
