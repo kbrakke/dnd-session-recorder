@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
 import { experimental_transcribe as transcribe } from 'ai';
-import { openai } from '@/lib/openai';
+import { openai } from '@ai-sdk/openai';
 import { isTestAccount } from '@/lib/whitelist';
 import fs from 'fs';
 import path from 'path';

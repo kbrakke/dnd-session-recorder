@@ -179,6 +179,7 @@ export async function POST(request: NextRequest) {
     // If audio was uploaded, trigger processing pipeline
     if (uploadId) {
       // Fire and forget - don't wait for processing to complete
+      // The process endpoint will update status to 'transcribing' when it starts
       // Forward cookies for authentication
       const cookieHeader = request.headers.get('cookie');
       fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/sessions/${session.id}/process`, {

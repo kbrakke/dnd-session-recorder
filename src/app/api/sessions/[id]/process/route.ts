@@ -21,13 +21,19 @@ export async function POST(
   const { id: sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error: authError } = await requireAuth();
+    const { error: authError, user } = await requireAuth();
     if (authError) return authError;
 
-    // Get current session state
+
     const session = await db.getSessionById(sessionId);
     if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    if (session.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
@@ -39,7 +45,6 @@ export async function POST(
       status: session.status
     });
 
-    // If session is already completed, return current state
     if (session.status === 'completed') {
       return NextResponse.json({
         message: 'Session already completed',
@@ -48,9 +53,7 @@ export async function POST(
       });
     }
 
-    // If currently processing (not stopped), return current state
     if (['transcribing', 'summarizing'].includes(session.status)) {
-      // Check if it's actually stuck (processing started more than 30 min ago)
       const { isTimedOut } = await db.checkProcessingTimeout(sessionId, 30);
 
       if (!isTimedOut) {
@@ -61,14 +64,12 @@ export async function POST(
         });
       }
 
-      // If timed out, allow restart
       logger.warn('Session processing timed out, allowing restart', {
         sessionId,
         status: session.status
       });
     }
 
-    // Check if session has an upload
     if (!session.uploadId) {
       return NextResponse.json({
         error: 'Session has no audio file linked. Please upload an audio file first.',
@@ -77,7 +78,6 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Verify upload exists
     const upload = await db.getUploadById(session.uploadId);
     if (!upload) {
       return NextResponse.json({
@@ -87,21 +87,17 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Check transcription status
     const transcriptions = await db.getTranscriptions(sessionId);
     const hasTranscription = transcriptions && transcriptions.length > 0;
 
-    // Step 1: Trigger transcription if needed
     if (!hasTranscription) {
       logger.info('Triggering transcription', { sessionId });
 
-      // Update status to transcribing
       await db.updateSession(sessionId, { status: 'transcribing' });
 
-      // Trigger transcription asynchronously (fire and forget)
-      // Forward the cookies from the original request
       const cookieHeader = request.headers.get('cookie');
-      fetch(`${request.nextUrl.origin}/api/transcription/${sessionId}`, {
+      const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+      fetch(`${baseUrl}/api/transcription/${sessionId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -135,8 +131,10 @@ export async function POST(
       await db.updateSession(sessionId, { status: 'summarizing' });
 
       // Trigger summary generation asynchronously
+      // Use NEXTAUTH_URL to avoid Fly.io's 0.0.0.0:3000 issue with request.nextUrl.origin
       const cookieHeader = request.headers.get('cookie');
-      fetch(`${request.nextUrl.origin}/api/summary/${sessionId}`, {
+      const baseUrl = process.env.NEXTAUTH_URL || request.nextUrl.origin;
+      fetch(`${baseUrl}/api/summary/${sessionId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

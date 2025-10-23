@@ -12,12 +12,19 @@ export async function GET(
 
   try {
     // Check authentication
-    const { error } = await requireAuth();
+    const { error, user } = await requireAuth();
     if (error) return error;
 
     // Check if session exists
     const session = await db.getSessionById(sessionId);
     if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    if (session.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }

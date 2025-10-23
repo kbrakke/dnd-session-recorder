@@ -219,8 +219,12 @@ function SessionPageRedesignInner() {
       if (session?.status === 'transcribing' || session?.status === 'summarizing') {
         return 2000; // 2 seconds when actively processing
       }
-      if (session?.status === 'uploaded' || session?.status === 'error') {
-        return 5000; // 5 seconds when waiting or errored
+      // Poll aggressively when uploaded - transcription is about to start
+      if (session?.status === 'uploaded') {
+        return 1000; // 1 second to catch the transition to transcribing
+      }
+      if (session?.status === 'error') {
+        return 5000; // 5 seconds when errored
       }
       return false; // Don't poll when completed
     },
@@ -725,6 +729,8 @@ function SessionPageRedesignInner() {
       case 'transcribe':
         if (hasTranscription) return 'complete';
         if (session.status === 'transcribing') return 'active';
+        // Show as active if we just uploaded and are waiting for transcription to start
+        if (isInitialProcessing && session.status === 'uploaded') return 'active';
         return hasUpload ? 'pending' : 'pending';
       case 'summarize':
         if (hasSummary) return 'complete';
@@ -738,6 +744,11 @@ function SessionPageRedesignInner() {
 
   // Get detailed transcription sub-status
   const getTranscriptionSubStatus = (): string | undefined => {
+    // Show "Initializing..." when we just created the session and are waiting for transcription to start
+    if (isInitialProcessing && session.status === 'uploaded') {
+      return 'Initializing...';
+    }
+
     if (session.status !== 'transcribing') return undefined;
 
     const step = session.currentStep;
@@ -773,8 +784,8 @@ function SessionPageRedesignInner() {
               <PipelineStep
                 label="Transcribe"
                 status={getStepStatus('transcribe')}
-                isActive={session.status === 'transcribing'}
-                onStart={hasUpload && !hasTranscription && session.status !== 'transcribing' ? () => startProcessingMutation.mutate() : undefined}
+                isActive={session.status === 'transcribing' || (isInitialProcessing && session.status === 'uploaded')}
+                onStart={hasUpload && !hasTranscription && session.status !== 'transcribing' && !(isInitialProcessing && session.status === 'uploaded') ? () => startProcessingMutation.mutate() : undefined}
                 onCancel={session.status === 'transcribing' ? () => cancelTranscriptionMutation.mutate() : undefined}
                 progressPercent={session.transcriptionProgress || undefined}
                 minutesElapsed={session.status === 'transcribing' ? processingMinutesElapsed : undefined}
