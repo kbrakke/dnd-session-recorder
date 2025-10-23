@@ -1,9 +1,9 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { isNil } from 'lodash';
 import {
   Calendar,
@@ -178,10 +178,16 @@ function PipelineStep({
   );
 }
 
-export default function SessionPageRedesign() {
+function SessionPageRedesignInner() {
   const params = useParams();
   const sessionId = params.id as string;
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Track if we just created this session with processing
+  const initialState = searchParams.get('initialState');
+  const isInitialProcessing = initialState === 'processing';
+  const hasReceivedFirstData = useRef(false);
 
   // State
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -200,12 +206,14 @@ export default function SessionPageRedesign() {
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string; campaignId: string } | null>(null);
 
   // Data fetching
-  const { data: session, isLoading: sessionLoading } = useQuery<SessionDetail>({
+  const { data: session, isLoading: sessionLoading, isFetching } = useQuery<SessionDetail>({
     queryKey: ['session', sessionId],
     queryFn: async () => {
       const response = await fetch(`/api/sessions/${sessionId}`);
       if (!response.ok) throw new Error('Failed to fetch session');
-      return response.json();
+      const data = await response.json();
+      hasReceivedFirstData.current = true;
+      return data;
     },
     refetchInterval: (query) => {
       const session = query.state.data;
@@ -218,6 +226,9 @@ export default function SessionPageRedesign() {
       }
       return false; // Don't poll when completed
     },
+    // Start fetching immediately if we're expecting processing
+    refetchOnMount: true,
+    staleTime: 0, // Always consider stale so we fetch fresh data
   });
 
   const { data: campaignSessions = [] } = useQuery<Session[]>({
@@ -637,7 +648,38 @@ export default function SessionPageRedesign() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  // Show optimistic loading state when we know processing should be happening
+  // but haven't received data yet
+  const showOptimisticProcessing = isInitialProcessing && !hasReceivedFirstData.current;
+
   if (sessionLoading || !session) {
+    // If we're in initial processing mode, show a processing skeleton instead of just spinner
+    if (showOptimisticProcessing) {
+      return (
+        <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+          {/* Pipeline Progress Header - Optimistic State */}
+          <div className="border-b border-gray-200 bg-white">
+            <div className="px-6 py-4">
+              <div className="flex items-center justify-center gap-0">
+                <PipelineStep label="Upload" status="complete" isActive={false} />
+                <PipelineStep label="Transcribe" status="active" isActive={true} subStatus="Preparing..." />
+                <PipelineStep label="Summarize" status="pending" isActive={false} />
+                <PipelineStep label="Complete" status="pending" isActive={false} isLast={true} />
+              </div>
+            </div>
+          </div>
+          {/* Loading skeleton */}
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-5xl mx-auto space-y-4">
+              <div className="h-8 bg-gray-200 rounded animate-pulse w-1/3"></div>
+              <div className="h-4 bg-gray-200 rounded animate-pulse w-1/4"></div>
+              <div className="h-32 bg-gray-200 rounded animate-pulse mt-8"></div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -1366,5 +1408,17 @@ export default function SessionPageRedesign() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function SessionPageRedesign() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <SessionPageRedesignInner />
+    </Suspense>
   );
 }

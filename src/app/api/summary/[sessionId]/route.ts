@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { openai } from '@ai-sdk/openai';
+import { openai } from '@/lib/openai';
 import { generateText } from 'ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { logger } from '@/lib/logger';

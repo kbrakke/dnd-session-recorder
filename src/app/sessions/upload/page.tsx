@@ -277,8 +277,9 @@ function SessionUploadPageInner() {
         }
 
         // Success - navigate to session page to watch processing
+        // Pass initial state via URL to enable optimistic UI rendering
         logger.info('Session created successfully', { sessionId: result.session.id });
-        router.push(`/sessions/${result.session.id}`);
+        router.push(`/sessions/${result.session.id}?initialState=processing`);
 
       } else if (uploadMode === 'existing' && selectedUpload) {
         // Link existing upload to new session
@@ -308,7 +309,7 @@ function SessionUploadPageInner() {
           }).catch(err => logger.error('Failed to trigger processing', err instanceof Error ? err : new Error(String(err)), { sessionId: session.id }));
         }
 
-        router.push(`/sessions/${session.id}`);
+        router.push(`/sessions/${session.id}?initialState=processing`);
 
       } else {
         // No upload - just create session
@@ -318,7 +319,7 @@ function SessionUploadPageInner() {
           session_date: new Date(formData.sessionDate).toISOString(),
         });
 
-        router.push(`/sessions/${session.id}`);
+        router.push(`/sessions/${session.id}?initialState=processing`);
       }
 
     } catch (error) {
