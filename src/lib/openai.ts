@@ -9,7 +9,7 @@ import { logger } from '@/lib/logger';
 import https from 'https';
 import http from 'http';
 // Use node-fetch v2 which properly supports agent option for IPv4
-import fetch from 'node-fetch';
+import fetch, { type RequestInit as NodeFetchRequestInit, type Response as NodeFetchResponse } from 'node-fetch';
 
 // Create custom agents with IPv4 preference to avoid IPv6 issues on Fly.io
 const httpsAgent = new https.Agent({
@@ -34,7 +34,7 @@ export const openai = createOpenAI({
   // Explicitly set baseURL to ensure correct endpoint
   baseURL: 'https://api.openai.com/v1',
   // Add custom fetch with better error handling and network configuration
-  fetch: async (url, init) => {
+  fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
       const urlString = typeof url === 'string' ? url : url.toString();
       const isHttps = urlString.startsWith('https://');
@@ -45,24 +45,28 @@ export const openai = createOpenAI({
       });
 
       // Use node-fetch with explicit agent to force IPv4
-      const response = await fetch(url as any, {
-        ...init,
+      // Convert standard RequestInit to node-fetch RequestInit
+      const nodeFetchInit: NodeFetchRequestInit = {
+        method: init?.method,
         headers: {
-          ...init?.headers,
+          ...(init?.headers as Record<string, string>),
           'User-Agent': 'dnd-session-recorder',
         },
+        body: init?.body as NodeFetchRequestInit['body'],
         // Force IPv4 by using custom agent - node-fetch respects this properly
         agent: isHttps ? httpsAgent : httpAgent,
-        // Add signal for timeout handling if not already present
         signal: init?.signal,
-      } as any);
+      };
+
+      const response: NodeFetchResponse = await fetch(urlString, nodeFetchInit);
 
       logger.debug('OpenAI API request completed', {
         url: urlString,
         status: response.status,
       });
 
-      return response as any;
+      // Convert node-fetch Response to standard Response
+      return response as unknown as Response;
     } catch (error) {
       logger.error('OpenAI API request failed', error as Error, {
         url: typeof url === 'string' ? url : url.toString(),

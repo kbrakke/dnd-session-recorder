@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useRef, Suspense } from 'react';
 import { isNil } from 'lodash';
 import {
   Calendar,
@@ -117,15 +117,14 @@ function PipelineStep({
     <div className="flex items-center gap-2">
       <div className="flex flex-col items-center min-w-[100px]">
         <div
-          className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${
-            status === 'complete'
+          className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${status === 'complete'
               ? 'bg-green-500 border-green-500'
               : status === 'active'
                 ? 'bg-blue-500 border-blue-500'
                 : status === 'error'
                   ? 'bg-red-500 border-red-500'
                   : 'bg-gray-200 border-gray-300'
-          }`}
+            }`}
         >
           {status === 'complete' && (
             <CheckCircle className="w-6 h-6 text-white" />
@@ -169,9 +168,8 @@ function PipelineStep({
       </div>
       {!isLast && (
         <div
-          className={`h-0.5 w-16 ${
-            status === 'complete' ? 'bg-green-500' : 'bg-gray-300'
-          }`}
+          className={`h-0.5 w-16 ${status === 'complete' ? 'bg-green-500' : 'bg-gray-300'
+            }`}
         />
       )}
     </div>
@@ -206,7 +204,7 @@ function SessionPageRedesignInner() {
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string; campaignId: string } | null>(null);
 
   // Data fetching
-  const { data: session, isLoading: sessionLoading, isFetching } = useQuery<SessionDetail>({
+  const { data: session, isLoading: sessionLoading } = useQuery<SessionDetail>({
     queryKey: ['session', sessionId],
     queryFn: async () => {
       const response = await fetch(`/api/sessions/${sessionId}`);
@@ -770,7 +768,7 @@ function SessionPageRedesignInner() {
                 label="Upload"
                 status={getStepStatus('upload')}
                 isActive={!hasUpload}
-                onStart={needsAudio ? undefined : () => {}}
+                onStart={needsAudio ? undefined : () => { }}
               />
               <PipelineStep
                 label="Transcribe"
@@ -805,144 +803,144 @@ function SessionPageRedesignInner() {
         <div className="border-b border-orange-200 bg-orange-50">
           <div className="px-6 py-4">
             <div className="flex items-start gap-4">
-                <AlertCircle className="h-6 w-6 text-orange-600 flex-shrink-0 mt-1" />
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-orange-900 mb-2">
-                    No Audio File
-                  </h3>
-                  <p className="text-orange-800 mb-4">
-                    This session has no audio file attached. Upload an audio
-                    recording to generate transcriptions and AI summaries.
-                  </p>
+              <AlertCircle className="h-6 w-6 text-orange-600 flex-shrink-0 mt-1" />
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-orange-900 mb-2">
+                  No Audio File
+                </h3>
+                <p className="text-orange-800 mb-4">
+                  This session has no audio file attached. Upload an audio
+                  recording to generate transcriptions and AI summaries.
+                </p>
 
-                  {uploadError && (
-                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-red-900">
-                            Upload Failed
-                          </p>
-                          <p className="text-sm text-red-700 mt-1">
-                            {uploadError}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => setUploadError(null)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {!showExistingUploads ? (
-                      <>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="file"
-                            accept="audio/*"
-                            onChange={(e) =>
-                              setSelectedFile(e.target.files?.[0] || null)
-                            }
-                            className="block text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-orange-600 file:text-white hover:file:bg-orange-700 file:cursor-pointer"
-                            disabled={isUploadingAudio}
-                          />
-                          {selectedFile && (
-                            <button
-                              onClick={() =>
-                                uploadAudioMutation.mutate(selectedFile)
-                              }
-                              disabled={isUploadingAudio}
-                              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
-                            >
-                              {isUploadingAudio ? (
-                                <>
-                                  <RefreshCw className="h-4 w-4 animate-spin" />
-                                  Uploading...
-                                </>
-                              ) : (
-                                <>
-                                  <Upload className="h-4 w-4" />
-                                  Upload & Process
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-sm text-orange-700">
-                          Or{' '}
-                          <button
-                            onClick={() => setShowExistingUploads(true)}
-                            className="underline hover:text-orange-900 font-medium"
-                          >
-                            link an existing upload
-                          </button>
+                {uploadError && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-red-900">
+                          Upload Failed
                         </p>
-                      </>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-sm font-semibold text-orange-900">
-                            Select an Upload
-                          </h4>
+                        <p className="text-sm text-red-700 mt-1">
+                          {uploadError}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setUploadError(null)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {!showExistingUploads ? (
+                    <>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          onChange={(e) =>
+                            setSelectedFile(e.target.files?.[0] || null)
+                          }
+                          className="block text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-orange-600 file:text-white hover:file:bg-orange-700 file:cursor-pointer"
+                          disabled={isUploadingAudio}
+                        />
+                        {selectedFile && (
                           <button
-                            onClick={() => setShowExistingUploads(false)}
-                            className="text-sm text-orange-700 hover:text-orange-900"
+                            onClick={() =>
+                              uploadAudioMutation.mutate(selectedFile)
+                            }
+                            disabled={isUploadingAudio}
+                            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
                           >
-                            Cancel
+                            {isUploadingAudio ? (
+                              <>
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-4 w-4" />
+                                Upload & Process
+                              </>
+                            )}
                           </button>
-                        </div>
-                        {uploads.length === 0 ? (
-                          <p className="text-sm text-orange-700">
-                            No existing uploads found.
-                          </p>
-                        ) : (
-                          <div className="max-h-64 overflow-y-auto space-y-2 border border-orange-200 rounded-lg p-2 bg-white">
-                            {uploads.map((upload) => (
-                              <button
-                                key={upload.id}
-                                onClick={() =>
-                                  linkExistingUploadMutation.mutate(upload.id)
-                                }
-                                disabled={linkingUploadId === upload.id}
-                                className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-orange-400 hover:bg-orange-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">
-                                      {upload.originalName}
-                                    </p>
-                                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                                      <span>
-                                        {(upload.size / 1024 / 1024).toFixed(2)}{' '}
-                                        MB
-                                      </span>
-                                      {upload.duration && (
-                                        <span>
-                                          • {Math.floor(upload.duration / 60)}m{' '}
-                                          {upload.duration % 60}s
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  {linkingUploadId === upload.id ? (
-                                    <RefreshCw className="h-4 w-4 text-orange-600 animate-spin flex-shrink-0 ml-2" />
-                                  ) : (
-                                    <CheckCircle className="h-4 w-4 text-gray-400 flex-shrink-0 ml-2" />
-                                  )}
-                                </div>
-                              </button>
-                            ))}
-                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                      <p className="text-sm text-orange-700">
+                        Or{' '}
+                        <button
+                          onClick={() => setShowExistingUploads(true)}
+                          className="underline hover:text-orange-900 font-medium"
+                        >
+                          link an existing upload
+                        </button>
+                      </p>
+                    </>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-orange-900">
+                          Select an Upload
+                        </h4>
+                        <button
+                          onClick={() => setShowExistingUploads(false)}
+                          className="text-sm text-orange-700 hover:text-orange-900"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {uploads.length === 0 ? (
+                        <p className="text-sm text-orange-700">
+                          No existing uploads found.
+                        </p>
+                      ) : (
+                        <div className="max-h-64 overflow-y-auto space-y-2 border border-orange-200 rounded-lg p-2 bg-white">
+                          {uploads.map((upload) => (
+                            <button
+                              key={upload.id}
+                              onClick={() =>
+                                linkExistingUploadMutation.mutate(upload.id)
+                              }
+                              disabled={linkingUploadId === upload.id}
+                              className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-orange-400 hover:bg-orange-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">
+                                    {upload.originalName}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                                    <span>
+                                      {(upload.size / 1024 / 1024).toFixed(2)}{' '}
+                                      MB
+                                    </span>
+                                    {upload.duration && (
+                                      <span>
+                                        • {Math.floor(upload.duration / 60)}m{' '}
+                                        {upload.duration % 60}s
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {linkingUploadId === upload.id ? (
+                                  <RefreshCw className="h-4 w-4 text-orange-600 animate-spin flex-shrink-0 ml-2" />
+                                ) : (
+                                  <CheckCircle className="h-4 w-4 text-gray-400 flex-shrink-0 ml-2" />
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
           </div>
         </div>
       )}
@@ -1012,11 +1010,10 @@ function SessionPageRedesignInner() {
                 key={s.id}
                 className={`
                 group relative rounded-lg mb-2 border-l-4 transition-all
-                ${
-                  s.id === sessionId
+                ${s.id === sessionId
                     ? 'py-4 bg-blue-50 border-l-blue-600 text-blue-900 shadow-sm'
                     : 'py-3 border-l-transparent hover:bg-gray-50 text-gray-700'
-                }
+                  }
               `}
               >
                 <Link href={`/sessions/${s.id}`} className="block px-4">
