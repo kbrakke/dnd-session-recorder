@@ -87,8 +87,11 @@ function SessionUploadPageContent() {
     campaignForm: { name: '', description: '', systemPrompt: '' },
   });
 
-  // Get uploadId from query params if present
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Get uploadId and campaignId from query params if present
   const preSelectedUploadId = searchParams.get('uploadId');
+  const preSelectedCampaignId = searchParams.get('campaignId');
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -124,6 +127,19 @@ function SessionUploadPageContent() {
       }
     }
   }, [preSelectedUploadId, uploads, uploadState.selectedUpload]);
+
+  // Pre-select campaign if campaignId query param is present
+  useEffect(() => {
+    if (preSelectedCampaignId && campaigns.length > 0 && !formState.campaignId) {
+      const campaign = campaigns.find(c => c.id === preSelectedCampaignId);
+      if (campaign) {
+        setFormState((prev) => ({
+          ...prev,
+          campaignId: preSelectedCampaignId,
+        }));
+      }
+    }
+  }, [preSelectedCampaignId, campaigns, formState.campaignId]);
 
   // Create session mutation
   const createSessionMutation = useMutation({
@@ -227,6 +243,12 @@ function SessionUploadPageContent() {
       return;
     }
 
+    if (isSubmitting) {
+      return; // Prevent double submission
+    }
+
+    setIsSubmitting(true);
+
     try {
       // Use atomic session creation endpoint with file upload
       if (uploadState.mode === 'new' && uploadState.selectedFile) {
@@ -317,6 +339,7 @@ function SessionUploadPageContent() {
         }
       }
       alert(`Failed to create session: ${errorMessage}`);
+      setIsSubmitting(false);
     }
   };
 
@@ -568,12 +591,13 @@ function SessionUploadPageContent() {
               !formState.title ||
               !formState.campaignId ||
               !formState.sessionDate ||
-              campaignsLoading
+              campaignsLoading ||
+              isSubmitting
             }
             className="flex items-center space-x-2"
           >
             <Upload className="h-4 w-4" />
-            <span>Create Session</span>
+            <span>{isSubmitting ? 'Creating...' : 'Create Session'}</span>
           </Button>
         </div>
       </form>

@@ -227,7 +227,7 @@ export default function CampaignDetailsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Session Timeline</h2>
-              <Link href="/sessions/upload">
+              <Link href={`/sessions/upload?campaignId=${campaignId}`}>
                 <Button size="sm" className="flex items-center space-x-2">
                   <Play className="h-4 w-4" />
                   <span>New Session</span>
@@ -244,7 +244,7 @@ export default function CampaignDetailsPage() {
               <div className="text-center py-8">
                 <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-500 mb-4">No sessions yet for this campaign</p>
-                <Link href="/sessions/upload">
+                <Link href={`/sessions/upload?campaignId=${campaignId}`}>
                   <Button>Create First Session</Button>
                 </Link>
               </div>
