@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { 
-  createTestUserViaAPI, 
-  loginViaUI, 
-  cleanupTestUser, 
+import {
+  loginViaUI,
+  cleanupTestUser,
   generateTestUser,
-  verifyAuthenticated 
+  verifyAuthenticated
 } from '../helpers/users';
 
 test.describe('Complete User Journey', () => {
@@ -19,7 +18,7 @@ test.describe('Complete User Journey', () => {
     }
   });
 
-  test('should complete full workflow: signup → campaigns → sessions → cleanup', async ({ page, request }) => {
+  test('should complete full workflow: signup → campaigns → sessions → cleanup', async ({ page }) => {
     // ===== STEP 1: Sign Up =====
     console.log('Step 1: Creating new test user...');
     const user = generateTestUser('journey');

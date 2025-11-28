@@ -18,7 +18,7 @@ test.describe('Authentication Workflows', () => {
     testUsers.length = 0;
   });
 
-  test('user can sign up with valid credentials', async ({ page, request }) => {
+  test('user can sign up with valid credentials', async ({ page }) => {
     const testUser = generateTestUser('signup');
     testUsers.push({ email: testUser.email, password: testUser.password });
 

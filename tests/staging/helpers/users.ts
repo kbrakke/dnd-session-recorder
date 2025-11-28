@@ -1,4 +1,4 @@
-import { APIRequestContext, Page } from '@playwright/test';
+import { APIRequestContext, Page, expect } from '@playwright/test';
 
 export interface TestUser {
   name: string;
@@ -16,10 +16,10 @@ export async function createTestUserViaAPI(
   const response = await request.post('/api/auth/register', {
     data: userData,
   });
-  
+
   // Accept 200, 201 (success) or 400 (user already exists)
   expect([200, 201, 400]).toContain(response.status());
-  
+
   return userData;
 }
 

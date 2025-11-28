@@ -24,11 +24,6 @@ interface Upload {
   createdAt: string;
 }
 
-interface UploadResponse {
-  message: string;
-  upload: Upload;
-}
-
 interface Session {
   id: string;
   title: string;

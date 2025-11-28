@@ -10,14 +10,14 @@ test.describe('Data Isolation', () => {
   let userA: { email: string; password: string } | null = null;
   let userB: { email: string; password: string } | null = null;
 
-  test.beforeEach(async ({ page, request }) => {
+  test.beforeEach(async ({ request }) => {
     // Create two test users
     const user1 = generateTestUser('user-a');
     const user2 = generateTestUser('user-b');
-    
+
     await createTestUserViaAPI(request, user1);
     await createTestUserViaAPI(request, user2);
-    
+
     userA = { email: user1.email, password: user1.password };
     userB = { email: user2.email, password: user2.password };
   });
@@ -31,15 +31,15 @@ test.describe('Data Isolation', () => {
     }
   });
 
-  test('user A cannot access user B sessions via API', async ({ page, request }) => {
+  test('user A cannot access user B sessions via API', async ({ page }) => {
     // Login as user A
     await loginViaUI(page, userA!.email, userA!.password);
-    
+
     // Get user A's sessions
     const responseA = await page.request.get('/api/sessions');
     expect(responseA.status()).toBe(200);
     const sessionsA = await responseA.json();
-    const sessionIdsA = sessionsA.map((s: any) => s.id);
+    const sessionIdsA = sessionsA.map((s: { id: string }) => s.id);
     
     // Try to access a session ID that doesn't belong to user A
     // (using a fake ID or one from user B if we had access)
@@ -58,7 +58,7 @@ test.describe('Data Isolation', () => {
     const responseA = await page.request.get('/api/campaigns');
     expect(responseA.status()).toBe(200);
     const campaignsA = await responseA.json();
-    const campaignIdsA = campaignsA.map((c: any) => c.id);
+    const campaignIdsA = campaignsA.map((c: { id: string }) => c.id);
     
     // Try to access a campaign ID that doesn't belong to user A
     if (campaignIdsA.length === 0) {
@@ -85,11 +85,11 @@ test.describe('Data Isolation', () => {
     
     // All sessions should belong to user A (we can't verify this without DB access,
     // but we can verify the structure is correct)
-    sessions.forEach((session: any) => {
+    sessions.forEach((session: { id: string }) => {
       expect(session).toHaveProperty('id');
     });
-    
-    campaigns.forEach((campaign: any) => {
+
+    campaigns.forEach((campaign: { id: string }) => {
       expect(campaign).toHaveProperty('id');
     });
   });

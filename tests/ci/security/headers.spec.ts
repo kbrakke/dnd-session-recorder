@@ -10,15 +10,7 @@ test.describe('Security Headers', () => {
     
     // Headers should be defined
     expect(headers).toBeDefined();
-    
-    // Check for common security headers (may or may not be present depending on config)
-    const securityHeaders = [
-      'x-content-type-options',
-      'x-frame-options',
-      'x-xss-protection',
-      'strict-transport-security',
-    ];
-    
+
     // At least verify headers object is populated
     expect(Object.keys(headers).length).toBeGreaterThan(0);
   });

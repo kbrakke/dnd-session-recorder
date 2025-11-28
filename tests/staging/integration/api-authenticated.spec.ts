@@ -29,9 +29,9 @@ test.describe('Authenticated API Tests', () => {
     
     const sessions = await response.json();
     expect(Array.isArray(sessions)).toBe(true);
-    
+
     // Each session should have required fields
-    sessions.forEach((session: any) => {
+    sessions.forEach((session: { id: string }) => {
       expect(session).toHaveProperty('id');
     });
   });
@@ -43,9 +43,9 @@ test.describe('Authenticated API Tests', () => {
     
     const campaigns = await response.json();
     expect(Array.isArray(campaigns)).toBe(true);
-    
+
     // Each campaign should have required fields
-    campaigns.forEach((campaign: any) => {
+    campaigns.forEach((campaign: { id: string }) => {
       expect(campaign).toHaveProperty('id');
     });
   });
