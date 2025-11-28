@@ -12,13 +12,23 @@ interface Account {
   type: string;
 }
 
+interface SettingsState {
+  accounts: Account[];
+  isLoading: boolean;
+  error: string;
+  success: string;
+}
+
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  
+  const [state, setState] = useState<SettingsState>({
+    accounts: [],
+    isLoading: true,
+    error: '',
+    success: '',
+  });
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -32,12 +42,11 @@ export default function SettingsPage() {
         const response = await fetch('/api/user/accounts');
         if (response.ok) {
           const data = await response.json();
-          setAccounts(data.accounts || []);
+          setState((prev) => ({ ...prev, accounts: data.accounts || [], isLoading: false }));
         }
       } catch (error) {
         logger.error('Failed to fetch accounts', error instanceof Error ? error : new Error(String(error)));
-      } finally {
-        setIsLoading(false);
+        setState((prev) => ({ ...prev, isLoading: false }));
       }
     };
 
@@ -47,9 +56,7 @@ export default function SettingsPage() {
   }, [session]);
 
   const handleLinkGoogle = async () => {
-    setIsLoading(true);
-    setError('');
-    setSuccess('');
+    setState((prev) => ({ ...prev, isLoading: true, error: '', success: '' }));
 
     try {
       // Sign in with Google, which will link the account if user is already authenticated
@@ -59,21 +66,27 @@ export default function SettingsPage() {
       });
 
       if (result?.error) {
-        setError('Failed to link Google account. Please try again.');
+        setState((prev) => ({
+          ...prev,
+          error: 'Failed to link Google account. Please try again.',
+          isLoading: false,
+        }));
       }
     } catch (error) {
       logger.error('Google linking failed', error instanceof Error ? error : new Error(String(error)));
-      setError('Failed to link Google account. Please try again.');
-    } finally {
-      setIsLoading(false);
+      setState((prev) => ({
+        ...prev,
+        error: 'Failed to link Google account. Please try again.',
+        isLoading: false,
+      }));
     }
   };
 
-  const hasGoogleAccount = accounts.some(acc => acc.provider === 'google');
-  const hasPasswordAccount = accounts.some(acc => acc.provider === 'credentials');
+  const hasGoogleAccount = state.accounts.some(acc => acc.provider === 'google');
+  const hasPasswordAccount = state.accounts.some(acc => acc.provider === 'credentials');
   const isGoogleEnabled = process.env.NEXT_PUBLIC_GOOGLE_ENABLED === 'true';
 
-  if (status === 'loading' || isLoading) {
+  if (status === 'loading' || state.isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -129,15 +142,15 @@ export default function SettingsPage() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Linked Accounts</h2>
 
-              {error && (
+              {state.error && (
                 <div className="rounded-md bg-red-50 p-4 mb-4">
-                  <div className="text-sm text-red-700">{error}</div>
+                  <div className="text-sm text-red-700">{state.error}</div>
                 </div>
               )}
 
-              {success && (
+              {state.success && (
                 <div className="rounded-md bg-green-50 p-4 mb-4">
-                  <div className="text-sm text-green-700">{success}</div>
+                  <div className="text-sm text-green-700">{state.success}</div>
                 </div>
               )}
 
@@ -198,7 +211,7 @@ export default function SettingsPage() {
                     ) : (
                       <Button
                         onClick={handleLinkGoogle}
-                        disabled={isLoading}
+                        disabled={state.isLoading}
                         variant="outline"
                         size="sm"
                         className="flex items-center space-x-2"

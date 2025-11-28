@@ -45,21 +45,52 @@ const formatFileSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-function SessionUploadPageInner() {
+interface FormState {
+  title: string;
+  campaignId: string;
+  sessionDate: string;
+}
+
+interface CampaignFormState {
+  name: string;
+  description: string;
+  systemPrompt: string;
+}
+
+interface UploadState {
+  selectedFile: File | null;
+  selectedUpload: Upload | null;
+  dragActive: boolean;
+  mode: 'new' | 'existing' | 'skip';
+}
+
+interface ModalState {
+  showCreateCampaign: boolean;
+  campaignForm: CampaignFormState;
+}
+
+function SessionUploadPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [formData, setFormData] = useState({
+  
+  const [formState, setFormState] = useState<FormState>({
     title: '',
     campaignId: '',
     sessionDate: new Date().toISOString().split('T')[0],
   });
-  const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
-  const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
-  const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
+
+  const [uploadState, setUploadState] = useState<UploadState>({
+    selectedFile: null,
+    selectedUpload: null,
+    dragActive: false,
+    mode: 'new',
+  });
+
+  const [modalState, setModalState] = useState<ModalState>({
+    showCreateCampaign: false,
+    campaignForm: { name: '', description: '', systemPrompt: '' },
+  });
 
   // Get uploadId from query params if present
   const preSelectedUploadId = searchParams.get('uploadId');
@@ -87,34 +118,17 @@ function SessionUploadPageInner() {
 
   // Pre-select upload if uploadId query param is present
   useEffect(() => {
-    if (preSelectedUploadId && uploads.length > 0 && !selectedUpload) {
+    if (preSelectedUploadId && uploads.length > 0 && !uploadState.selectedUpload) {
       const upload = uploads.find(u => u.id === preSelectedUploadId);
       if (upload) {
-        setSelectedUpload(upload);
-        setUploadMode('existing');
+        setUploadState((prev) => ({
+          ...prev,
+          selectedUpload: upload,
+          mode: 'existing',
+        }));
       }
     }
-  }, [preSelectedUploadId, uploads, selectedUpload]);
-
-  // File upload mutation (kept for backwards compatibility with existing upload mode)
-  const _uploadMutation = useMutation({
-    mutationFn: async (file: File): Promise<UploadResponse> => {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const response = await fetch('/api/uploads', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-
-      return response.json();
-    },
-  });
+  }, [preSelectedUploadId, uploads, uploadState.selectedUpload]);
 
   // Create session mutation
   const createSessionMutation = useMutation({
@@ -140,41 +154,6 @@ function SessionUploadPageInner() {
     },
   });
 
-  // Transcription mutation (kept for future use)
-  const _transcribeMutation = useMutation({
-    mutationFn: async ({ sessionId }: { sessionId: string }) => {
-      const response = await fetch(`/api/transcription/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),  // No need to send file path - backend knows from session
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Transcription failed');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Summary mutation (kept for future use)
-  const _summarizeMutation = useMutation({
-    mutationFn: async (sessionId: string) => {
-      const response = await fetch(`/api/summary/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Summary generation failed');
-      }
-
-      return response.json();
-    },
-  });
-
   // Create campaign mutation
   const createCampaignMutation = useMutation({
     mutationFn: async (data: { name: string; description: string }) => {
@@ -191,17 +170,19 @@ function SessionUploadPageInner() {
     },
     onSuccess: (newCampaign) => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setShowCreateCampaignModal(false);
-      setCampaignFormData({ name: '', description: '', systemPrompt: '' });
+      setModalState({
+        showCreateCampaign: false,
+        campaignForm: { name: '', description: '', systemPrompt: '' },
+      });
       // Automatically select the newly created campaign
-      setFormData({ ...formData, campaignId: newCampaign.id });
+      setFormState((prev) => ({ ...prev, campaignId: newCampaign.id }));
     },
   });
 
   // Handle file selection
   const handleFileSelect = (file: File) => {
     if (file.type.startsWith('audio/')) {
-      setSelectedFile(file);
+      setUploadState((prev) => ({ ...prev, selectedFile: file }));
     } else {
       alert('Please select an audio file');
     }
@@ -210,12 +191,14 @@ function SessionUploadPageInner() {
   // Handle campaign creation
   const handleCreateCampaign = (e: React.FormEvent) => {
     e.preventDefault();
-    createCampaignMutation.mutate(campaignFormData);
+    createCampaignMutation.mutate(modalState.campaignForm);
   };
 
   const openCreateCampaignModal = () => {
-    setCampaignFormData({ name: '', description: '', systemPrompt: '' });
-    setShowCreateCampaignModal(true);
+    setModalState({
+      showCreateCampaign: true,
+      campaignForm: { name: '', description: '', systemPrompt: '' },
+    });
   };
 
   // Handle drag and drop
@@ -223,16 +206,16 @@ function SessionUploadPageInner() {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
+      setUploadState((prev) => ({ ...prev, dragActive: true }));
     } else if (e.type === 'dragleave') {
-      setDragActive(false);
+      setUploadState((prev) => ({ ...prev, dragActive: false }));
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragActive(false);
+    setUploadState((prev) => ({ ...prev, dragActive: false }));
 
     const files = e.dataTransfer.files;
     if (files && files[0]) {
@@ -244,20 +227,20 @@ function SessionUploadPageInner() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.title || !formData.campaignId || !formData.sessionDate) {
+    if (!formState.title || !formState.campaignId || !formState.sessionDate) {
       alert('Please fill in all required fields');
       return;
     }
 
     try {
       // Use atomic session creation endpoint with file upload
-      if (uploadMode === 'new' && selectedFile) {
+      if (uploadState.mode === 'new' && uploadState.selectedFile) {
         // Atomic creation: upload file + create session in one request
         const formDataToSend = new FormData();
-        formDataToSend.append('title', formData.title);
-        formDataToSend.append('campaign_id', formData.campaignId);
-        formDataToSend.append('session_date', new Date(formData.sessionDate).toISOString());
-        formDataToSend.append('audio', selectedFile);
+        formDataToSend.append('title', formState.title);
+        formDataToSend.append('campaign_id', formState.campaignId);
+        formDataToSend.append('session_date', new Date(formState.sessionDate).toISOString());
+        formDataToSend.append('audio', uploadState.selectedFile);
 
         const response = await fetch('/api/sessions/create-with-upload', {
           method: 'POST',
@@ -281,12 +264,12 @@ function SessionUploadPageInner() {
         logger.info('Session created successfully', { sessionId: result.session.id });
         router.push(`/sessions/${result.session.id}?initialState=processing`);
 
-      } else if (uploadMode === 'existing' && selectedUpload) {
+      } else if (uploadState.mode === 'existing' && uploadState.selectedUpload) {
         // Link existing upload to new session
         const session = await createSessionMutation.mutateAsync({
-          title: formData.title,
-          campaign_id: formData.campaignId,
-          session_date: new Date(formData.sessionDate).toISOString(),
+          title: formState.title,
+          campaign_id: formState.campaignId,
+          session_date: new Date(formState.sessionDate).toISOString(),
         });
 
         // Link the existing upload
@@ -294,8 +277,8 @@ function SessionUploadPageInner() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            upload_id: selectedUpload.id,
-            duration: selectedUpload.duration
+            upload_id: uploadState.selectedUpload.id,
+            duration: uploadState.selectedUpload.duration
           }),
         });
 
@@ -314,9 +297,9 @@ function SessionUploadPageInner() {
       } else {
         // No upload - just create session
         const session = await createSessionMutation.mutateAsync({
-          title: formData.title,
-          campaign_id: formData.campaignId,
-          session_date: new Date(formData.sessionDate).toISOString(),
+          title: formState.title,
+          campaign_id: formState.campaignId,
+          session_date: new Date(formState.sessionDate).toISOString(),
         });
 
         router.push(`/sessions/${session.id}?initialState=processing`);
@@ -360,8 +343,8 @@ function SessionUploadPageInner() {
               </label>
               <input
                 type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                value={formState.title}
+                onChange={(e) => setFormState((prev) => ({ ...prev, title: e.target.value }))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter session title"
                 required
@@ -375,12 +358,12 @@ function SessionUploadPageInner() {
               <div className="relative">
                 <BookOpen className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 <select
-                  value={formData.campaignId}
+                  value={formState.campaignId}
                   onChange={(e) => {
                     if (e.target.value === 'create-new') {
                       openCreateCampaignModal();
                     } else {
-                      setFormData({ ...formData, campaignId: e.target.value });
+                      setFormState((prev) => ({ ...prev, campaignId: e.target.value }));
                     }
                   }}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -417,8 +400,8 @@ function SessionUploadPageInner() {
                 <Calendar className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 <input
                   type="date"
-                  value={formData.sessionDate}
-                  onChange={(e) => setFormData({ ...formData, sessionDate: e.target.value })}
+                  value={formState.sessionDate}
+                  onChange={(e) => setFormState((prev) => ({ ...prev, sessionDate: e.target.value }))}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
@@ -437,8 +420,8 @@ function SessionUploadPageInner() {
             <div className="grid grid-cols-3 gap-3">
               <button
                 type="button"
-                onClick={() => setUploadMode('new')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'new'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'new' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'new'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -447,8 +430,8 @@ function SessionUploadPageInner() {
               </button>
               <button
                 type="button"
-                onClick={() => setUploadMode('existing')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'existing'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'existing' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'existing'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -457,8 +440,8 @@ function SessionUploadPageInner() {
               </button>
               <button
                 type="button"
-                onClick={() => setUploadMode('skip')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'skip'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'skip' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'skip'
                     ? 'border-green-500 bg-green-50 text-green-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -468,7 +451,7 @@ function SessionUploadPageInner() {
             </div>
           </div>
 
-          {uploadMode === 'skip' ? (
+          {uploadState.mode === 'skip' ? (
             <div className="text-center py-12 bg-green-50 rounded-lg border-2 border-green-200">
               <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-green-900 mb-2">Audio Upload Skipped</h3>
@@ -476,11 +459,11 @@ function SessionUploadPageInner() {
                 You can add audio to this session later from the session details page.
               </p>
             </div>
-          ) : uploadMode === 'new' ? (
+          ) : uploadState.mode === 'new' ? (
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${uploadState.dragActive
                 ? 'border-blue-400 bg-blue-50'
-                : selectedFile
+                : uploadState.selectedFile
                   ? 'border-green-400 bg-green-50'
                   : 'border-gray-300 hover:border-gray-400'
                 }`}
@@ -489,20 +472,20 @@ function SessionUploadPageInner() {
               onDragOver={handleDrag}
               onDrop={handleDrop}
             >
-              {selectedFile ? (
+              {uploadState.selectedFile ? (
                 <div className="space-y-3">
                   <FileAudio className="h-12 w-12 text-green-600 mx-auto" />
                   <div>
-                    <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
+                    <p className="text-lg font-medium text-gray-900">{uploadState.selectedFile.name}</p>
                     <p className="text-sm text-gray-500">
-                      {formatFileSize(selectedFile.size)} • {selectedFile.type}
+                      {formatFileSize(uploadState.selectedFile.size)} • {uploadState.selectedFile.type}
                     </p>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedFile(null)}
+                    onClick={() => setUploadState((prev) => ({ ...prev, selectedFile: null }))}
                   >
                     Remove File
                   </Button>
@@ -548,11 +531,11 @@ function SessionUploadPageInner() {
                   {uploads.map((upload) => (
                     <div
                       key={upload.id}
-                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${selectedUpload?.id === upload.id
+                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${uploadState.selectedUpload?.id === upload.id
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-gray-300 hover:border-gray-400'
                         }`}
-                      onClick={() => setSelectedUpload(upload)}
+                      onClick={() => setUploadState((prev) => ({ ...prev, selectedUpload: upload }))}
                     >
                       <div className="flex items-center space-x-3">
                         <FileAudio className="h-8 w-8 text-gray-600" />
@@ -587,9 +570,9 @@ function SessionUploadPageInner() {
           <Button
             type="submit"
             disabled={
-              !formData.title ||
-              !formData.campaignId ||
-              !formData.sessionDate ||
+              !formState.title ||
+              !formState.campaignId ||
+              !formState.sessionDate ||
               campaignsLoading
             }
             className="flex items-center space-x-2"
@@ -601,7 +584,7 @@ function SessionUploadPageInner() {
       </form>
 
       {/* Create Campaign Modal */}
-      {showCreateCampaignModal && (
+      {modalState.showCreateCampaign && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Campaign</h2>
@@ -612,8 +595,11 @@ function SessionUploadPageInner() {
                 </label>
                 <input
                   type="text"
-                  value={campaignFormData.name}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, name: e.target.value })}
+                  value={modalState.campaignForm.name}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, name: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   placeholder="Enter campaign name"
                   required
@@ -624,8 +610,11 @@ function SessionUploadPageInner() {
                   Description (Optional)
                 </label>
                 <textarea
-                  value={campaignFormData.description}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, description: e.target.value })}
+                  value={modalState.campaignForm.description}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, description: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={3}
                   placeholder="Enter campaign description"
@@ -636,8 +625,11 @@ function SessionUploadPageInner() {
                   System Prompt (Optional)
                 </label>
                 <textarea
-                  value={campaignFormData.systemPrompt}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, systemPrompt: e.target.value })}
+                  value={modalState.campaignForm.systemPrompt}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, systemPrompt: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={4}
                   placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries"
@@ -657,7 +649,7 @@ function SessionUploadPageInner() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setShowCreateCampaignModal(false)}
+                  onClick={() => setModalState((prev) => ({ ...prev, showCreateCampaign: false }))}
                   className="flex-1"
                 >
                   Cancel
@@ -678,7 +670,7 @@ export default function SessionUploadPage() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     }>
-      <SessionUploadPageInner />
+      <SessionUploadPageContent />
     </Suspense>
   );
 }

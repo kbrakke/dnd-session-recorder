@@ -85,3 +85,4 @@ Thumbs.db
 
 # Claude AI assistant files
 .claude/
+/docs/

@@ -547,6 +547,20 @@ export class DatabaseService {
       totalCampaigns,
     };
   }
+
+  // User operations (for test cleanup)
+  async getUserByEmail(email: string) {
+    return prisma.user.findUnique({
+      where: { email },
+    });
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    // Prisma will cascade delete all related records (campaigns, sessions, uploads, etc.)
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+  }
 }
 
 // Create singleton instance

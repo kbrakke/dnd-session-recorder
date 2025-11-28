@@ -18,13 +18,14 @@
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio",
     "db:seed": "npx prisma db seed",
-    "test": "playwright test",
+    "test": "playwright test --config=playwright.config.ci.ts",
+    "test:ci": "playwright test --config=playwright.config.ci.ts",
+    "test:staging": "playwright test --config=playwright.config.staging.ts",
+    "test:ci:ui": "playwright test --config=playwright.config.ci.ts --ui",
+    "test:staging:ui": "playwright test --config=playwright.config.staging.ts --ui",
+    "test:headed": "playwright test --config=playwright.config.ci.ts --headed",
     "test:local": "playwright test --config=playwright.config.local.ts",
-    "test:workflows": "playwright test --config=playwright.config.workflows.ts",
-    "test:post-deploy": "playwright test --config=playwright.config.post-deploy.ts",
-    "test:staging": "playwright test --config=playwright-staging.config.ts",
-    "test:headed": "playwright test --headed",
-    "test:ui": "playwright test --ui"
+    "test:workflows": "playwright test --config=playwright.config.workflows.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.0",

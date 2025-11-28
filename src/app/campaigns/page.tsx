@@ -15,11 +15,26 @@ interface Campaign {
   updated_at: string;
 }
 
+interface CampaignFormState {
+  name: string;
+  description: string;
+  systemPrompt: string;
+}
+
+interface ModalState {
+  isOpen: boolean;
+  editingCampaign: Campaign | null;
+  form: CampaignFormState;
+}
+
 export default function CampaignsPage() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '', systemPrompt: '' });
   const queryClient = useQueryClient();
+  
+  const [modalState, setModalState] = useState<ModalState>({
+    isOpen: false,
+    editingCampaign: null,
+    form: { name: '', description: '', systemPrompt: '' },
+  });
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['campaigns'],
@@ -42,8 +57,11 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setIsModalOpen(false);
-      setFormData({ name: '', description: '', systemPrompt: '' });
+      setModalState({
+        isOpen: false,
+        editingCampaign: null,
+        form: { name: '', description: '', systemPrompt: '' },
+      });
     },
   });
 
@@ -59,9 +77,11 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setIsModalOpen(false);
-      setEditingCampaign(null);
-      setFormData({ name: '', description: '', systemPrompt: '' });
+      setModalState({
+        isOpen: false,
+        editingCampaign: null,
+        form: { name: '', description: '', systemPrompt: '' },
+      });
     },
   });
 
@@ -79,21 +99,23 @@ export default function CampaignsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingCampaign) {
-      updateMutation.mutate({ id: editingCampaign.id, data: formData });
+    if (modalState.editingCampaign) {
+      updateMutation.mutate({ id: modalState.editingCampaign.id, data: modalState.form });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(modalState.form);
     }
   };
 
   const handleEdit = (campaign: Campaign) => {
-    setEditingCampaign(campaign);
-    setFormData({ 
-      name: campaign.name, 
-      description: campaign.description || '', 
-      systemPrompt: campaign.systemPrompt || '' 
+    setModalState({
+      isOpen: true,
+      editingCampaign: campaign,
+      form: {
+        name: campaign.name,
+        description: campaign.description || '',
+        systemPrompt: campaign.systemPrompt || '',
+      },
     });
-    setIsModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
@@ -103,9 +125,11 @@ export default function CampaignsPage() {
   };
 
   const openCreateModal = () => {
-    setEditingCampaign(null);
-    setFormData({ name: '', description: '', systemPrompt: '' });
-    setIsModalOpen(true);
+    setModalState({
+      isOpen: true,
+      editingCampaign: null,
+      form: { name: '', description: '', systemPrompt: '' },
+    });
   };
 
   const formatDate = (dateString: string) => {
@@ -191,17 +215,17 @@ export default function CampaignsPage() {
       )}
 
       {/* Modal */}
-      {isModalOpen && (
+      {modalState.isOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={() => setIsModalOpen(false)}
+          onClick={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
         >
           <div 
             className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-2xl font-bold text-gray-900 mb-6">
-              {editingCampaign ? 'Edit Campaign' : 'Create Campaign'}
+              {modalState.editingCampaign ? 'Edit Campaign' : 'Create Campaign'}
             </h2>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
@@ -210,8 +234,11 @@ export default function CampaignsPage() {
                 </label>
                 <input
                   type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  value={modalState.form.name}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    form: { ...prev.form, name: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   placeholder="Enter campaign name"
                   required
@@ -222,8 +249,11 @@ export default function CampaignsPage() {
                   Description (Optional)
                 </label>
                 <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  value={modalState.form.description}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    form: { ...prev.form, description: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={3}
                   placeholder="Enter campaign description"
@@ -234,8 +264,11 @@ export default function CampaignsPage() {
                   System Prompt (Optional)
                 </label>
                 <textarea
-                  value={formData.systemPrompt}
-                  onChange={(e) => setFormData({ ...formData, systemPrompt: e.target.value })}
+                  value={modalState.form.systemPrompt}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    form: { ...prev.form, systemPrompt: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={4}
                   placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries"
@@ -251,12 +284,12 @@ export default function CampaignsPage() {
                   className="flex-1"
                 >
                   {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 
-                   editingCampaign ? 'Update Campaign' : 'Create Campaign'}
+                   modalState.editingCampaign ? 'Update Campaign' : 'Create Campaign'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
                   className="flex-1"
                 >
                   Cancel

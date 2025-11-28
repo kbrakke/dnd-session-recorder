@@ -118,12 +118,12 @@ function PipelineStep({
       <div className="flex flex-col items-center min-w-[100px]">
         <div
           className={`relative flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all ${status === 'complete'
-              ? 'bg-green-500 border-green-500'
-              : status === 'active'
-                ? 'bg-blue-500 border-blue-500'
-                : status === 'error'
-                  ? 'bg-red-500 border-red-500'
-                  : 'bg-gray-200 border-gray-300'
+            ? 'bg-green-500 border-green-500'
+            : status === 'active'
+              ? 'bg-blue-500 border-blue-500'
+              : status === 'error'
+                ? 'bg-red-500 border-red-500'
+                : 'bg-gray-200 border-gray-300'
             }`}
         >
           {status === 'complete' && (
@@ -176,7 +176,41 @@ function PipelineStep({
   );
 }
 
-function SessionPageRedesignInner() {
+interface SessionToDelete {
+  id: string;
+  title: string;
+  campaignId: string;
+}
+
+interface UIState {
+  expandedSections: Set<string>;
+}
+
+interface EditingState {
+  summary: {
+    isEditing: boolean;
+    text: string;
+  };
+  todo: {
+    isEditing: boolean;
+    text: string;
+  };
+}
+
+interface UploadState {
+  selectedFile: File | null;
+  isUploading: boolean;
+  showExistingUploads: boolean;
+  linkingUploadId: string | null;
+  error: string | null;
+}
+
+interface DeleteState {
+  showModal: boolean;
+  session: SessionToDelete | null;
+}
+
+function SessionPageContent() {
   const params = useParams();
   const sessionId = params.id as string;
   const searchParams = useSearchParams();
@@ -187,21 +221,28 @@ function SessionPageRedesignInner() {
   const isInitialProcessing = initialState === 'processing';
   const hasReceivedFirstData = useRef(false);
 
-  // State
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set()
-  );
-  const [isEditingSummary, setIsEditingSummary] = useState(false);
-  const [editedSummaryText, setEditedSummaryText] = useState('');
-  const [isEditingTodo, setIsEditingTodo] = useState(false);
-  const [editedTodoText, setEditedTodoText] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
-  const [showExistingUploads, setShowExistingUploads] = useState(false);
-  const [linkingUploadId, setLinkingUploadId] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string; campaignId: string } | null>(null);
+  // Consolidated state
+  const [uiState, setUIState] = useState<UIState>({
+    expandedSections: new Set(),
+  });
+
+  const [editingState, setEditingState] = useState<EditingState>({
+    summary: { isEditing: false, text: '' },
+    todo: { isEditing: false, text: '' },
+  });
+
+  const [uploadState, setUploadState] = useState<UploadState>({
+    selectedFile: null,
+    isUploading: false,
+    showExistingUploads: false,
+    linkingUploadId: null,
+    error: null,
+  });
+
+  const [deleteState, setDeleteState] = useState<DeleteState>({
+    showModal: false,
+    session: null,
+  });
 
   // Data fetching
   const { data: session, isLoading: sessionLoading } = useQuery<SessionDetail>({
@@ -310,7 +351,7 @@ function SessionPageRedesignInner() {
       const data = await response.json();
       return data.uploads || [];
     },
-    enabled: showExistingUploads,
+    enabled: uploadState.showExistingUploads,
   });
 
   // Mutations
@@ -326,7 +367,10 @@ function SessionPageRedesignInner() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
-      setIsEditingSummary(false);
+      setEditingState((prev) => ({
+        ...prev,
+        summary: { isEditing: false, text: '' },
+      }));
     },
   });
 
@@ -342,7 +386,10 @@ function SessionPageRedesignInner() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
-      setIsEditingTodo(false);
+      setEditingState((prev) => ({
+        ...prev,
+        todo: { isEditing: false, text: '' },
+      }));
     },
   });
 
@@ -374,8 +421,7 @@ function SessionPageRedesignInner() {
 
   const uploadAudioMutation = useMutation({
     mutationFn: async (file: File) => {
-      setIsUploadingAudio(true);
-      setUploadError(null);
+      setUploadState((prev) => ({ ...prev, isUploading: true, error: null }));
 
       // First, upload the file
       const uploadFormData = new FormData();
@@ -423,24 +469,34 @@ function SessionPageRedesignInner() {
       return linkResponse.json();
     },
     onSuccess: () => {
-      setIsUploadingAudio(false);
-      setSelectedFile(null);
-      setUploadError(null);
+      setUploadState({
+        selectedFile: null,
+        isUploading: false,
+        showExistingUploads: false,
+        linkingUploadId: null,
+        error: null,
+      });
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({
         queryKey: ['transcriptions', sessionId],
       });
     },
     onError: (error: Error) => {
-      setIsUploadingAudio(false);
-      setUploadError(error.message);
+      setUploadState((prev) => ({
+        ...prev,
+        isUploading: false,
+        error: error.message,
+      }));
     },
   });
 
   const linkExistingUploadMutation = useMutation({
     mutationFn: async (uploadId: string) => {
-      setLinkingUploadId(uploadId);
-      setUploadError(null);
+      setUploadState((prev) => ({
+        ...prev,
+        linkingUploadId: uploadId,
+        error: null,
+      }));
 
       const upload = uploads.find((u) => u.id === uploadId);
 
@@ -476,40 +532,23 @@ function SessionPageRedesignInner() {
       return linkResponse.json();
     },
     onSuccess: () => {
-      setLinkingUploadId(null);
-      setShowExistingUploads(false);
-      setUploadError(null);
+      setUploadState((prev) => ({
+        ...prev,
+        linkingUploadId: null,
+        showExistingUploads: false,
+        error: null,
+      }));
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({
         queryKey: ['transcriptions', sessionId],
       });
     },
     onError: (error: Error) => {
-      setLinkingUploadId(null);
-      setUploadError(error.message);
-    },
-  });
-
-  const _retryTranscriptionMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/sessions/${sessionId}/process`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(
-          error.details || error.error || 'Failed to retry transcription'
-        );
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
-      queryClient.invalidateQueries({
-        queryKey: ['transcriptions', sessionId],
-      });
+      setUploadState((prev) => ({
+        ...prev,
+        linkingUploadId: null,
+        error: error.message,
+      }));
     },
   });
 
@@ -561,9 +600,9 @@ function SessionPageRedesignInner() {
 
   const deleteSessionMutation = useMutation({
     mutationFn: async () => {
-      if (!sessionToDelete) throw new Error('No session selected for deletion');
+      if (!deleteState.session) throw new Error('No session selected for deletion');
 
-      const response = await fetch(`/api/sessions/${sessionToDelete.id}`, {
+      const response = await fetch(`/api/sessions/${deleteState.session.id}`, {
         method: 'DELETE',
       });
 
@@ -576,50 +615,53 @@ function SessionPageRedesignInner() {
     },
     onSuccess: (data) => {
       // If deleting the current session, redirect to campaign page
-      if (sessionToDelete?.id === sessionId) {
+      if (deleteState.session?.id === sessionId) {
         window.location.href = `/campaigns/${data.campaignId}`;
       } else {
         // If deleting another session, just refresh the campaign sessions list
         queryClient.invalidateQueries({ queryKey: ['campaign-sessions', session?.campaign.id] });
-        setSessionToDelete(null);
-        setShowDeleteModal(false);
+        setDeleteState({ showModal: false, session: null });
       }
     },
   });
 
   // Handlers
   const toggleSection = (section: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
+    setUIState((prev) => {
+      const next = new Set(prev.expandedSections);
       if (next.has(section)) {
         next.delete(section);
       } else {
         next.add(section);
       }
-      return next;
+      return { ...prev, expandedSections: next };
     });
   };
 
   const handleEditSummary = () => {
     if (summary) {
-      setEditedSummaryText(summary.summaryText);
-      setIsEditingSummary(true);
+      setEditingState((prev) => ({
+        ...prev,
+        summary: { isEditing: true, text: summary.summaryText },
+      }));
     }
   };
 
   const handleSaveSummary = () => {
-    updateSummaryMutation.mutate(editedSummaryText);
+    updateSummaryMutation.mutate(editingState.summary.text);
   };
 
   const handleEditTodo = () => {
     if (dmTodoList) {
-      setEditedTodoText(dmTodoList.content);
-      setIsEditingTodo(true);
+      setEditingState((prev) => ({
+        ...prev,
+        todo: { isEditing: true, text: dmTodoList.content },
+      }));
     }
   };
 
   const handleSaveTodo = () => {
-    updateTodoMutation.mutate(editedTodoText);
+    updateTodoMutation.mutate(editingState.todo.text);
   };
 
   const formatDate = (dateString: string) => {
@@ -691,13 +733,6 @@ function SessionPageRedesignInner() {
 
   const needsAudio = !session?.uploadId && transcriptions.length === 0;
   const hasError = session?.status === 'error';
-  const _isProcessing =
-    session?.uploadId &&
-    !hasError &&
-    (session.status === 'uploaded' ||
-      session.status === 'transcribing' ||
-      session.status === 'transcribed' ||
-      session.status === 'summarizing');
   const isComplete = transcriptions.length > 0 && summary && dmTodoList;
 
   // Check if processing has timed out (started more than 30 minutes ago)
@@ -713,7 +748,6 @@ function SessionPageRedesignInner() {
   const hasUpload = !!session?.uploadId;
   const hasTranscription = transcriptions.length > 0;
   const hasSummary = !!summary;
-  const _hasTodoList = !!dmTodoList;
 
   const getStepStatus = (step: 'upload' | 'transcribe' | 'summarize' | 'complete'): 'pending' | 'active' | 'complete' | 'error' => {
     if (hasError && (
@@ -824,7 +858,7 @@ function SessionPageRedesignInner() {
                   recording to generate transcriptions and AI summaries.
                 </p>
 
-                {uploadError && (
+                {uploadState.error && (
                   <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                     <div className="flex items-start gap-2">
                       <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
@@ -833,11 +867,13 @@ function SessionPageRedesignInner() {
                           Upload Failed
                         </p>
                         <p className="text-sm text-red-700 mt-1">
-                          {uploadError}
+                          {uploadState.error}
                         </p>
                       </div>
                       <button
-                        onClick={() => setUploadError(null)}
+                        onClick={() =>
+                          setUploadState((prev) => ({ ...prev, error: null }))
+                        }
                         className="text-red-600 hover:text-red-800"
                       >
                         ×
@@ -847,27 +883,30 @@ function SessionPageRedesignInner() {
                 )}
 
                 <div className="space-y-3">
-                  {!showExistingUploads ? (
+                  {!uploadState.showExistingUploads ? (
                     <>
                       <div className="flex items-center gap-3">
                         <input
                           type="file"
                           accept="audio/*"
                           onChange={(e) =>
-                            setSelectedFile(e.target.files?.[0] || null)
+                            setUploadState((prev) => ({
+                              ...prev,
+                              selectedFile: e.target.files?.[0] || null,
+                            }))
                           }
                           className="block text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-orange-600 file:text-white hover:file:bg-orange-700 file:cursor-pointer"
-                          disabled={isUploadingAudio}
+                          disabled={uploadState.isUploading}
                         />
-                        {selectedFile && (
+                        {uploadState.selectedFile && (
                           <button
                             onClick={() =>
-                              uploadAudioMutation.mutate(selectedFile)
+                              uploadAudioMutation.mutate(uploadState.selectedFile!)
                             }
-                            disabled={isUploadingAudio}
+                            disabled={uploadState.isUploading}
                             className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center gap-2"
                           >
-                            {isUploadingAudio ? (
+                            {uploadState.isUploading ? (
                               <>
                                 <RefreshCw className="h-4 w-4 animate-spin" />
                                 Uploading...
@@ -884,7 +923,12 @@ function SessionPageRedesignInner() {
                       <p className="text-sm text-orange-700">
                         Or{' '}
                         <button
-                          onClick={() => setShowExistingUploads(true)}
+                          onClick={() =>
+                            setUploadState((prev) => ({
+                              ...prev,
+                              showExistingUploads: true,
+                            }))
+                          }
                           className="underline hover:text-orange-900 font-medium"
                         >
                           link an existing upload
@@ -898,7 +942,12 @@ function SessionPageRedesignInner() {
                           Select an Upload
                         </h4>
                         <button
-                          onClick={() => setShowExistingUploads(false)}
+                          onClick={() =>
+                            setUploadState((prev) => ({
+                              ...prev,
+                              showExistingUploads: false,
+                            }))
+                          }
                           className="text-sm text-orange-700 hover:text-orange-900"
                         >
                           Cancel
@@ -916,7 +965,7 @@ function SessionPageRedesignInner() {
                               onClick={() =>
                                 linkExistingUploadMutation.mutate(upload.id)
                               }
-                              disabled={linkingUploadId === upload.id}
+                              disabled={uploadState.linkingUploadId === upload.id}
                               className="w-full text-left p-3 bg-white rounded-lg border border-gray-200 hover:border-orange-400 hover:bg-orange-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <div className="flex items-center justify-between">
@@ -937,7 +986,7 @@ function SessionPageRedesignInner() {
                                     )}
                                   </div>
                                 </div>
-                                {linkingUploadId === upload.id ? (
+                                {uploadState.linkingUploadId === upload.id ? (
                                   <RefreshCw className="h-4 w-4 text-orange-600 animate-spin flex-shrink-0 ml-2" />
                                 ) : (
                                   <CheckCircle className="h-4 w-4 text-gray-400 flex-shrink-0 ml-2" />
@@ -1060,12 +1109,14 @@ function SessionPageRedesignInner() {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setSessionToDelete({
-                      id: s.id,
-                      title: s.title,
-                      campaignId: s.campaign.id
+                    setDeleteState({
+                      showModal: true,
+                      session: {
+                        id: s.id,
+                        title: s.title,
+                        campaignId: s.campaign.id,
+                      },
                     });
-                    setShowDeleteModal(true);
                   }}
                   className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 text-gray-400 hover:text-red-600 transition-opacity"
                   title="Delete session"
@@ -1106,12 +1157,14 @@ function SessionPageRedesignInner() {
               </div>
               <button
                 onClick={() => {
-                  setSessionToDelete({
-                    id: session.id,
-                    title: session.title,
-                    campaignId: session.campaign.id
+                  setDeleteState({
+                    showModal: true,
+                    session: {
+                      id: session.id,
+                      title: session.title,
+                      campaignId: session.campaign.id,
+                    },
                   });
-                  setShowDeleteModal(true);
                 }}
                 className="px-3 py-2 text-sm text-red-600 border border-red-300 rounded-lg hover:bg-red-50 flex items-center gap-2"
               >
@@ -1134,7 +1187,7 @@ function SessionPageRedesignInner() {
                 <div className="flex gap-2">
                   {summary && (
                     <>
-                      {!isEditingSummary && (
+                      {!editingState.summary.isEditing && (
                         <button
                           onClick={handleEditSummary}
                           className="px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
@@ -1159,16 +1212,26 @@ function SessionPageRedesignInner() {
               </div>
 
               {summary ? (
-                isEditingSummary ? (
+                editingState.summary.isEditing ? (
                   <div className="space-y-4">
                     <textarea
-                      value={editedSummaryText}
-                      onChange={(e) => setEditedSummaryText(e.target.value)}
+                      value={editingState.summary.text}
+                      onChange={(e) =>
+                        setEditingState((prev) => ({
+                          ...prev,
+                          summary: { ...prev.summary, text: e.target.value },
+                        }))
+                      }
                       className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <div className="flex justify-end gap-2">
                       <button
-                        onClick={() => setIsEditingSummary(false)}
+                        onClick={() =>
+                          setEditingState((prev) => ({
+                            ...prev,
+                            summary: { isEditing: false, text: '' },
+                          }))
+                        }
                         className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
                       >
                         Cancel
@@ -1229,13 +1292,13 @@ function SessionPageRedesignInner() {
                     ({transcriptions.length} segments)
                   </span>
                 </div>
-                {expandedSections.has('transcript') ? (
+                {uiState.expandedSections.has('transcript') ? (
                   <ChevronDown className="h-5 w-5 text-gray-600" />
                 ) : (
                   <ChevronRight className="h-5 w-5 text-gray-600" />
                 )}
               </button>
-              {expandedSections.has('transcript') && (
+              {uiState.expandedSections.has('transcript') && (
                 <div className="px-8 py-6 bg-gray-50 border-t border-gray-200 max-h-96 overflow-y-auto space-y-4">
                   {transcriptions.map((t) => (
                     <div
@@ -1265,7 +1328,7 @@ function SessionPageRedesignInner() {
               <h2 className="text-xl font-bold text-gray-900">DM Prep TODO</h2>
             </div>
             <div className="flex gap-2 mt-4">
-              {dmTodoList && !isEditingTodo && (
+              {dmTodoList && !editingState.todo.isEditing && (
                 <button
                   onClick={handleEditTodo}
                   className="px-3 py-1 text-xs text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
@@ -1289,16 +1352,26 @@ function SessionPageRedesignInner() {
 
           <div className="p-6">
             {dmTodoList ? (
-              isEditingTodo ? (
+              editingState.todo.isEditing ? (
                 <div className="space-y-4">
                   <textarea
-                    value={editedTodoText}
-                    onChange={(e) => setEditedTodoText(e.target.value)}
+                    value={editingState.todo.text}
+                    onChange={(e) =>
+                      setEditingState((prev) => ({
+                        ...prev,
+                        todo: { ...prev.todo, text: e.target.value },
+                      }))
+                    }
                     className="w-full h-96 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                   />
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setIsEditingTodo(false)}
+                      onClick={() =>
+                        setEditingState((prev) => ({
+                          ...prev,
+                          todo: { isEditing: false, text: '' },
+                        }))
+                      }
                       className="flex-1 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
                     >
                       Cancel
@@ -1342,7 +1415,7 @@ function SessionPageRedesignInner() {
       </div>
 
       {/* Delete Confirmation Modal */}
-      {showDeleteModal && sessionToDelete && (
+      {deleteState.showModal && deleteState.session && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-start gap-4">
@@ -1354,7 +1427,7 @@ function SessionPageRedesignInner() {
                   Delete Session
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Are you sure you want to delete &quot;{sessionToDelete.title}&quot;? This action cannot be undone and will permanently delete:
+                  Are you sure you want to delete &quot;{deleteState.session.title}&quot;? This action cannot be undone and will permanently delete:
                 </p>
                 <ul className="text-sm text-gray-600 list-disc list-inside space-y-1 mb-4">
                   <li>All transcriptions</li>
@@ -1370,8 +1443,7 @@ function SessionPageRedesignInner() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => {
-                  setShowDeleteModal(false);
-                  setSessionToDelete(null);
+                  setDeleteState({ showModal: false, session: null });
                 }}
                 disabled={deleteSessionMutation.isPending}
                 className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
@@ -1419,14 +1491,14 @@ function SessionPageRedesignInner() {
   );
 }
 
-export default function SessionPageRedesign() {
+export default function SessionPage() {
   return (
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     }>
-      <SessionPageRedesignInner />
+      <SessionPageContent />
     </Suspense>
   );
 }

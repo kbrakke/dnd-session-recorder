@@ -30,13 +30,20 @@ interface Session {
   summary: { id: number } | null;
 }
 
+interface EditingState {
+  isEditing: boolean;
+  text: string;
+}
+
 export default function CampaignDetailsPage() {
   const params = useParams();
   const campaignId = params.id as string;
   const queryClient = useQueryClient();
   
-  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [editedPrompt, setEditedPrompt] = useState('');
+  const [editingState, setEditingState] = useState<EditingState>({
+    isEditing: false,
+    text: '',
+  });
 
   const { data: campaign, isLoading: campaignLoading } = useQuery<Campaign>({
     queryKey: ['campaign', campaignId],
@@ -79,8 +86,7 @@ export default function CampaignDetailsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaign', campaignId] });
-      setIsEditingPrompt(false);
-      setEditedPrompt('');
+      setEditingState({ isEditing: false, text: '' });
     },
   });
 
@@ -134,17 +140,18 @@ export default function CampaignDetailsPage() {
   };
 
   const handleEditPrompt = () => {
-    setEditedPrompt(campaign?.systemPrompt || '');
-    setIsEditingPrompt(true);
+    setEditingState({
+      isEditing: true,
+      text: campaign?.systemPrompt || '',
+    });
   };
 
   const handleSavePrompt = () => {
-    updatePromptMutation.mutate(editedPrompt);
+    updatePromptMutation.mutate(editingState.text);
   };
 
   const handleCancelEdit = () => {
-    setIsEditingPrompt(false);
-    setEditedPrompt('');
+    setEditingState({ isEditing: false, text: '' });
   };
 
   const handleDeleteSession = async (sessionId: string, sessionTitle: string, e: React.MouseEvent) => {
@@ -304,7 +311,7 @@ export default function CampaignDetailsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Campaign Context</h2>
-              {!isEditingPrompt && (
+              {!editingState.isEditing && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -317,11 +324,11 @@ export default function CampaignDetailsPage() {
               )}
             </div>
 
-            {isEditingPrompt ? (
+            {editingState.isEditing ? (
               <div className="space-y-4">
                 <textarea
-                  value={editedPrompt}
-                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  value={editingState.text}
+                  onChange={(e) => setEditingState((prev) => ({ ...prev, text: e.target.value }))}
                   className="w-full h-64 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries..."
                 />
