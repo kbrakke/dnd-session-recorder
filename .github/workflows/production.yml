@@ -93,7 +93,7 @@ jobs:
           NODE_ENV: production
           NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_PRODUCTION || 'fallback-secret-for-ci-builds-32chars' }}
           NEXTAUTH_URL: https://dnd-recorder-prod.fly.dev
-          # DATABASE_URL: managed by Fly.io secrets
+          DATABASE_URL: file:./prisma/data/build.db
           NEXT_TELEMETRY_DISABLED: 1
 
       - name: Install Playwright browsers

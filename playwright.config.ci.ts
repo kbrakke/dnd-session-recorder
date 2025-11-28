@@ -24,14 +24,17 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    command: process.env.CI
+      ? 'node scripts/test-server.js'  // Use testcontainers in CI
+      : 'npm run dev:simple',           // Use simple dev server locally
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
+    timeout: 120000, // 2 minutes to start server and testcontainers
     env: {
       NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || 'test-secret-32-characters-long',
       NEXTAUTH_URL: 'http://localhost:3000',
       DATABASE_URL: process.env.DATABASE_URL || 'file:./prisma/data/test.db',
-      NODE_ENV: 'test',
+      NODE_ENV: 'development', // Changed from 'test' to 'development' for Next.js
       NEXT_TELEMETRY_DISABLED: '1',
     },
   },
