@@ -1,10 +1,14 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { BookOpen, Plus, Edit3, Trash2, Calendar } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { TextInput, Textarea } from '@/components/forms';
+import { campaignSchema, type CampaignFormData } from './schema';
 
 interface Campaign {
   id: string;
@@ -15,26 +19,39 @@ interface Campaign {
   updated_at: string;
 }
 
-interface CampaignFormState {
-  name: string;
-  description: string;
-  systemPrompt: string;
-}
-
-interface ModalState {
-  isOpen: boolean;
-  editingCampaign: Campaign | null;
-  form: CampaignFormState;
-}
-
 export default function CampaignsPage() {
   const queryClient = useQueryClient();
-  
-  const [modalState, setModalState] = useState<ModalState>({
-    isOpen: false,
-    editingCampaign: null,
-    form: { name: '', description: '', systemPrompt: '' },
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<CampaignFormData>({
+    resolver: zodResolver(campaignSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      name: '',
+      description: '',
+      systemPrompt: '',
+    },
   });
+
+  useEffect(() => {
+    if (modalOpen && editingCampaign) {
+      reset({
+        name: editingCampaign.name,
+        description: editingCampaign.description || '',
+        systemPrompt: editingCampaign.systemPrompt || '',
+      });
+    } else if (modalOpen) {
+      reset({ name: '', description: '', systemPrompt: '' });
+    }
+  }, [modalOpen, editingCampaign, reset]);
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['campaigns'],
@@ -46,7 +63,7 @@ export default function CampaignsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string; systemPrompt: string }) => {
+    mutationFn: async (data: CampaignFormData) => {
       const response = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,16 +74,15 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setModalState({
-        isOpen: false,
-        editingCampaign: null,
-        form: { name: '', description: '', systemPrompt: '' },
-      });
+      closeModal();
+    },
+    onError: (error) => {
+      setError('root', { message: error.message });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { name: string; description: string; systemPrompt: string } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: CampaignFormData }) => {
       const response = await fetch(`/api/campaigns/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -77,11 +93,10 @@ export default function CampaignsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setModalState({
-        isOpen: false,
-        editingCampaign: null,
-        form: { name: '', description: '', systemPrompt: '' },
-      });
+      closeModal();
+    },
+    onError: (error) => {
+      setError('root', { message: error.message });
     },
   });
 
@@ -97,25 +112,22 @@ export default function CampaignsPage() {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (modalState.editingCampaign) {
-      updateMutation.mutate({ id: modalState.editingCampaign.id, data: modalState.form });
+  const onSubmit = (data: CampaignFormData) => {
+    if (editingCampaign) {
+      updateMutation.mutate({ id: editingCampaign.id, data });
     } else {
-      createMutation.mutate(modalState.form);
+      createMutation.mutate(data);
     }
   };
 
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingCampaign(null);
+  };
+
   const handleEdit = (campaign: Campaign) => {
-    setModalState({
-      isOpen: true,
-      editingCampaign: campaign,
-      form: {
-        name: campaign.name,
-        description: campaign.description || '',
-        systemPrompt: campaign.systemPrompt || '',
-      },
-    });
+    setEditingCampaign(campaign);
+    setModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
@@ -125,11 +137,8 @@ export default function CampaignsPage() {
   };
 
   const openCreateModal = () => {
-    setModalState({
-      isOpen: true,
-      editingCampaign: null,
-      form: { name: '', description: '', systemPrompt: '' },
-    });
+    setEditingCampaign(null);
+    setModalOpen(true);
   };
 
   const formatDate = (dateString: string) => {
@@ -140,50 +149,48 @@ export default function CampaignsPage() {
     });
   };
 
+  const isMutating = createMutation.isPending || updateMutation.isPending;
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Campaigns</h1>
-        <Button onClick={openCreateModal} className="flex items-center space-x-2">
-          <Plus className="h-4 w-4" />
-          <span>New Campaign</span>
+        <h1 className="font-display text-4xl font-semibold text-slate-900 m-0">Campaigns</h1>
+        <Button onClick={openCreateModal} className="gap-2">
+          <Plus size={16} /> New Campaign
         </Button>
       </div>
 
       {/* Campaigns List */}
       {isLoading ? (
         <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-gray-500 mt-2">Loading campaigns...</p>
+          <div className="inline-block w-6 h-6 border-2 border-ink-900 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 mt-2">Loading campaigns...</p>
         </div>
       ) : !campaigns || campaigns.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-          <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500 mb-4">No campaigns yet. Create your first campaign to get started!</p>
+        <div className="bg-white border border-slate-300 rounded-ss-xl p-12 text-center shadow-ss-card">
+          <BookOpen className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+          <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No campaigns yet</h3>
+          <p className="font-body text-sm text-slate-500 mb-4">Create your first campaign to organize sessions</p>
           <Button onClick={openCreateModal}>Create Campaign</Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {campaigns.map((campaign) => (
-            <div key={campaign.id} className="bg-white rounded-xl border border-gray-200 hover:shadow-md transition-shadow">
+            <div key={campaign.id} className="bg-white rounded-ss-xl border border-slate-300 shadow-ss-card hover:shadow-ss-card-hover transition-shadow duration-150">
               <Link href={`/campaigns/${campaign.id}`}>
                 <div className="p-6 cursor-pointer">
-                  <div className="flex flex-col h-full">
-                    <div className="flex-1">
-                      <h3 className="text-xl font-semibold text-gray-900 mb-3">{campaign.name}</h3>
-                      {campaign.description && (
-                        <p className="text-gray-600 mb-4 line-clamp-3">{campaign.description}</p>
-                      )}
-                      <div className="flex items-center text-sm text-gray-500 mb-4">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        <span>Created {formatDate(campaign.created_at)}</span>
-                      </div>
-                    </div>
+                  <h3 className="font-display text-[22px] font-semibold text-slate-900 m-0 mb-2">{campaign.name}</h3>
+                  {campaign.description && (
+                    <p className="font-body text-sm text-slate-600 leading-relaxed mb-3.5 line-clamp-3">{campaign.description}</p>
+                  )}
+                  <div className="flex items-center gap-1.5 font-body text-[13px] text-slate-400">
+                    <Calendar size={14} />
+                    <span>Created {formatDate(campaign.created_at)}</span>
                   </div>
                 </div>
               </Link>
-              <div className="flex items-center space-x-2 px-6 pb-6 pt-2 border-t border-gray-100">
+              <div className="flex gap-2 px-6 py-3.5 border-t border-slate-100">
                 <Button
                   variant="outline"
                   size="sm"
@@ -191,10 +198,9 @@ export default function CampaignsPage() {
                     e.preventDefault();
                     handleEdit(campaign);
                   }}
-                  className="flex items-center space-x-1 flex-1"
+                  className="flex-1 gap-1"
                 >
-                  <Edit3 className="h-4 w-4" />
-                  <span>Edit</span>
+                  <Edit3 size={14} /> Edit
                 </Button>
                 <Button
                   variant="outline"
@@ -203,10 +209,9 @@ export default function CampaignsPage() {
                     e.preventDefault();
                     handleDelete(campaign.id);
                   }}
-                  className="flex items-center space-x-1 text-red-600 hover:text-red-700 hover:bg-red-50 hover:border-red-200"
+                  className="text-red-800 border-red-200 hover:bg-red-50 hover:border-red-300"
                 >
-                  <Trash2 className="h-4 w-4" />
-                  <span>Delete</span>
+                  <Trash2 size={14} /> Delete
                 </Button>
               </div>
             </div>
@@ -215,81 +220,65 @@ export default function CampaignsPage() {
       )}
 
       {/* Modal */}
-      {modalState.isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
+      {modalOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50"
+          onClick={closeModal}
         >
-          <div 
-            className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl"
+          <div
+            className="bg-white rounded-ss-2xl max-w-lg w-full p-7 border border-slate-300 shadow-ss-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">
-              {modalState.editingCampaign ? 'Edit Campaign' : 'Create Campaign'}
+            <h2 className="font-display text-[26px] font-semibold text-slate-900 m-0 mb-5">
+              {editingCampaign ? 'Edit Campaign' : 'Create Campaign'}
             </h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Campaign Name
-                </label>
-                <input
-                  type="text"
-                  value={modalState.form.name}
-                  onChange={(e) => setModalState((prev) => ({
-                    ...prev,
-                    form: { ...prev.form, name: e.target.value },
-                  }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="Enter campaign name"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={modalState.form.description}
-                  onChange={(e) => setModalState((prev) => ({
-                    ...prev,
-                    form: { ...prev.form, description: e.target.value },
-                  }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  rows={3}
-                  placeholder="Enter campaign description"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  System Prompt (Optional)
-                </label>
-                <textarea
-                  value={modalState.form.systemPrompt}
-                  onChange={(e) => setModalState((prev) => ({
-                    ...prev,
-                    form: { ...prev.form, systemPrompt: e.target.value },
-                  }))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  rows={4}
-                  placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  This information helps the AI generate more accurate and contextual summaries for your sessions.
-                </p>
-              </div>
-              <div className="flex space-x-3 pt-2">
+            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+              {errors.root && (
+                <div className="rounded-ss-lg bg-red-50 border border-red-200 p-3">
+                  <div className="text-sm text-red-900 font-medium">{errors.root.message}</div>
+                </div>
+              )}
+
+              <TextInput
+                {...register('name')}
+                id="campaign-name"
+                label="Campaign Name"
+                error={errors.name?.message}
+                placeholder="The Lost Mines of Phandelver"
+              />
+
+              <Textarea
+                {...register('description')}
+                id="campaign-description"
+                label="Description"
+                error={errors.description?.message}
+                rows={3}
+                placeholder="A classic starter adventure in the Forgotten Realms"
+              />
+
+              <Textarea
+                {...register('systemPrompt')}
+                id="campaign-systemPrompt"
+                label="System Prompt (Optional)"
+                error={errors.systemPrompt?.message}
+                rows={4}
+                placeholder="Characters, setting, recurring NPCs — helps the AI ground summaries"
+                helperText="This context helps the AI generate more accurate summaries."
+              />
+
+              <div className="flex gap-2.5 pt-1">
                 <Button
                   type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
+                  disabled={isMutating}
                   className="flex-1"
                 >
-                  {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 
-                   modalState.editingCampaign ? 'Update Campaign' : 'Create Campaign'}
+                  {isMutating ? 'Saving...' :
+                   editingCampaign ? 'Update Campaign' : 'Create Campaign'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setModalState((prev) => ({ ...prev, isOpen: false }))}
+                  onClick={closeModal}
                   className="flex-1"
                 >
                   Cancel

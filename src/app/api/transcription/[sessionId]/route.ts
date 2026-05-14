@@ -2,77 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
+import { splitAudioBySize, cleanupChunkFiles } from '@/services/audioProcessing';
 import { experimental_transcribe as transcribe } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { isTestAccount } from '@/lib/whitelist';
 import fs from 'fs';
-import path from 'path';
-import ffmpeg from 'fluent-ffmpeg';
 import { logger } from '@/lib/logger';
-
-// Helper to split audio into 24MB chunks
-async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<string[]> {
-  const stats = fs.statSync(inputPath);
-  const totalSize = stats.size;
-  const chunkSize = chunkSizeMB * 1024 * 1024;
-  const numChunks = Math.ceil(totalSize / chunkSize);
-  const ext = path.extname(inputPath);
-  const base = path.basename(inputPath, ext);
-  const dir = path.dirname(inputPath);
-  const chunkPaths: string[] = [];
-
-  if (numChunks === 1) {
-    logger.debug('Audio file under size limit, no split needed', {
-      chunkSizeMB,
-      path: inputPath
-    });
-    return [inputPath];
-  }
-
-  // Get duration of the audio
-  const getDuration = () => new Promise<number>((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, metadata) => {
-      if (err) return reject(err);
-      resolve(metadata.format.duration || 0);
-    });
-  });
-  
-  const duration = await getDuration();
-  const chunkDuration = duration / numChunks;
-
-  logger.info('Splitting audio file into chunks', {
-    path: inputPath,
-    numChunks,
-    chunkSizeMB,
-    chunkDuration: chunkDuration.toFixed(2)
-  });
-
-  const splitPromises: Promise<void>[] = [];
-  for (let i = 0; i < numChunks; i++) {
-    const start = i * chunkDuration;
-    const output = path.join(dir, `${base}_chunk${i}${ext}`);
-    chunkPaths.push(output);
-    
-    splitPromises.push(new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
-        .setStartTime(start)
-        .setDuration(chunkDuration)
-        .output(output)
-        .on('end', () => {
-          logger.debug('Audio chunk created', { output });
-          resolve();
-        })
-        .on('error', (err) => {
-          logger.error('Failed to create audio chunk', err, { output });
-          reject(err);
-        })
-        .run();
-    }));
-  }
-  
-  await Promise.all(splitPromises);
-  return chunkPaths;
-}
 
 // Helper to update session status
 async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
@@ -216,8 +151,9 @@ export async function POST(
       transcriptionProgress: 5,
     });
 
-    // Split audio into 24MB chunks
-    const chunkPaths = await splitAudioBySize(fullPath, 18);
+    // Split audio into 18MB chunks (under Whisper's 25MB limit)
+    const chunks = await splitAudioBySize(fullPath, { maxChunkSizeMB: 18 });
+    const chunkPaths = chunks.map(c => c.path);
     logger.info('Audio split into chunks', {
       sessionId,
       chunkCount: chunkPaths.length
@@ -283,18 +219,7 @@ export async function POST(
         });
 
         // Clean up any chunks we created
-        chunkPaths.forEach(p => {
-          if (p !== fullPath && fs.existsSync(p)) {
-            try {
-              fs.unlinkSync(p);
-            } catch (cleanupErr) {
-              logger.error('Chunk cleanup failed', cleanupErr as Error, {
-                sessionId,
-                path: p
-              });
-            }
-          }
-        });
+        cleanupChunkFiles(chunkPaths, fullPath);
 
         throw new Error(
           `Failed to transcribe chunk ${i + 1}/${chunkPaths.length}: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}`
@@ -309,11 +234,7 @@ export async function POST(
     });
 
     // Clean up chunk files (except original)
-    chunkPaths.forEach(p => {
-      if (p !== fullPath && fs.existsSync(p)) {
-        fs.unlinkSync(p);
-      }
-    });
+    cleanupChunkFiles(chunkPaths, fullPath);
     logger.info('All chunks transcribed and cleaned up', { sessionId });
 
     // Combine all text chunks into a single transcription

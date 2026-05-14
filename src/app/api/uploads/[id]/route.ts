@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { unlink } from 'fs/promises';
@@ -14,17 +12,12 @@ export async function GET(
 ) {
   try {
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     const { id } = await params;
     const upload = await db.getUploadById(id);
-    
+
     if (!upload) {
       return NextResponse.json(
         { error: 'Upload not found' },
@@ -33,7 +26,7 @@ export async function GET(
     }
 
     // Check if user owns this upload
-    if (upload.userId !== session.user.id) {
+    if (upload.userId !== user.id) {
       return NextResponse.json(
         { error: 'Forbidden' },
         { status: 403 }

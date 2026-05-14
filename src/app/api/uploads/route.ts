@@ -6,8 +6,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { promisify } from 'util';
 import { exec } from 'child_process';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
@@ -61,13 +60,8 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
 export async function POST(request: NextRequest) {
   try {
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     await ensureUploadDir();
 
@@ -113,7 +107,7 @@ export async function POST(request: NextRequest) {
 
     // Create Upload record in database
     const upload = await db.createUpload({
-      userId: session.user.id,
+      userId: user.id,
       filename: uniqueName,
       originalName: file.name,
       path: filePath,
@@ -125,7 +119,7 @@ export async function POST(request: NextRequest) {
     logger.info('File uploaded successfully', {
       filename: uniqueName,
       uploadId: upload.id,
-      userId: session.user.id
+      userId: user.id
     });
 
     return NextResponse.json({
@@ -156,19 +150,14 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     // Check if we should include session associations
     const { searchParams } = new URL(request.url);
     const includeSessions = searchParams.get('includeSessions') === 'true';
 
-    const uploads = await db.getUploads(session.user.id, includeSessions);
+    const uploads = await db.getUploads(user.id, includeSessions);
     
     // File reconciliation: Filter out uploads whose files don't exist on disk
     const validUploads = [];

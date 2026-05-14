@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { logger, getUserContext } from '@/lib/logger';
+import { logger } from '@/lib/logger';
 
 const linkUploadSchema = z.object({
   upload_id: z.string().min(1, 'Upload ID is required'),
@@ -21,17 +20,13 @@ export async function POST(
   try {
     logger.apiRequest('POST', `/api/sessions/${sessionId}/upload`, context);
 
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
+    const { error: authError, user } = await requireAuth();
+    if (authError) {
       logger.warn('Unauthorized upload link attempt', context);
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return authError;
     }
 
-    const userContext = { ...context, ...getUserContext(session) };
+    const userContext = { ...context, userId: user.id, userEmail: user.email };
 
     const body = await request.json();
     logger.debug('Link upload request body', { ...userContext, body });
@@ -51,7 +46,7 @@ export async function POST(
       );
     }
 
-    if (gamingSession.userId !== session.user.id) {
+    if (gamingSession.userId !== user.id) {
       logger.warn('User does not own gaming session', { ...uploadContext, ownerId: gamingSession.userId });
       return NextResponse.json(
         { error: 'Session not found' },
@@ -80,7 +75,7 @@ export async function POST(
       );
     }
 
-    if (upload.userId !== session.user.id) {
+    if (upload.userId !== user.id) {
       logger.warn('User does not own upload', { ...uploadContext, uploadOwnerId: upload.userId });
       return NextResponse.json(
         { error: 'Upload not found' },
@@ -130,22 +125,16 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
     const body = await request.json();
     const validatedData = linkUploadSchema.parse(body);
-    
+
     // Verify session exists and belongs to user
     const { id } = await params;
     const gamingSession = await db.getSessionById(id);
-    if (!gamingSession || gamingSession.userId !== session.user.id) {
+    if (!gamingSession || gamingSession.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
@@ -159,24 +148,24 @@ export async function PUT(
         { status: 400 }
       );
     }
-    
+
     // Verify upload exists and belongs to user
     const upload = await db.getUploadById(validatedData.upload_id);
-    if (!upload || upload.userId !== session.user.id) {
+    if (!upload || upload.userId !== user.id) {
       return NextResponse.json(
         { error: 'Upload not found' },
         { status: 404 }
       );
     }
-    
+
     // Replace upload
     const updatedSession = await db.linkSessionToUpload(id, validatedData.upload_id);
-    
+
     return NextResponse.json({
       message: 'Upload replaced successfully',
       session: updatedSession
     });
-    
+
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -184,7 +173,7 @@ export async function PUT(
         { status: 400 }
       );
     }
-    
+
     console.error('Error replacing upload:', error);
     return NextResponse.json(
       { error: 'Failed to replace upload' },
@@ -199,19 +188,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
     // Verify session exists and belongs to user
     const { id } = await params;
     const gamingSession = await db.getSessionById(id);
-    if (!gamingSession || gamingSession.userId !== session.user.id) {
+    if (!gamingSession || gamingSession.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
@@ -225,15 +208,15 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    
+
     // Unlink upload from session
     const updatedSession = await db.unlinkSessionFromUpload(id);
-    
+
     return NextResponse.json({
       message: 'Upload unlinked from session successfully',
       session: updatedSession
     });
-    
+
   } catch (error) {
     console.error('Error unlinking upload from session:', error);
     return NextResponse.json(

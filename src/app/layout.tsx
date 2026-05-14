@@ -11,7 +11,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "D&D Session Recorder",
+  title: "StoryScribe",
   description: "AI-powered transcription and summarization for D&D sessions",
 };
 
@@ -22,12 +22,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} antialiased bg-gray-50`}>
+      <body className={`${inter.variable} antialiased bg-slate-50`}>
         <SessionProvider>
           <ReactQueryProvider>
             <div className="min-h-screen">
               <Navbar />
-              <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <main className="max-w-[1280px] mx-auto px-8 py-8">
                 {children}
               </main>
             </div>

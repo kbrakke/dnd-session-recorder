@@ -187,15 +187,8 @@ export async function PUT(
 
   try {
     // Check authentication
-    const { getServerSession } = await import('next-auth/next');
-    const { authOptions } = await import('@/lib/auth');
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     const body = await request.json();
     const validatedData = updateDmTodoSchema.parse(body);
@@ -211,7 +204,7 @@ export async function PUT(
 
     // Check if user owns the campaign this session belongs to
     const campaign = await db.getCampaignById(gamingSession.campaignId);
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }

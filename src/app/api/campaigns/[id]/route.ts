@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
@@ -16,21 +15,15 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
     const { id } = await params;
     const body = await request.json();
-    
+
     // Check if the campaign belongs to the user
     const campaign = await db.getCampaignById(id);
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }
@@ -68,20 +61,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     const { id } = await params;
 
     // Check if the campaign belongs to the user
     const campaign = await db.getCampaignById(id);
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }
@@ -106,20 +93,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     const { id } = await params;
 
     const campaign = await db.getCampaignById(id);
 
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }

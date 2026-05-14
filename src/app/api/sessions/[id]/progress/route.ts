@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
@@ -10,16 +9,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authSession = await getServerSession(authOptions);
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
+
     const sessionId = (await params).id;
-    
-    if (!authSession?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+
     // Get session with progress information
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -28,16 +22,16 @@ export async function GET(
         { status: 404 }
       );
     }
-    
+
     // Check if user owns the campaign this session belongs to
     const campaign = await db.getCampaignById(session.campaignId);
-    if (!campaign || campaign.userId !== authSession.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Session not found' },
         { status: 404 }
       );
     }
-    
+
     // Return progress information
     return NextResponse.json({
       status: session.status,
@@ -49,8 +43,6 @@ export async function GET(
       errorStep: session.errorStep || null,
       errorMessage: session.errorMessage || null,
     });
-
-
   } catch (error) {
     logger.error('Failed to fetch session progress', error as Error);
     return NextResponse.json(

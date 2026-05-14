@@ -1,24 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { error: authError, user } = await requireAuth();
+    if (authError) return authError;
 
     // Fetch user's linked accounts
     const accounts = await prisma.account.findMany({
       where: {
-        userId: session.user.id,
+        userId: user.id,
       },
       select: {
         provider: true,
@@ -27,14 +20,14 @@ export async function GET() {
     });
 
     // Check if user has a password (credentials provider)
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+    const userRecord = await prisma.user.findUnique({
+      where: { id: user.id },
       select: { password: true },
     });
 
     // Add credentials provider if user has a password
     const allAccounts = [...accounts];
-    if (user?.password) {
+    if (userRecord?.password) {
       allAccounts.push({
         provider: 'credentials',
         type: 'credentials',
