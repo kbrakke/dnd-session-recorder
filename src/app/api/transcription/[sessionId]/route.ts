@@ -3,8 +3,7 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { fileCleanup } from '@/services/fileCleanup';
 import { splitAudioBySize, cleanupChunkFiles } from '@/services/audioProcessing';
-import { experimental_transcribe as transcribe } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { transcribeAudio, isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import fs from 'fs';
 import { logger } from '@/lib/logger';
@@ -51,8 +50,9 @@ export async function POST(
     const { error: authError, user } = await requireAuth();
     if (authError) return authError;
 
-    // COST PROTECTION: Block test accounts from making AI API calls
-    if (isTestAccount(user.email!)) {
+    // COST PROTECTION: Block test accounts from making real AI API calls.
+    // Skipped when AI is mocked — no spend, so the pipeline can be tested.
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       logger.warn('Blocked test account from transcription', {
         sessionId,
         userEmail: user.email
@@ -186,10 +186,7 @@ export async function POST(
         const fileBuffer = fs.readFileSync(chunkPath);
 
         const transcription = await withTimeout(
-          transcribe({
-            model: openai.transcription('whisper-1'),
-            audio: fileBuffer,
-          }),
+          transcribeAudio(fileBuffer),
           CHUNK_TIMEOUT_MS,
           `Transcription timeout: Chunk ${i + 1}/${chunkPaths.length} took longer than 30 minutes`
         );

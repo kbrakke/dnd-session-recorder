@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { openai } from '@ai-sdk/openai'
-import { generateText } from 'ai';
+import { generateAiText, isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { logger } from '@/lib/logger';
-
-const model = openai('gpt-4o');
 
 const updateSummarySchema = z.object({
   summary_text: z.string().min(1, 'Summary text is required'),
@@ -46,8 +43,9 @@ export async function POST(
     const { error: authError, user } = await requireAuth();
     if (authError) return authError;
 
-    // COST PROTECTION: Block test accounts from making AI API calls
-    if (isTestAccount(user.email!)) {
+    // COST PROTECTION: Block test accounts from making real AI API calls.
+    // Skipped when AI is mocked — no spend, so the pipeline can be tested.
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       logger.warn('Blocked test account from summary generation', {
         sessionId,
         userEmail: user.email
@@ -130,11 +128,8 @@ export async function POST(
 
     basePrompt += `\n\nHere's the transcript:\n\n${formattedText}\n\nPlease provide a compelling summary that captures the essence of this D&D session.`;
 
-    // Generate summary with Vercel AI SDK
-    const { text: summaryText } = await generateText({
-      model,
-      prompt: basePrompt
-    });
+    // Generate summary via the AI service wrapper
+    const { text: summaryText } = await generateAiText(basePrompt, 'summary');
 
     // Save summary to database
     await db.saveSummary(sessionId, summaryText);

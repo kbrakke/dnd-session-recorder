@@ -36,6 +36,9 @@ export default defineConfig({
       DATABASE_URL: process.env.DATABASE_URL || 'file:./prisma/data/test.db',
       NODE_ENV: 'development', // Changed from 'test' to 'development' for Next.js
       NEXT_TELEMETRY_DISABLED: '1',
+      // Mock OpenAI (Whisper + GPT-4o) so the transcription/summary pipeline
+      // can be exercised in PR CI without spending credits. See src/lib/ai.ts.
+      MOCK_AI_SERVICES: 'true',
     },
   },
   timeout: 30000, // 30 seconds per test

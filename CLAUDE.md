@@ -2,6 +2,8 @@
 
 AI-powered transcription and summarization tool for Dungeons & Dragons sessions. Users upload audio recordings of their game sessions, which are transcribed via OpenAI Whisper and summarized via GPT-4o.
 
+> **Always read [LESSONS.md](LESSONS.md) at the start of any work in this repo.** It records mistakes made before, surprising things about the codebase, and the user's preferences. Append a new entry whenever you hit an issue, get corrected, or learn something non-obvious — so the same mistake never gets made twice.
+
 ## Tech Stack
 
 - **Framework:** Next.js 15 (App Router) with React 19 and TypeScript 5

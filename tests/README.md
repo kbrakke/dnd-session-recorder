@@ -1,165 +1,40 @@
-# Test Suite Documentation
+# Test Suite
 
-## Overview
+See [CLAUDE.md](CLAUDE.md) for the canonical layout. This file is a quick reference.
 
-The test suite is divided into three categories:
+## Categories
 
-1. **Local Tests** - Unit tests that can run in a local development environment
-2. **Workflow Tests** - Comprehensive integration tests that require full staging environment with AI services
-3. **Post-Deploy Tests** - Tests that require a deployed environment with full infrastructure
+| Type | Where | Runner | When |
+|---|---|---|---|
+| **Unit** | `src/**/__tests__/*.test.ts` | Vitest (`npm test`) | Every PR; locally on save |
+| **Integration** | `tests/ci/**/*.spec.ts` | Playwright + testcontainers Postgres (`npm run test:ci`) | Every PR |
+| **Staging E2E** | `tests/staging/**/*.spec.ts` | Playwright vs deployed staging (`npm run test:staging`) | After staging deploy |
+| **Post-deploy smoke** | `tests/post-deploy/**/*.spec.ts` | Playwright vs `DEPLOY_URL` (config: `playwright.config.post-deploy.ts`) | After any deploy |
 
-## Test Categories
+There are also `tests/workflows/` (legacy, slated for removal) and `tests/unit/` (removed in step 2 of the test-overhaul; ported to vitest under `src/lib/__tests__/`).
 
-### Local Tests (`npm run test:local`)
-Unit tests that can run without external dependencies:
-- Authentication logic unit tests
-- Rate limiting unit tests  
-- Whitelist functionality tests
-- Pure logic and utility function tests
+## Commands
 
-Configuration: `playwright.config.local.ts`
-
-### Workflow Tests (`npm run test:workflows`)
-Comprehensive integration tests that require staging environment:
-- AI features (transcription, summarization)
-- Audio file upload and processing
-- Campaign management workflows
-- Session recording workflows
-- User profile management
-- End-to-end navigation flows
-
-**Requirements:**
-- Full staging environment with database
-- AI service integration (OpenAI API)
-- Audio processing capabilities
-- Complete authentication infrastructure
-
-Configuration: `playwright.config.workflows.ts`
-
-### Post-Deploy Tests (`npm run test:post-deploy`)
-Tests that require a deployed environment:
-- Authentication flow tests (login, registration, session management)
-- API authentication and authorization tests
-- Rate limiting verification
-- Cross-user data access protection
-- Session persistence tests
-- Real JWT token validation
-
-Configuration: `playwright.config.post-deploy.ts`
-
-## Running Tests
-
-### Local Development
 ```bash
-# Run all local unit tests
-npm run test:local
-
-# Run with UI
-npm run test:local -- --ui
-
-# Run in headed mode
-npm run test:local -- --headed
+npm test               # Vitest unit tests
+npm run test:unit      # alias of npm test
+npm run test:ci        # Integration tests (testcontainers)
+npm run test:ci:ui     # Integration tests in Playwright UI
+npm run test:headed    # Integration tests in headed browser
+npm run test:staging   # Staging tests (against the deployed staging URL)
+npm run test:workflows # Legacy workflow suite
+npm run typecheck      # tsc --noEmit
 ```
 
-### Workflow Testing (Staging Environment)
-```bash
-# Run comprehensive workflow tests
-npm run test:workflows
+`npm run test:post-deploy` is referenced by some workflow files but **does not exist** in `package.json`. Those workflow steps are broken; cleanup is queued for a later step in the test-overhaul plan.
 
-# Run specific workflow test
-npm run test:workflows -- tests/workflows/ai-features.spec.ts
+## Environment
 
-# Run with specific browser
-npm run test:workflows -- --project=chromium
-```
+- `NEXTAUTH_SECRET` — required for any test that boots the Next.js server.
+- `DATABASE_URL` — set by `scripts/test-server.js` (testcontainers) for `test:ci`; otherwise must be a real Postgres.
+- `OPENAI_API_KEY` — only used by tests that hit the real AI pipeline (staging). PR-stage tests should mock OpenAI; until the mock layer lands, AI-touching tests live in staging.
+- `STAGING_WHITELIST` — comma-separated allow-list. See `src/lib/whitelist.ts` and `src/lib/__tests__/whitelist.test.ts`.
 
-### Post-Deploy Testing
-```bash
-# Set the deployment URL
-export DEPLOY_URL=https://staging.example.com
+## Test accounts
 
-# Run post-deploy tests
-npm run test:post-deploy
-
-# Run specific test file
-npm run test:post-deploy -- tests/post-deploy/auth/login-flow.spec.ts
-```
-
-### CI/CD Pipeline
-
-#### Local Tests (Pre-Deployment)
-Run on every PR and commit:
-```bash
-npm run test:local
-```
-
-#### Workflow Tests (Staging Environment)
-Run on staging environment with full AI services:
-```bash
-npm run test:workflows
-```
-
-#### Post-Deploy Tests (Post-Deployment)
-Run after deployment to staging/production:
-```bash
-DEPLOY_URL=$STAGING_URL npm run test:post-deploy
-```
-
-## Test Structure
-
-```
-tests/
-├── README.md                     # This file
-├── unit/                        # Unit tests (local only)
-│   └── auth/                   # Authentication logic unit tests
-├── workflows/                   # Comprehensive workflow tests (staging only)
-│   ├── ai-features.spec.ts     # AI transcription/summarization tests
-│   ├── audio-upload.spec.ts    # Audio file upload tests
-│   ├── campaign-management.spec.ts # Campaign CRUD tests
-│   ├── navigation.spec.ts      # End-to-end navigation tests
-│   ├── session-recording.spec.ts # Session management tests
-│   ├── user-profile.spec.ts    # User profile tests
-│   ├── global-setup.ts         # Workflow test setup
-│   └── global-teardown.ts      # Workflow test cleanup
-├── integration/                 # Integration tests (mixed)
-│   ├── auth/                   # Auth tests (post-deploy)
-│   └── ...                     # Other integration tests
-├── post-deploy/                # All post-deploy tests
-│   ├── auth/                   # Authentication tests
-│   └── login.spec.ts          # Login flow test
-├── fixtures/                   # Test fixtures and helpers
-├── helpers/                    # Test helper utilities
-└── setup/                      # Test setup utilities
-```
-
-## Environment Variables
-
-### Local Tests
-- `NEXTAUTH_SECRET`: Test secret for authentication
-- `DATABASE_URL`: Local test database (usually `file:./prisma/data/test.db`)
-- `MOCK_AUTH`: Set to `true` to use mock authentication
-
-### Workflow Tests  
-- `NEXTAUTH_SECRET`: Test secret for authentication
-- `DATABASE_URL`: Workflow test database (usually `file:./prisma/data/workflow-test.db`)
-- `OPENAI_API_KEY`: Required for AI features testing
-- `NODE_ENV`: Should be `development`
-- `MOCK_AI_SERVICES`: Set to `true` in CI to mock AI services
-
-### Post-Deploy Tests
-- `DEPLOY_URL`: URL of the deployed environment (required)
-- Test user credentials should be configured in the deployed environment
-
-## Troubleshooting
-
-### Authentication Tests Failing Locally
-Authentication tests require real NextAuth.js infrastructure and should only run in post-deploy suite.
-
-### Database Connection Issues
-Ensure the test database is properly initialized:
-```bash
-npx prisma migrate dev
-```
-
-### Rate Limiting Tests
-Rate limiting tests may fail if the deployed environment doesn't have rate limiting configured.
+Use `@test.com` or `@example.com` domains. These are blocked from making real AI API calls (cost protection); see `isTestAccount()` in `src/lib/whitelist.ts`.

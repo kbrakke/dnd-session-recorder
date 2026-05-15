@@ -85,3 +85,5 @@ Frontend polls `GET /api/sessions/[id]/progress` for real-time updates.
 ## AI API Call Protection
 
 Test accounts (`@test.com`, `@example.com`) are blocked from making real AI API calls (transcription, summary, DM TODO). This prevents cost from test automation.
+
+All AI calls route through `src/lib/ai.ts` (`transcribeAudio`, `generateAiText`). When `MOCK_AI_SERVICES=true`, those calls return deterministic fixtures and the test-account block is bypassed (no spend to protect against) — this lets PR-stage integration tests exercise the full pipeline.

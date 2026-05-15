@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { openai } from '@ai-sdk/openai';
-import { generateText } from 'ai';
+import { generateAiText, isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { logger } from '@/lib/logger';
-
-const model = openai('gpt-4o');
 
 const updateDmTodoSchema = z.object({
   content: z.string().min(1, 'TODO list content is required'),
@@ -33,8 +30,9 @@ export async function POST(
     const { error: authError, user } = await requireAuth();
     if (authError) return authError;
 
-    // COST PROTECTION: Block test accounts from making AI API calls
-    if (isTestAccount(user.email!)) {
+    // COST PROTECTION: Block test accounts from making real AI API calls.
+    // Skipped when AI is mocked — no spend, so the pipeline can be tested.
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       logger.warn('Blocked test account from DM TODO generation', {
         sessionId,
         userEmail: user.email
@@ -120,11 +118,8 @@ Avoid adding simple generic items, only include TODO items that come out of the 
 
     basePrompt += `\n\nSession Transcript:\n\n${formattedText}\n\nPlease provide a detailed TODO list to help the DM prepare for the next session.`;
 
-    // Generate TODO list with Vercel AI SDK
-    const { text: todoContent } = await generateText({
-      model,
-      prompt: basePrompt
-    });
+    // Generate TODO list via the AI service wrapper
+    const { text: todoContent } = await generateAiText(basePrompt, 'dm-todo');
 
     // Save TODO list to database
     await db.saveDmTodoList(sessionId, todoContent);

@@ -43,14 +43,10 @@ Config: `playwright.config.staging.ts` (reused)
 - Verifies production deployment is healthy
 - Tests: auth flows, login scenarios, error handling
 
-### Unit Tests
-- Whitelist logic testing
-- Session validation
-
-### Local Tests (`npm run test:local`)
-Config: `playwright.config.local.ts`
-- Reuses running dev server
-- Runs CI test suite against local environment
+### Unit Tests (`npm test` / `npm run test:unit`)
+Config: `vitest.config.ts`
+- Pure-logic tests, no server needed. Live under `src/**/__tests__/*.test.ts`.
+- Fast (<1s); covers `src/lib/{whitelist,auth-utils}`, `src/services/audioProcessing`, `src/app/sessions/[id]/themes`, etc.
 
 ## Test Infrastructure
 
@@ -62,11 +58,11 @@ Config: `playwright.config.local.ts`
 ## Running Tests
 
 ```bash
-npm run test          # CI tests (default)
-npm run test:ci       # CI tests explicitly
-npm run test:staging  # Staging environment tests
-npm run test:local    # Against local dev server
-npm run test:headed   # CI tests in headed browser
-npm run test:ci:ui    # CI tests with Playwright UI
+npm test               # Vitest unit tests (default)
+npm run test:unit      # Vitest unit tests (alias)
+npm run test:ci        # Playwright integration tests with testcontainers
+npm run test:staging   # Staging environment tests
+npm run test:headed    # Integration tests in headed browser
+npm run test:ci:ui     # Integration tests with Playwright UI
 npm run test:workflows # Workflow-specific tests
 ```

@@ -4,6 +4,13 @@ Utility modules and shared configuration. These are imported throughout the appl
 
 ## Modules
 
+### `ai.ts` — AI Service Wrapper
+Centralized access to OpenAI-backed services. The only place `@ai-sdk/openai` / `ai` are imported.
+- `transcribeAudio(buffer)` — Whisper transcription, returns `{ text }`
+- `generateAiText(prompt, kind)` — GPT-4o generation; `kind` is `'summary' | 'dm-todo'`
+- `isAiMocked()` — true when `MOCK_AI_SERVICES=true`
+- When mocked, every call returns a deterministic fixture (no OpenAI request, no API key needed). Used by PR-stage integration tests.
+
 ### `auth.ts` — NextAuth Configuration
 Exports `authOptions: NextAuthOptions`, the central auth config:
 - **Providers:** Credentials (email/password with bcryptjs) and Google OAuth (optional, enabled via env vars)
