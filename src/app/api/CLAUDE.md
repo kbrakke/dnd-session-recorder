@@ -37,8 +37,9 @@ All API routes (except `/api/auth` and `/api/health`) are protected by:
 - `[sessionId]/route.ts` - `POST` generate DM TODO list, `GET` retrieve, `PUT` edit
 
 ### Uploads (`uploads/`)
-- `route.ts` - `POST` upload audio file, `GET` list uploads
-- `[id]/route.ts` - `GET` upload details, `DELETE` remove upload
+- `route.ts` - `POST` upload audio file (persists via `src/services/storage.ts` — Tigris or local), `GET` list uploads
+- `[id]/route.ts` - `GET` upload details, `DELETE` remove upload (+ stored object)
+- `[id]/audio/route.ts` - `GET` playback: 307 to presigned Tigris URL, or Range-aware local streaming
 
 ### User (`user/`)
 - `accounts/route.ts` - `GET` linked OAuth accounts
@@ -49,28 +50,29 @@ All API routes (except `/api/auth` and `/api/health`) are protected by:
 
 ## Processing Pipeline
 
-The process endpoint (`sessions/[id]/process`) is the central orchestrator:
+The process endpoint (`sessions/[id]/process`) enqueues a durable job; the
+work itself runs in the pipeline worker, never inside an HTTP request:
 
 ```
 POST /api/sessions/[id]/process
   |
-  ├─ Check auth & ownership
-  ├─ Check if already completed (return early)
-  ├─ Check if in-progress (allow restart after 30min timeout)
-  ├─ Verify upload exists
-  |
-  ├─ If no transcription:
-  |    └─ Fire POST /api/transcription/[sessionId] (async, background)
-  |    └─ Return { status: 'transcribing' }
-  |
-  ├─ If no summary:
-  |    └─ Fire POST /api/summary/[sessionId] (async, background)
-  |    └─ Return { status: 'summarizing' }
-  |
-  └─ All done → status: 'completed'
+  ├─ Check auth & ownership + test-account cost protection
+  ├─ Already fully completed → return early
+  ├─ Verify upload exists (unless transcription already done)
+  └─ enqueueProcessSession() → pipeline_jobs row (idempotent), return jobId
+
+Pipeline worker (src/services/pipeline/worker.ts, all machines):
+  claim job (SKIP LOCKED) → transcribe (per-chunk checkpoints)
+                          → summarize → dm_todo → session 'completed'
+  Crash recovery: heartbeat lease + reaper requeue; retries w/ backoff.
 ```
 
-Frontend polls `GET /api/sessions/[id]/progress` for real-time updates.
+`create-with-upload` also enqueues after a successful upload. The summary and
+dm-todo POST endpoints run synchronously via the shared step services and
+accept `{ "force": true }` to regenerate existing content.
+
+Frontend polls `GET /api/sessions/[id]/progress` for real-time updates
+(response includes the active job's status/attempts/lastError).
 
 ## Response Conventions
 

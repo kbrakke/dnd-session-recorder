@@ -87,8 +87,11 @@ export function useSessionMutations({ sessionId }: UseSessionMutationsProps) {
 
   const generateSummaryMutation = useMutation({
     mutationFn: async () => {
+      // force: regenerate even when a summary already exists
       const response = await fetch(`/api/summary/${sessionId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
       });
       if (!response.ok) throw new Error('Failed to generate summary');
       return response.json();
@@ -100,8 +103,11 @@ export function useSessionMutations({ sessionId }: UseSessionMutationsProps) {
 
   const generateTodoMutation = useMutation({
     mutationFn: async () => {
+      // force: regenerate even when a TODO list already exists
       const response = await fetch(`/api/dm-todo/${sessionId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true }),
       });
       if (!response.ok) throw new Error('Failed to generate TODO');
       return response.json();

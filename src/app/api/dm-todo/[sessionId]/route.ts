@@ -2,23 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { generateAiText, isAiMocked } from '@/lib/ai';
+import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
+import { runDmTodoStep } from '@/services/pipeline/steps/dmTodo';
+import { isPermanentError } from '@/services/pipeline/errors';
 import { logger } from '@/lib/logger';
 
 const updateDmTodoSchema = z.object({
   content: z.string().min(1, 'TODO list content is required'),
 });
 
-
-// Helper to format transcriptions for TODO generation
-function formatTranscriptionsForTodo(transcriptions: Array<{ text: string }>): string {
-  return transcriptions
-    .map(t => t.text)
-    .join(' ');
-}
-
-// POST /api/dm-todo/[sessionId] - Generate DM TODO list
+// POST /api/dm-todo/[sessionId] - Generate (or with { force: true }, regenerate) DM TODO list
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -47,6 +41,9 @@ export async function POST(
       );
     }
 
+    const body = await request.json().catch(() => ({}));
+    const force = body?.force === true;
+
     // Check if session exists
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -56,9 +53,9 @@ export async function POST(
       );
     }
 
-    // IDEMPOTENCY: Check if TODO list already exists
+    // IDEMPOTENCY: skip when a TODO list exists, unless explicitly regenerating
     const existingTodoList = await db.getDmTodoList(sessionId);
-    if (existingTodoList) {
+    if (existingTodoList && !force) {
       logger.info('DM TODO list already exists, skipping', { sessionId });
 
       return NextResponse.json({
@@ -68,63 +65,7 @@ export async function POST(
       });
     }
 
-    // Get campaign information to include system prompt
-    const campaign = await db.getCampaignById(session.campaignId);
-    if (!campaign) {
-      return NextResponse.json(
-        { error: 'Campaign not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get transcriptions for this session
-    const transcriptions = await db.getTranscriptions(sessionId);
-
-    if (!transcriptions || transcriptions.length === 0) {
-      return NextResponse.json(
-        { error: 'No transcriptions found for this session' },
-        { status: 400 }
-      );
-    }
-
-    logger.info('Starting DM TODO list generation', { sessionId });
-
-    // Format transcriptions
-    const formattedText = formatTranscriptionsForTodo(transcriptions);
-
-    // Build the prompt with campaign context
-    let basePrompt = `You are an experienced Dungeon Master assistant. Below is a transcript of a D&D session. Please create a comprehensive TODO list for the DM to help them prepare for the next session.
-
-Your TODO list should be formatted in Markdown and include:
-
-1. **Follow-ups on unresolved plot threads** - any cliffhangers, unanswered questions, or incomplete quests
-2. **NPCs to develop** - characters mentioned who need more detail or backstory
-3. **Locations to flesh out** - places the party plans to visit or showed interest in
-4. **Rewards and loot** - items, treasure, or experience to distribute
-5. **Consequences to implement** - results of player decisions or actions
-6. **Combat encounters to prepare** - if the party is heading into danger
-7. **Rules clarifications** - any mechanics that came up and need review
-8. **Player character threads** - individual character goals or developments to address
-
-Format the output as a clean Markdown TODO list with headers and checkboxes. Be specific and actionable.
-When making this list, start by calling out the Three most important items first. 
-DO NOT create items for the sake of filling out the list. Only create items that are actually relevant to the sessio and followup.
-Avoid adding simple generic items, only include TODO items that come out of the transcript.`;
-
-    // Add campaign-specific context if available
-    if (campaign.systemPrompt) {
-      basePrompt += `\n\nCampaign Context:\n${campaign.systemPrompt}`;
-    }
-
-    basePrompt += `\n\nSession Transcript:\n\n${formattedText}\n\nPlease provide a detailed TODO list to help the DM prepare for the next session.`;
-
-    // Generate TODO list via the AI service wrapper
-    const { text: todoContent } = await generateAiText(basePrompt, 'dm-todo');
-
-    // Save TODO list to database
-    await db.saveDmTodoList(sessionId, todoContent);
-
-    logger.info('DM TODO list generation completed', { sessionId });
+    const todoContent = await runDmTodoStep(sessionId, { force });
 
     return NextResponse.json({
       message: 'DM TODO list generated successfully',
@@ -133,6 +74,13 @@ Avoid adding simple generic items, only include TODO items that come out of the 
 
   } catch (error) {
     logger.error('DM TODO generation error', error as Error, { sessionId });
+
+    if (isPermanentError(error)) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Failed to generate DM TODO list' },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json(
       { error: 'Failed to generate DM TODO list' },
@@ -143,7 +91,7 @@ Avoid adding simple generic items, only include TODO items that come out of the 
 
 // GET /api/dm-todo/[sessionId] - Get DM TODO list for a session
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;

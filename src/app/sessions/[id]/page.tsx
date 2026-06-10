@@ -9,6 +9,7 @@ import { SessionSidebar } from './components/session-sidebar';
 import { ProcessingPipeline } from './components/processing-pipeline';
 import { ErrorBanner } from './components/error-banner';
 import { UploadSection } from './components/upload-section';
+import { AudioPlayer } from './components/audio-player';
 import { SummarySection } from './components/summary-section';
 import { TranscriptSection } from './components/transcript-section';
 import { DMTodoPanel } from './components/dm-todo-panel';
@@ -195,6 +196,11 @@ function SessionDetailPage() {
               }
               transcriptionCount={transcriptions.length}
             />
+
+            {/* Session audio playback */}
+            {session.uploadId && (
+              <AudioPlayer uploadId={session.uploadId} duration={session.duration} />
+            )}
 
             {/* Tab bar */}
             <div

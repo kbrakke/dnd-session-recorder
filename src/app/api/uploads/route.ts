@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import fs from 'fs';
+import { writeFile, mkdir, unlink } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { promisify } from 'util';
 import { exec } from 'child_process';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { saveAudio, buildAudioKey, audioExists } from '@/services/storage';
 import { logger } from '@/lib/logger';
 
 import ffprobe from 'ffprobe-static';
 
 // Configure upload settings
-const uploadDir = process.env.UPLOAD_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/uploads' : './uploads');
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
 
 // Allowed audio file types
@@ -30,13 +29,6 @@ const allowedMimeTypes = [
   'audio/flac',
   'audio/webm'
 ];
-
-// Ensure upload directory exists
-async function ensureUploadDir() {
-  if (!existsSync(uploadDir)) {
-    await mkdir(uploadDir, { recursive: true });
-  }
-}
 
 // Get audio duration using ffprobe
 async function getAudioDuration(filePath: string): Promise<number | null> {
@@ -62,8 +54,6 @@ export async function POST(request: NextRequest) {
     // Check authentication
     const { error: authError, user } = await requireAuth();
     if (authError) return authError;
-
-    await ensureUploadDir();
 
     const formData = await request.formData();
     const file = formData.get('audio') as File;
@@ -94,23 +84,29 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const extension = path.extname(file.name);
     const uniqueName = `${Date.now()}-${uuidv4()}${extension}`;
-    const filePath = path.join(uploadDir, uniqueName);
 
-    // Convert file to buffer and save
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    await writeFile(filePath, buffer);
+    // Probe duration from a temp file, then persist to the storage backend
+    // (Tigris object storage in production, local UPLOAD_DIR in dev).
+    const probeDir = path.join(os.tmpdir(), 'dnd-audio-probe');
+    await mkdir(probeDir, { recursive: true });
+    const probePath = path.join(probeDir, uniqueName);
+    await writeFile(probePath, buffer);
+    const duration = await getAudioDuration(probePath);
+    await unlink(probePath).catch(() => {});
 
-    // Get audio duration
-    const duration = await getAudioDuration(filePath);
+    const key = buildAudioKey(user.id, uniqueName);
+    const { localPath } = await saveAudio(key, buffer, file.type);
 
     // Create Upload record in database
     const upload = await db.createUpload({
       userId: user.id,
       filename: uniqueName,
       originalName: file.name,
-      path: filePath,
+      path: localPath ?? key,
+      storageKey: key,
       size: file.size,
       mimetype: file.type,
       duration: duration ?? undefined,
@@ -158,16 +154,18 @@ export async function GET(request: NextRequest) {
     const includeSessions = searchParams.get('includeSessions') === 'true';
 
     const uploads = await db.getUploads(user.id, includeSessions);
-    
-    // File reconciliation: Filter out uploads whose files don't exist on disk
+
+    // File reconciliation applies ONLY to legacy local-disk uploads (no
+    // storageKey). Object-storage uploads are durable; never disk-check or
+    // auto-delete them here.
     const validUploads = [];
     const invalidUploadIds = [];
-    
+
     for (const upload of uploads) {
-      if (fs.existsSync(upload.path)) {
+      if (upload.storageKey || (await audioExists(upload))) {
         validUploads.push(upload);
       } else {
-        logger.warn('File not found for upload', {
+        logger.warn('File not found for legacy upload', {
           uploadId: upload.id,
           path: upload.path
         });

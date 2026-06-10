@@ -23,6 +23,7 @@ export interface CreateUploadData {
   filename: string;
   originalName: string;
   path: string;
+  storageKey?: string;
   size: number;
   mimetype: string;
   duration?: number;
@@ -416,6 +417,7 @@ export class DatabaseService {
         filename: data.filename,
         originalName: data.originalName,
         path: data.path,
+        storageKey: data.storageKey,
         size: data.size,
         mimetype: data.mimetype,
         duration: data.duration,

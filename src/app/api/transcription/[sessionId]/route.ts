@@ -1,41 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { fileCleanup } from '@/services/fileCleanup';
-import { splitAudioBySize, cleanupChunkFiles } from '@/services/audioProcessing';
-import { transcribeAudio, isAiMocked } from '@/lib/ai';
+import { prisma } from '@/lib/prisma';
+import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
-import fs from 'fs';
+import { enqueueProcessSession, cancelActiveJobs } from '@/services/pipeline/queue';
+import { audioExists } from '@/services/storage';
 import { logger } from '@/lib/logger';
 
-// Helper to update session status
-async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
-  try {
-    await db.updateSession(sessionId, {
-      status,
-      errorStep: errorStep || null,
-      errorMessage: errorMessage || null,
-    });
-  } catch (error) {
-    logger.error('Failed to update session status', error as Error, { sessionId });
-    throw error;
-  }
-}
-
-// Helper to execute with timeout
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  errorMessage: string
-): Promise<T> {
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
-  });
-
-  return Promise.race([promise, timeout]);
-}
-
-// POST /api/transcription/[sessionId] - Transcribe audio
+// POST /api/transcription/[sessionId] - Queue transcription for a session.
+//
+// Transcription itself runs in the durable pipeline worker (per-chunk
+// checkpoints, retries, crash recovery) — never inside an HTTP request.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -43,10 +19,8 @@ export async function POST(
   const { sessionId } = await params;
 
   try {
-    // No need to read request body - all info comes from session
     await request.json().catch(() => ({})); // Read body to prevent stream errors
 
-    // Check authentication and get user info
     const { error: authError, user } = await requireAuth();
     if (authError) return authError;
 
@@ -67,7 +41,6 @@ export async function POST(
       );
     }
 
-    // Check if session exists and has an upload linked
     const session = await db.getSessionById(sessionId);
     if (!session) {
       return NextResponse.json(
@@ -81,9 +54,8 @@ export async function POST(
     if (existingTranscriptions && existingTranscriptions.length > 0) {
       logger.info('Transcription already exists, skipping', { sessionId });
 
-      // Update status to transcribed if not already
       if (session.status !== 'transcribed' && session.status !== 'completed') {
-        await updateSessionStatus(sessionId, 'transcribed');
+        await db.updateSession(sessionId, { status: 'transcribed' });
       }
 
       return NextResponse.json({
@@ -93,7 +65,6 @@ export async function POST(
       });
     }
 
-    // Get the file path from the linked upload
     if (!session.upload) {
       return NextResponse.json(
         { error: 'No audio file found for this session. Please upload an audio file first.' },
@@ -101,198 +72,73 @@ export async function POST(
       );
     }
 
-    const fullPath = session.upload.path;
-
-    if (!fs.existsSync(fullPath)) {
-      logger.warn('Audio file not found, performing reconciliation', {
+    if (!(await audioExists(session.upload))) {
+      logger.warn('Audio not found in storage', {
         sessionId,
-        path: fullPath
+        storageKey: session.upload.storageKey,
+        path: session.upload.path
       });
-      
-      // File reconciliation: Remove database references to missing files
-      try {
-        if (session.upload) {
-          logger.info('Removing upload record for missing file', {
+
+      // Destructive reconciliation applies ONLY to legacy local-disk uploads
+      // (no storageKey) — those files are genuinely unrecoverable. Object
+      // storage uploads keep their records; a missing object is surfaced
+      // without deleting anything.
+      if (!session.upload.storageKey) {
+        try {
+          logger.info('Removing upload record for missing legacy file', {
             sessionId,
             uploadId: session.upload.id
           });
           await db.deleteUpload(session.upload.id);
+
+          // Clear the session's upload link and revert to draft status
+          await db.updateSession(sessionId, {
+            uploadId: null,
+            status: 'draft'
+          });
+
+          logger.info('Cleaned up database records for missing file', { sessionId });
+        } catch (cleanupError) {
+          logger.error('File reconciliation cleanup failed', cleanupError as Error, { sessionId });
         }
 
-        // Clear the session's upload link and revert to draft status
-        await db.updateSession(sessionId, {
-          uploadId: null,
-          status: 'draft'
-        });
-
-        logger.info('Cleaned up database records for missing file', { sessionId });
-      } catch (cleanupError) {
-        logger.error('File reconciliation cleanup failed', cleanupError as Error, { sessionId });
+        return NextResponse.json(
+          {
+            error: `Audio file not found at path: ${session.upload.path}. Database records have been cleaned up. Please re-upload the file.`,
+            fileReconciled: true
+          },
+          { status: 404 }
+        );
       }
-      
+
       return NextResponse.json(
-        { 
-          error: `Audio file not found at path: ${fullPath}. Database records have been cleaned up. Please re-upload the file.`,
-          fileReconciled: true
+        {
+          error: 'Audio is missing from object storage. Please re-upload the file.',
         },
         { status: 404 }
       );
     }
 
-    logger.info('Starting transcription', { sessionId });
+    const { job } = await enqueueProcessSession(sessionId);
+    await db.clearSessionError(sessionId);
+    await db.updateSession(sessionId, { status: 'transcribing' });
 
-    // Start processing timer
-    await db.startProcessing(sessionId);
-    await updateSessionStatus(sessionId, 'transcribing');
-
-    // Update progress: Starting chunking
-    await db.updateTranscriptionProgress(sessionId, {
-      currentStep: 'chunking',
-      transcriptionProgress: 5,
-    });
-
-    // Split audio into 18MB chunks (under Whisper's 25MB limit)
-    const chunks = await splitAudioBySize(fullPath, { maxChunkSizeMB: 18 });
-    const chunkPaths = chunks.map(c => c.path);
-    logger.info('Audio split into chunks', {
-      sessionId,
-      chunkCount: chunkPaths.length
-    });
-    
-    // Update progress: Chunking complete, starting transcription
-    await db.updateTranscriptionProgress(sessionId, {
-      currentStep: 'transcribing',
-      totalChunks: chunkPaths.length,
-      chunksCompleted: 0,
-      transcriptionProgress: 10,
-    });
-
-    const allText: string[] = [];
-    
-    // Set timeout for each chunk: 30 minutes per chunk
-    const CHUNK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-
-    for (let i = 0; i < chunkPaths.length; i++) {
-      const chunkPath = chunkPaths[i];
-      logger.debug('Transcribing chunk', {
-        sessionId,
-        chunkNumber: i + 1,
-        totalChunks: chunkPaths.length,
-        path: chunkPath
-      });
-
-      try {
-        // Read the file buffer for AI SDK
-        const fileBuffer = fs.readFileSync(chunkPath);
-
-        const transcription = await withTimeout(
-          transcribeAudio(fileBuffer),
-          CHUNK_TIMEOUT_MS,
-          `Transcription timeout: Chunk ${i + 1}/${chunkPaths.length} took longer than 30 minutes`
-        );
-
-        if (!transcription.text) {
-          throw new Error(`No transcription text received for chunk ${i + 1}`);
-        }
-
-        allText.push(transcription.text);
-        logger.info('Chunk transcribed successfully', {
-          sessionId,
-          chunkNumber: i + 1,
-          totalChunks: chunkPaths.length
-        });
-
-        // Update progress after each chunk
-        const progressPercentage = Math.floor(10 + ((i + 1) / chunkPaths.length) * 80); // 10-90% for transcription
-        await db.updateTranscriptionProgress(sessionId, {
-          chunksCompleted: i + 1,
-          transcriptionProgress: progressPercentage,
-        });
-      } catch (chunkError) {
-        logger.error('Chunk transcription failed', chunkError as Error, {
-          sessionId,
-          chunkNumber: i + 1,
-          totalChunks: chunkPaths.length
-        });
-
-        // Clean up any chunks we created
-        cleanupChunkFiles(chunkPaths, fullPath);
-
-        throw new Error(
-          `Failed to transcribe chunk ${i + 1}/${chunkPaths.length}: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}`
-        );
-      }
-    }
-    
-    // Update progress: Starting stitching
-    await db.updateTranscriptionProgress(sessionId, {
-      currentStep: 'stitching',
-      transcriptionProgress: 90,
-    });
-
-    // Clean up chunk files (except original)
-    cleanupChunkFiles(chunkPaths, fullPath);
-    logger.info('All chunks transcribed and cleaned up', { sessionId });
-
-    // Combine all text chunks into a single transcription
-    const fullText = allText.join(' ');
-
-    // Save transcription to database
-    await db.saveTranscription(sessionId, fullText);
-    logger.info('Transcription saved', { sessionId, textLength: fullText.length });
-    
-    // Update progress: Complete
-    await db.updateTranscriptionProgress(sessionId, {
-      currentStep: 'completed',
-      transcriptionProgress: 100,
-    });
-
-    // Update session status to transcribed
-    await updateSessionStatus(sessionId, 'transcribed');
-    
-    // Update upload status to transcribed if session has an upload
-    if (session.uploadId) {
-      await db.updateUploadStatus(session.uploadId, 'transcribed', chunkPaths);
-    }
-
-    // Clean up files after transcription is complete
-    try {
-      await fileCleanup.cleanupSessionFiles(sessionId);
-    } catch (cleanupError) {
-      logger.warn('File cleanup failed', {
-        sessionId,
-        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-      });
-      // Don't fail the transcription if cleanup fails
-    }
-
-    logger.info('Transcription completed', { sessionId });
+    logger.info('Transcription queued', { sessionId, jobId: job.id });
 
     return NextResponse.json({
-      message: 'Transcription completed successfully',
-      transcriptionLength: fullText.length
-    });
+      message: 'Transcription queued',
+      jobId: job.id,
+      queued: true,
+    }, { status: 202 });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('Timeout');
-
-    logger.error('Transcription error', error as Error, {
-      sessionId,
-      isTimeout
-    });
-
-    await db.setSessionError(
-      sessionId,
-      isTimeout ? 'transcription_timeout' : 'transcription',
-      errorMessage
-    );
+    logger.error('Failed to queue transcription', error as Error, { sessionId });
 
     return NextResponse.json(
       {
-        error: 'Failed to transcribe audio',
+        error: 'Failed to queue transcription',
         details: errorMessage,
-        isTimeout,
         canRetry: true,
       },
       { status: 500 }
@@ -346,14 +192,17 @@ export async function DELETE(
       );
     }
 
-    // Check if processing has been running for more than 30 minutes
     const { isTimedOut, minutesElapsed } = await db.checkProcessingTimeout(sessionId, 30);
 
-    // Cancel the transcription by resetting the session state
+    // Cancel the active pipeline job (the worker aborts at its next chunk
+    // boundary), drop chunk checkpoints, and reset the session state.
+    const cancelledJobs = await cancelActiveJobs(sessionId);
+    await prisma.transcriptChunk.deleteMany({ where: { sessionId } });
     await db.cancelTranscription(sessionId);
 
     logger.info('Transcription cancelled', {
       sessionId,
+      cancelledJobs,
       minutesElapsed,
       wasTimedOut: isTimedOut
     });

@@ -108,14 +108,60 @@ model GamingSession {
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  summary        Summary?
-  dmTodoList     DmTodoList?
-  transcriptions Transcription[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  upload           Upload?           @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  summary          Summary?
+  dmTodoList       DmTodoList?
+  transcriptions   Transcription[]
+  pipelineJobs     PipelineJob[]
+  transcriptChunks TranscriptChunk[]
 
   @@map("gaming_sessions")
+}
+
+// Durable work queue for the transcribe -> summarize -> dm-todo pipeline.
+// Jobs are claimed with FOR UPDATE SKIP LOCKED, leased via heartbeatAt, and
+// requeued with exponential backoff when a worker dies or a step fails.
+model PipelineJob {
+  id          String    @id @default(cuid())
+  sessionId   String    @map("session_id")
+  type        String    @default("process_session")
+  status      String    @default("pending") // pending, running, completed, failed, cancelled
+  currentStep String?   @map("current_step") // transcribe, summarize, dm_todo
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  runAfter    DateTime  @default(now()) @map("run_after")
+  lockedBy    String?   @map("locked_by")
+  lockedAt    DateTime? @map("locked_at")
+  heartbeatAt DateTime? @map("heartbeat_at")
+  lastError   String?   @map("last_error") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  session GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([sessionId, status])
+  @@map("pipeline_jobs")
+}
+
+// Per-chunk transcription checkpoint. Chunk text survives worker crashes so a
+// resumed job never re-pays Whisper for chunks that already finished.
+model TranscriptChunk {
+  id          Int      @id @default(autoincrement())
+  sessionId   String   @map("session_id")
+  chunkIndex  Int      @map("chunk_index")
+  totalChunks Int      @map("total_chunks")
+  status      String   @default("pending") // pending, completed
+  text        String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  session GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, chunkIndex])
+  @@map("transcript_chunks")
 }
 
 model Transcription {
@@ -167,6 +213,9 @@ model Upload {
   filename         String
   originalName     String          @map("original_name")
   path             String
+  // Object-storage key (Tigris/S3 or local UPLOAD_DIR-relative). Null on
+  // legacy rows, where `path` is an absolute local filesystem path.
+  storageKey       String?         @map("storage_key")
   size             Int
   mimetype         String
   duration         Int?

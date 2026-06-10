@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { getLatestJob } from '@/services/pipeline/queue';
 import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/progress - Get session progress
@@ -32,6 +33,8 @@ export async function GET(
       );
     }
 
+    const job = await getLatestJob(sessionId);
+
     // Return progress information
     return NextResponse.json({
       status: session.status,
@@ -42,6 +45,17 @@ export async function GET(
       currentStep: session.currentStep || null,
       errorStep: session.errorStep || null,
       errorMessage: session.errorMessage || null,
+      job: job
+        ? {
+            id: job.id,
+            status: job.status,
+            step: job.currentStep,
+            attempts: job.attempts,
+            maxAttempts: job.maxAttempts,
+            nextRunAt: job.status === 'pending' ? job.runAfter : null,
+            lastError: job.lastError,
+          }
+        : null,
     });
   } catch (error) {
     logger.error('Failed to fetch session progress', error as Error);

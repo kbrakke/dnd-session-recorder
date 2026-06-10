@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { writeFile, mkdir, unlink } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { promisify } from 'util';
 import { exec } from 'child_process';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { isAiMocked } from '@/lib/ai';
+import { isTestAccount } from '@/lib/whitelist';
+import { enqueueProcessSession } from '@/services/pipeline/queue';
+import { saveAudio, buildAudioKey } from '@/services/storage';
 import ffprobe from 'ffprobe-static';
 import { logger, getUserContext } from '@/lib/logger';
 
 // Configure upload settings
-const uploadDir = process.env.UPLOAD_DIR || (process.env.NODE_ENV === 'production' ? '/app/data/uploads' : './uploads');
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
 
 // Allowed audio file types
@@ -28,13 +31,6 @@ const allowedMimeTypes = [
   'audio/flac',
   'audio/webm'
 ];
-
-// Ensure upload directory exists
-async function ensureUploadDir() {
-  if (!existsSync(uploadDir)) {
-    await mkdir(uploadDir, { recursive: true });
-  }
-}
 
 // Get audio duration using ffprobe
 async function getAudioDuration(filePath: string): Promise<number | null> {
@@ -63,7 +59,6 @@ async function getAudioDuration(filePath: string): Promise<number | null> {
  * This is a single atomic operation that ensures consistency.
  */
 export async function POST(request: NextRequest) {
-  let uploadedFilePath: string | null = null;
   let createdSessionId: string | null = null;
 
   try {
@@ -71,8 +66,6 @@ export async function POST(request: NextRequest) {
     if (error) return error;
 
     logger.apiRequest('POST', '/api/sessions/create-with-upload', getUserContext({ user }));
-
-    await ensureUploadDir();
 
     const formData = await request.formData();
 
@@ -120,30 +113,37 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Generate unique filename and save file
+      // Generate unique filename, probe duration, persist to storage backend
       const extension = path.extname(audioFile.name);
       const uniqueName = `${Date.now()}-${uuidv4()}${extension}`;
-      uploadedFilePath = path.join(uploadDir, uniqueName);
 
       const bytes = await audioFile.arrayBuffer();
       const buffer = Buffer.from(bytes);
-      await writeFile(uploadedFilePath, buffer);
+
+      const probeDir = path.join(os.tmpdir(), 'dnd-audio-probe');
+      await mkdir(probeDir, { recursive: true });
+      const probePath = path.join(probeDir, uniqueName);
+      await writeFile(probePath, buffer);
+      duration = await getAudioDuration(probePath) ?? undefined;
+      await unlink(probePath).catch(() => {});
+
+      const key = buildAudioKey(user.id, uniqueName);
+      const { localPath } = await saveAudio(key, buffer, audioFile.type);
 
       logger.info('Audio file saved for session creation', {
         filename: uniqueName,
+        storageKey: key,
         size: audioFile.size,
         userId: user.id
       });
-
-      // Get audio duration
-      duration = await getAudioDuration(uploadedFilePath) ?? undefined;
 
       // Create upload record
       const upload = await db.createUpload({
         userId: user.id,
         filename: uniqueName,
         originalName: audioFile.name,
-        path: uploadedFilePath,
+        path: localPath ?? key,
+        storageKey: key,
         size: audioFile.size,
         mimetype: audioFile.type,
         duration,
@@ -176,31 +176,15 @@ export async function POST(request: NextRequest) {
       userId: user.id
     });
 
-    // If audio was uploaded, trigger processing pipeline
-    if (uploadId) {
-      // Fire and forget - don't wait for processing to complete
-      // The process endpoint will update status to 'transcribing' when it starts
-      // Forward cookies for authentication
-      const cookieHeader = request.headers.get('cookie');
-      fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/sessions/${session.id}/process`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cookieHeader && { 'Cookie': cookieHeader }),
-        },
-        signal: AbortSignal.timeout(60 * 60 * 1000), // 1 hour timeout
-      }).catch(err => {
-        // Ignore timeout errors - processing runs in background
-        if (err.name !== 'TimeoutError' && err.code !== 'UND_ERR_HEADERS_TIMEOUT') {
-          logger.error('Failed to trigger processing pipeline', err, {
-            sessionId: session.id,
-            userId: user.id
-          });
-        }
-      });
+    // If audio was uploaded, enqueue the durable processing pipeline.
+    // COST PROTECTION: test accounts don't auto-enqueue unless AI is mocked.
+    if (uploadId && (!isTestAccount(user.email!) || isAiMocked())) {
+      const { job } = await enqueueProcessSession(session.id);
+      await db.updateSession(session.id, { status: 'transcribing' });
 
-      logger.info('Processing pipeline triggered', {
+      logger.info('Processing job enqueued', {
         sessionId: session.id,
+        jobId: job.id,
         userId: user.id
       });
     }

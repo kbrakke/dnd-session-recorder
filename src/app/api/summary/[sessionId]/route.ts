@@ -2,36 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
-import { generateAiText, isAiMocked } from '@/lib/ai';
+import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
+import { runSummarizeStep } from '@/services/pipeline/steps/summarize';
+import { isPermanentError } from '@/services/pipeline/errors';
 import { logger } from '@/lib/logger';
 
 const updateSummarySchema = z.object({
   summary_text: z.string().min(1, 'Summary text is required'),
 });
 
-// Helper to update session status
-async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
-  try {
-    await db.updateSession(sessionId, {
-      status,
-      errorStep: errorStep || null,
-      errorMessage: errorMessage || null,
-    });
-  } catch (error) {
-    logger.error('Failed to update session status', error as Error, { sessionId });
-    throw error;
-  }
-}
-
-// Helper to format transcriptions for summary
-function formatTranscriptionsForSummary(transcriptions: Array<{ text: string }>): string {
-  return transcriptions
-    .map(t => t.text)
-    .join(' ');
-}
-
-// POST /api/summary/[sessionId] - Generate summary
+// POST /api/summary/[sessionId] - Generate (or with { force: true }, regenerate) summary
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
@@ -60,6 +41,9 @@ export async function POST(
       );
     }
 
+    const body = await request.json().catch(() => ({}));
+    const force = body?.force === true;
+
     // Check if session exists
     const session = await db.getSessionById(sessionId);
     if (!session) {
@@ -69,15 +53,10 @@ export async function POST(
       );
     }
 
-    // IDEMPOTENCY: Check if summary already exists
+    // IDEMPOTENCY: skip when a summary exists, unless explicitly regenerating
     const existingSummary = await db.getSummary(sessionId);
-    if (existingSummary) {
+    if (existingSummary && !force) {
       logger.info('Summary already exists, skipping', { sessionId });
-
-      // Update status to completed if not already
-      if (session.status !== 'completed') {
-        await updateSessionStatus(sessionId, 'completed');
-      }
 
       return NextResponse.json({
         message: 'Summary already exists',
@@ -86,56 +65,18 @@ export async function POST(
       });
     }
 
-    // Get campaign information to include system prompt
-    const campaign = await db.getCampaignById(session.campaignId);
-    if (!campaign) {
-      return NextResponse.json(
-        { error: 'Campaign not found' },
-        { status: 404 }
-      );
+    // Fresh generation moves the session through the summarizing status;
+    // force-regeneration of an existing summary leaves status untouched.
+    const isFreshGeneration = !existingSummary;
+    if (isFreshGeneration) {
+      await db.updateSession(sessionId, { status: 'summarizing' });
     }
 
-    // Get transcriptions for this session
-    const transcriptions = await db.getTranscriptions(sessionId);
+    const summaryText = await runSummarizeStep(sessionId, { force });
 
-    if (!transcriptions || transcriptions.length === 0) {
-      return NextResponse.json(
-        { error: 'No transcriptions found for this session' },
-        { status: 400 }
-      );
+    if (isFreshGeneration) {
+      await db.updateSession(sessionId, { status: 'completed' });
     }
-
-    logger.info('Starting summary generation', { sessionId });
-    await updateSessionStatus(sessionId, 'summarizing');
-
-    // Format transcriptions for summarization
-    const formattedText = formatTranscriptionsForSummary(transcriptions);
-
-    // Build the prompt with optional campaign context
-    let basePrompt = `You are a skilled storyteller and D&D campaign chronicler. Below is a transcript of a D&D session. Please create an engaging summary that:
-
-1. Tells the story of what happened in this session
-2. Identifies key events, decisions, and character moments
-3. Mentions which characters were involved in important scenes
-4. Maintains the narrative flow and excitement of the session
-5. Uses the character names provided
-6. Focuses on story elements, combat highlights, and character development`;
-
-    // Add campaign-specific context if available
-    if (campaign.systemPrompt) {
-      basePrompt += `\n\nCampaign Context:\n${campaign.systemPrompt}`;
-    }
-
-    basePrompt += `\n\nHere's the transcript:\n\n${formattedText}\n\nPlease provide a compelling summary that captures the essence of this D&D session.`;
-
-    // Generate summary via the AI service wrapper
-    const { text: summaryText } = await generateAiText(basePrompt, 'summary');
-
-    // Save summary to database
-    await db.saveSummary(sessionId, summaryText);
-    await updateSessionStatus(sessionId, 'completed');
-
-    logger.info('Summary generation completed', { sessionId });
 
     return NextResponse.json({
       message: 'Summary generated successfully',
@@ -144,12 +85,19 @@ export async function POST(
 
   } catch (error) {
     logger.error('Summary generation error', error as Error, { sessionId });
-    await updateSessionStatus(
-      sessionId,
-      'error',
-      'summary',
-      error instanceof Error ? error.message : String(error)
-    );
+
+    if (isPermanentError(error)) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'Failed to generate summary' },
+        { status: 400 }
+      );
+    }
+
+    try {
+      await db.setSessionError(sessionId, 'summary', error instanceof Error ? error.message : String(error));
+    } catch (updateError) {
+      logger.error('Failed to update session status', updateError as Error, { sessionId });
+    }
 
     return NextResponse.json(
       { error: 'Failed to generate summary' },
@@ -160,7 +108,7 @@ export async function POST(
 
 // GET /api/summary/[sessionId] - Get summary for a session
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;

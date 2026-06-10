@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { deleteAudio } from '@/services/storage';
 import { unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { logger } from '@/lib/logger';
@@ -136,24 +137,22 @@ export async function DELETE(
       userId: user.id
     });
 
-    // Delete the main file from filesystem
+    // Delete the audio from whichever storage backend holds it
+    // (Tigris object storage or local disk).
     let filesDeleted = 0;
     let filesFailedToDelete = 0;
 
-    if (existsSync(upload.path)) {
-      try {
-        await unlink(upload.path);
-        filesDeleted++;
-        logger.debug('Deleted main file', { path: upload.path, uploadId: id });
-      } catch (fileError) {
-        filesFailedToDelete++;
-        logger.error('Failed to delete main file', fileError as Error, {
-          path: upload.path,
-          uploadId: id
-        });
-      }
-    } else {
-      logger.warn('Main file not found', { path: upload.path, uploadId: id });
+    try {
+      await deleteAudio(upload);
+      filesDeleted++;
+      logger.debug('Deleted audio', { storageKey: upload.storageKey, path: upload.path, uploadId: id });
+    } catch (fileError) {
+      filesFailedToDelete++;
+      logger.error('Failed to delete audio', fileError as Error, {
+        storageKey: upload.storageKey,
+        path: upload.path,
+        uploadId: id
+      });
     }
 
     // Delete chunk files if they exist

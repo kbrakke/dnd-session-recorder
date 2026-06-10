@@ -46,7 +46,27 @@ Singleton class (`db` export) that wraps Prisma Client with typed methods for al
 ### `database.d.ts` — Type Definitions
 TypeScript declaration file for the DatabaseService. Provides interface types without implementation.
 
-### `fileCleanup.ts` — FileCleanupService
+### `pipeline/` — Durable Processing Pipeline
+Postgres-backed job queue + worker for the transcribe → summarize → dm-todo
+loop. See `docs/PIPELINE_DURABILITY.md` for design and failure-mode analysis.
+- `queue.ts` — enqueue (idempotent per session), claim (`FOR UPDATE SKIP LOCKED`), heartbeat lease, stale-job reaper, backoff/fail logic
+- `worker.ts` — polling loop started once per server boot from `src/instrumentation.ts`; runs steps in order, handles retry/cancel/error classification
+- `steps/transcribe.ts` — chunked Whisper transcription with per-chunk durable checkpoints in `transcript_chunks`
+- `steps/summarize.ts` / `steps/dmTodo.ts` — GPT generation; `force` option regenerates (used by POST endpoints)
+- `backoff.ts` — pure retry-policy functions (unit tested)
+- `errors.ts` — `PermanentJobError` (no retry) vs transient; `JobCancelledError`
+- `prompts.ts` — shared prompt builders
+- Worker config: `PIPELINE_WORKER_ENABLED=false` disables; `PIPELINE_POLL_INTERVAL_MS` tunes polling
+
+### `storage.ts` — Audio Storage Abstraction
+Two backends selected by env: Tigris/S3 object storage (`BUCKET_NAME` + `AWS_ENDPOINT_URL_S3`, set by `fly storage create`) or local `UPLOAD_DIR` (dev default). Upload rows carry `storageKey`; legacy rows (null) are absolute local paths.
+- `saveAudio(key, buffer, contentType)` / `deleteAudio(upload)` / `audioExists(upload)`
+- `ensureLocalAudio(upload)` — downloads object to a stable temp path for FFmpeg (worker); `cleanupWorkFile()` removes temp copies
+- `getPlaybackUrl(upload)` — presigned GET (S3) or null (local → route streams)
+- `buildAudioKey(userId, filename)` — `audio/<userId>/<filename>`
+- Original audio is RETAINED after transcription (browser playback); never disk-check `upload.path` to decide existence — use `audioExists()`
+
+### `fileCleanup.ts` — FileCleanupService (legacy)
 Manages cleanup of uploaded audio files and their chunks after processing:
 - `cleanupUploadFiles(uploadId)` — removes original file and all chunk files
 - Checks upload status before cleanup

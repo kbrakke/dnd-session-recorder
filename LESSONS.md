@@ -90,6 +90,32 @@ When you wire a test runner to CI for the first time, expect to find dead tests 
 ### Hardcoded staging URLs in supposedly-portable tests
 `tests/post-deploy/staging-verification.spec.ts` hardcodes `https://dnd-recorder-staging.fly.dev` instead of using `DEPLOY_URL`. Don't assume `tests/post-deploy/*` honors the env override.
 
+## Processing pipeline (post-2026-06 rework)
+
+### The pipeline is a DB-backed job queue, not HTTP self-fetches
+`/api/sessions/[id]/process` enqueues a `pipeline_jobs` row; an in-process worker (started from `src/instrumentation.ts`) claims it with `FOR UPDATE SKIP LOCKED` and runs transcribe → summarize → dm_todo by calling the step services in `src/services/pipeline/steps/` directly. **Never reintroduce cookie-forwarding `fetch()` calls to our own API for background work** — that was the old pattern and it broke on deploys, cookie expiry, and multi-machine routing. Full analysis: `docs/PIPELINE_DURABILITY.md`.
+
+### Prisma `$queryRaw` binds JS numbers as bigint
+`make_interval(mins => ${n})` fails with `42883` because the parameter arrives as bigint. Use `(${n}::int * INTERVAL '1 minute')` instead. Caught only by running against a real Postgres — typecheck and unit tests can't see it.
+
+### Production fly.toml has NO [[mounts]] but staging does
+Uploaded audio on prod lives on the ephemeral container filesystem until transcription finishes. A restart in that window loses the file. Staging has a volume; prod doesn't. (Also: audio is *deliberately* deleted after transcription by `fileCleanup` — the DB transcript is the durable record.)
+
+### `docs/` is gitignored (line 88) but some docs are tracked
+Files added before the ignore rule (DATABASE_ANALYSIS.md, fly-postgres-setup.md, …) are tracked; newer ones aren't. `git mv` fails on untracked docs — check `git ls-files docs/` first. New docs need `git add -f` to be tracked.
+
+### Prisma evaluates `@default(now())` and `new Date()` on the APP clock, not the DB clock
+The queue's claim query compares `run_after <= NOW()` (Postgres time), but Prisma-written timestamps use the Node process clock. A drifted podman VM clock (13 min behind the host) made jobs unclaimable. **All time-sensitive queue writes must use raw SQL `NOW()`** — never mix clock sources in scheduling logic. Symptom to watch for: jobs stuck `pending` with `run_after` "in the future" relative to `SELECT NOW()`.
+
+### Audio storage is abstracted in `src/services/storage.ts`
+Tigris/S3 when `BUCKET_NAME`+`AWS_ENDPOINT_URL_S3` are set, local `UPLOAD_DIR` otherwise. Upload rows have `storageKey` (null = legacy local-disk row). **Never `fs.existsSync(upload.path)` to decide an upload is gone** — that deletes S3-backed records; use `audioExists()`/`ensureLocalAudio()`. Original audio is retained after transcription (playback feature) — don't reintroduce the post-transcription delete. MinIO (tests) needs `S3_FORCE_PATH_STYLE=true`; Tigris doesn't.
+
+### Background `npx next dev` inherits the shell's persisted cwd
+A prior `cd /tmp` in an earlier Bash call made a background `npx next dev` run in /tmp — npx then *installed a different Next version* and failed with "Couldn't find pages or app directory". Always `cd <project> && ...` in background commands.
+
+### Multiple routes triggered processing, not just `/process`
+`create-with-upload` also auto-triggered the pipeline (old: self-fetch; now: direct enqueue). When changing pipeline trigger semantics, grep for `enqueueProcessSession` AND any leftover `fetch(`/api/` patterns.
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.

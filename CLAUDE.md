@@ -69,7 +69,8 @@ See `.env.example` for all variables. Critical ones:
 - `NEXTAUTH_SECRET` - JWT signing secret (32+ chars)
 - `OPENAI_API_KEY` - Required for transcription and summaries
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Optional OAuth
-- `UPLOAD_DIR` - Audio file storage path (default: `./uploads`)
+- `UPLOAD_DIR` - Audio file storage path (local fallback, default: `./uploads`)
+- `BUCKET_NAME` / `AWS_ENDPOINT_URL_S3` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - Tigris object storage for audio (set by `fly storage create`); local disk used when unset
 - `STAGING_WHITELIST` - Comma-separated emails for staging access control
 
 ## Authentication
@@ -169,11 +170,12 @@ See [src/lib/auth-utils.ts](src/lib/auth-utils.ts) for full JSDoc documentation.
 
 ## Processing Pipeline
 
-The `/api/sessions/[id]/process` endpoint is the orchestrator. It is:
-- **Idempotent:** checks current state before acting, safe to call multiple times
-- **Resumable:** picks up from the last completed step
-- **Timeout-aware:** 30-minute timeout, allows restart after timeout
-- **Async:** fires off transcription/summary as background requests, frontend polls `/api/sessions/[id]/progress`
+Durable, queue-based (see `docs/PIPELINE_DURABILITY.md` for the full design):
+- `/api/sessions/[id]/process` **enqueues** a `pipeline_jobs` row (idempotent: one active job per session) and returns immediately
+- An in-process worker (`src/services/pipeline/worker.ts`, started via `src/instrumentation.ts`) claims jobs with `FOR UPDATE SKIP LOCKED` and runs transcribe → summarize → dm-todo end-to-end
+- **Checkpointed:** each Whisper chunk result is persisted (`transcript_chunks`); resumed jobs never re-pay for completed chunks; each step skips if its output exists
+- **Crash-safe:** running jobs hold a heartbeat lease; a reaper requeues jobs whose worker died; transient failures retry with exponential backoff (5 attempts), permanent ones fail fast with a user-visible error
+- Frontend polls `/api/sessions/[id]/progress` (includes job status/attempts/lastError)
 
 ## Deployment
 
