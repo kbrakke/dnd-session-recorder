@@ -3,7 +3,7 @@ interface RateLimitData {
   resetTime: number;
 }
 
-class RateLimiter {
+export class RateLimiter {
   private store: Map<string, RateLimitData> = new Map();
   private windowMs: number;
   private maxRequests: number;

@@ -3,6 +3,7 @@
 import { Calendar, Clock, BookOpen, FileText, Download, Edit, Trash2 } from 'lucide-react';
 import type { SessionDetail, SessionStatus } from '../types';
 import StatusPill from '@/components/ui/StatusPill';
+import { formatDate, formatDurationMinutes } from '@/lib/formatting';
 
 interface SessionHeaderProps {
   session: SessionDetail;
@@ -30,24 +31,8 @@ function mapStatusToPill(status: SessionStatus): string {
   }
 }
 
-function formatDuration(minutes: number | null): string | null {
-  if (!minutes) return null;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-}
-
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
 export function SessionHeader({ session, onDelete, transcriptionCount }: SessionHeaderProps) {
-  const duration = formatDuration(session.duration);
+  const duration = formatDurationMinutes(session.duration);
   const parts = transcriptionCount ?? session._count?.transcriptions ?? 0;
 
   return (
@@ -75,7 +60,7 @@ export function SessionHeader({ session, onDelete, transcriptionCount }: Session
 
           <span className="inline-flex items-center gap-1.5">
             <Calendar className="h-3.5 w-3.5" />
-            <span>{formatDate(session.sessionDate)}</span>
+            <span>{formatDate(session.sessionDate, 'long')}</span>
           </span>
 
           {duration && (

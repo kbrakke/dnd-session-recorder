@@ -58,7 +58,6 @@ import {
   cleanupChunkFiles,
   validateAudioFile,
   getAudioDuration,
-  resolveUploadPath,
 } from '../audioProcessing';
 import ffmpeg from 'fluent-ffmpeg';
 
@@ -293,21 +292,6 @@ describe('audioProcessing', () => {
       const result = await validateAudioFile(filePath);
       expect(result.isValid).toBe(false);
       expect(result.error).toContain('Failed to probe audio file');
-    });
-  });
-
-  describe('resolveUploadPath', () => {
-    it('resolves exact path when file exists', () => {
-      const filePath = path.join(tmpDir, 'test.mp3');
-      fs.writeFileSync(filePath, 'data');
-
-      const resolved = resolveUploadPath(filePath);
-      expect(resolved).toBe(filePath);
-    });
-
-    it('returns null for non-existent file', () => {
-      const resolved = resolveUploadPath('/totally/nonexistent/file.mp3');
-      expect(resolved).toBeNull();
     });
   });
 });

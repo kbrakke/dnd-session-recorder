@@ -2,6 +2,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
@@ -21,9 +23,17 @@ interface Campaign {
 
 export default function CampaignsPage() {
   const queryClient = useQueryClient();
+  const { status } = useSession();
+  const router = useRouter();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+    }
+  }, [status, router]);
 
   const {
     register,
@@ -55,6 +65,7 @@ export default function CampaignsPage() {
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['campaigns'],
+    enabled: status === 'authenticated',
     queryFn: async () => {
       const response = await fetch('/api/campaigns');
       if (!response.ok) throw new Error('Failed to fetch campaigns');

@@ -89,13 +89,6 @@ export async function POST(request: Request) {
     }
 
     logger.error('Failed to create session', error as Error);
-    return NextResponse.json(
-      {
-        error: 'Failed to create session',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        ...(process.env.NODE_ENV === 'development' && { stack: error instanceof Error ? error.stack : undefined })
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
   }
 }

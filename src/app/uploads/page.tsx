@@ -52,7 +52,6 @@ export default function UploadsPage() {
   const queryClient = useQueryClient();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Fetch uploads with session associations
   const { data: uploads = [], isLoading } = useQuery<Upload[]>({
     queryKey: ['uploads-with-sessions'],
     queryFn: async () => {
@@ -63,7 +62,6 @@ export default function UploadsPage() {
     },
   });
 
-  // Delete upload mutation
   const deleteMutation = useMutation({
     mutationFn: async (uploadId: string) => {
       const response = await fetch(`/api/uploads/${uploadId}`, {
@@ -86,7 +84,6 @@ export default function UploadsPage() {
   };
 
   const handleCreateSession = (uploadId: string) => {
-    // Navigate to upload page with pre-selected upload
     router.push(`/sessions/upload?uploadId=${uploadId}`);
   };
 

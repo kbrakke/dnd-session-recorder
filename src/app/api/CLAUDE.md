@@ -8,6 +8,17 @@ All API routes (except `/api/auth` and `/api/health`) are protected by:
 1. **Middleware** (`middleware.ts` at project root) - requires valid JWT token
 2. **Route-level auth** - most routes call `requireAuth()` or `requireAuthWithRateLimit()` from `@/lib/auth-utils`
 
+### Ownership helpers (`@/lib/route-utils`)
+Any route addressing a session or campaign by id MUST confirm the caller owns
+it — middleware proves *who* you are, not *what* you may touch. Use:
+- `requireSessionOwner(sessionId)` → `{ error, user, session }` (auth + 404-on-not-owned)
+- `requireCampaignOwner(campaignId)` → `{ error, user, campaign }`
+- `enforceRateLimit(request, userId, limiter)` → 429 response or null; gate the
+  cost-driving AI endpoints (`aiTranscriptionRateLimiter`, `aiSummaryRateLimiter`)
+- `zodErrorResponse(error)` → 400 for `ZodError`, else null
+
+Non-ownership is masked as **404** (never 403) so resource existence doesn't leak.
+
 ## Endpoints
 
 ### Auth (`auth/`)

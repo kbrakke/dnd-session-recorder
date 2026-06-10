@@ -3,21 +3,17 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { promisify } from 'util';
-import { exec } from 'child_process';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { enqueueProcessSession } from '@/services/pipeline/queue';
 import { saveAudio, buildAudioKey } from '@/services/storage';
-import ffprobe from 'ffprobe-static';
+import { probeAudioDurationSeconds } from '@/services/audioProcessing';
 import { logger, getUserContext } from '@/lib/logger';
 
-// Configure upload settings
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
 
-// Allowed audio file types
 const allowedMimeTypes = [
   'audio/mpeg',
   'audio/mp3',
@@ -31,21 +27,6 @@ const allowedMimeTypes = [
   'audio/flac',
   'audio/webm'
 ];
-
-// Get audio duration using ffprobe
-async function getAudioDuration(filePath: string): Promise<number | null> {
-  try {
-    const execAsync = promisify(exec);
-    const ffprobeBin = process.env.NODE_ENV === 'production' ? 'ffprobe' : ffprobe.path as string;
-    const command = `${ffprobeBin} -v quiet -show_entries format=duration -of csv=p=0 "${filePath}"`;
-    const { stdout } = await execAsync(command);
-    const duration = parseFloat(stdout.trim());
-    return isNaN(duration) ? null : Math.round(duration);
-  } catch (error) {
-    logger.error('Failed to get audio duration', error as Error);
-    return null;
-  }
-}
 
 /**
  * POST /api/sessions/create-with-upload
@@ -124,11 +105,11 @@ export async function POST(request: NextRequest) {
       await mkdir(probeDir, { recursive: true });
       const probePath = path.join(probeDir, uniqueName);
       await writeFile(probePath, buffer);
-      duration = await getAudioDuration(probePath) ?? undefined;
+      duration = await probeAudioDurationSeconds(probePath) ?? undefined;
       await unlink(probePath).catch(() => {});
 
       const key = buildAudioKey(user.id, uniqueName);
-      const { localPath } = await saveAudio(key, buffer, audioFile.type);
+      await saveAudio(key, buffer, audioFile.type);
 
       logger.info('Audio file saved for session creation', {
         filename: uniqueName,
@@ -137,12 +118,10 @@ export async function POST(request: NextRequest) {
         userId: user.id
       });
 
-      // Create upload record
       const upload = await db.createUpload({
         userId: user.id,
         filename: uniqueName,
         originalName: audioFile.name,
-        path: localPath ?? key,
         storageKey: key,
         size: audioFile.size,
         mimetype: audioFile.type,

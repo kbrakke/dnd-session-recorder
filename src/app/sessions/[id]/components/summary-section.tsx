@@ -56,7 +56,6 @@ export function SummarySection({
 
   const transcriptReady = hasTranscriptions || sessionStatus === 'transcribed' || sessionStatus === 'completed';
 
-  // ── Empty state ──────────────────────────────────────────────────────
   if (!summary) {
     return (
       <div style={{ marginTop: 18 }}>
@@ -70,7 +69,6 @@ export function SummarySection({
           }}
         >
           <div className="flex items-start gap-4">
-            {/* Icon plate */}
             <div
               className="shrink-0 flex items-center justify-center"
               style={{
@@ -87,7 +85,6 @@ export function SummarySection({
             </div>
 
             <div className="min-w-0 flex-1">
-              {/* Eyebrow */}
               <p
                 className="font-body text-xs font-semibold uppercase tracking-wider"
                 style={{ color: 'var(--sp-gold)', marginBottom: 6 }}
@@ -95,7 +92,6 @@ export function SummarySection({
                 AI Summary
               </p>
 
-              {/* Heading */}
               <h3
                 className="font-display text-xl font-bold"
                 style={{ color: 'var(--sp-fg-1)', marginBottom: 8 }}
@@ -151,7 +147,6 @@ export function SummarySection({
     );
   }
 
-  // ── Filled state ─────────────────────────────────────────────────────
   return (
     <div style={{ marginTop: 18, animation: 'ss-fade 200ms ease' }}>
       <div
@@ -168,7 +163,6 @@ export function SummarySection({
       >
         {/* Header row */}
         <div className="flex items-center justify-between mb-5">
-          {/* Eyebrow */}
           <div className="flex items-center gap-2">
             <Sparkles
               className="h-4 w-4"

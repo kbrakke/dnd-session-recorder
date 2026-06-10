@@ -212,15 +212,12 @@ model Upload {
   userId           String          @map("user_id")
   filename         String
   originalName     String          @map("original_name")
-  path             String
-  // Object-storage key (Tigris/S3 or local UPLOAD_DIR-relative). Null on
-  // legacy rows, where `path` is an absolute local filesystem path.
-  storageKey       String?         @map("storage_key")
+  // Backend-relative object key (Tigris/S3 or local UPLOAD_DIR-relative).
+  storageKey       String          @map("storage_key")
   size             Int
   mimetype         String
   duration         Int?
-  status           String          @default("uploaded") // uploaded, processing, chunked, transcribed, cleaned
-  chunkPaths       String?         @map("chunk_paths") @db.Text // JSON array of chunk file paths
+  status           String          @default("uploaded") // uploaded, transcribed
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
 

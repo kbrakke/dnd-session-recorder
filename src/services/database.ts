@@ -22,8 +22,7 @@ export interface CreateUploadData {
   userId: string;
   filename: string;
   originalName: string;
-  path: string;
-  storageKey?: string;
+  storageKey: string;
   size: number;
   mimetype: string;
   duration?: number;
@@ -274,59 +273,23 @@ export class DatabaseService {
   }
   
   // Transcription operations
-  async saveTranscriptions(sessionId: string, segments: { start: number; end: number; text: string; avg_logprob?: number }[]): Promise<void> {
+  async saveTranscription(sessionId: string, text: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
-      // Delete existing transcriptions for this session
-      await tx.transcription.deleteMany({
-        where: { sessionId },
-      });
-      
-      // Insert new transcriptions
-      await tx.transcription.createMany({
-        data: segments.map((segment) => ({
-          sessionId,
-          startTime: segment.start,
-          endTime: segment.end,
-          text: segment.text,
-          confidence: segment.avg_logprob || 0,
-        })),
+      await tx.transcription.deleteMany({ where: { sessionId } });
+      // The pipeline stitches all chunks into one record; timestamps are unused.
+      await tx.transcription.create({
+        data: { sessionId, startTime: 0, endTime: 0, text, confidence: null },
       });
     });
   }
 
-  async saveTranscription(sessionId: string, text: string): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      // Delete existing transcriptions for this session
-      await tx.transcription.deleteMany({
-        where: { sessionId },
-      });
-      
-      // Insert single transcription record with dummy timestamps
-      await tx.transcription.create({
-        data: {
-          sessionId,
-          startTime: 0,
-          endTime: 0,
-          text,
-          confidence: null,
-        },
-      });
-    });
-  }
-  
   async getTranscriptions(sessionId: string): Promise<Transcription[]> {
     return prisma.transcription.findMany({
       where: { sessionId },
       orderBy: { startTime: 'asc' },
     });
   }
-  
-  async getTranscriptionCount(sessionId: string): Promise<number> {
-    return prisma.transcription.count({
-      where: { sessionId },
-    });
-  }
-  
+
   // Summary operations
   async saveSummary(sessionId: string, summaryText: string): Promise<Summary> {
     return prisma.summary.upsert({
@@ -416,7 +379,6 @@ export class DatabaseService {
         userId: data.userId,
         filename: data.filename,
         originalName: data.originalName,
-        path: data.path,
         storageKey: data.storageKey,
         size: data.size,
         mimetype: data.mimetype,
@@ -455,14 +417,10 @@ export class DatabaseService {
     });
   }
 
-  async updateUploadStatus(id: string, status: string, chunkPaths?: string[]): Promise<Upload> {
+  async updateUploadStatus(id: string, status: string): Promise<Upload> {
     return prisma.upload.update({
       where: { id },
-      data: {
-        status,
-        chunkPaths: chunkPaths ? JSON.stringify(chunkPaths) : undefined,
-        updatedAt: new Date(),
-      },
+      data: { status, updatedAt: new Date() },
     });
   }
 

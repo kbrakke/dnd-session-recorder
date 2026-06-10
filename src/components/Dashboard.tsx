@@ -7,6 +7,7 @@ import { Calendar, Clock, BookOpen, Scroll, Archive, PenTool } from 'lucide-reac
 import Button from '@/components/ui/Button';
 import StatusPill from '@/components/ui/StatusPill';
 import LandingPage from '@/components/LandingPage';
+import { formatDate, formatDurationSeconds } from '@/lib/formatting';
 
 interface Campaign {
   id: string;
@@ -58,21 +59,6 @@ export default function Dashboard() {
     },
     enabled: isAuthenticated,
   });
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return 'N/A';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-  };
 
   const formatTimeAgo = (dateString: string) => {
     const now = new Date();
@@ -165,7 +151,7 @@ export default function Dashboard() {
                     <div className="flex gap-3.5 font-body text-[13px] text-slate-500 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1"><BookOpen size={12} />{session.campaign_name}</span>
                       <span className="inline-flex items-center gap-1"><Calendar size={12} />{formatDate(session.sessionDate)}</span>
-                      <span className="inline-flex items-center gap-1"><Clock size={12} />{formatDuration(session.duration)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={12} />{formatDurationSeconds(session.duration)}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2.5 flex-shrink-0">

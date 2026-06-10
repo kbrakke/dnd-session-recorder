@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { runDmTodoStep } from '@/services/pipeline/steps/dmTodo';
 import { isPermanentError } from '@/services/pipeline/errors';
+import { requireSessionOwner, enforceRateLimit, zodErrorResponse } from '@/lib/route-utils';
+import { aiSummaryRateLimiter } from '@/lib/rate-limiter';
 import { logger } from '@/lib/logger';
 
 const updateDmTodoSchema = z.object({
@@ -20,22 +21,18 @@ export async function POST(
   const { sessionId } = await params;
 
   try {
-    // Check authentication and get user info
-    const { error: authError, user } = await requireAuth();
+    const { error: authError, user } = await requireSessionOwner(sessionId);
     if (authError) return authError;
 
-    // COST PROTECTION: Block test accounts from making real AI API calls.
-    // Skipped when AI is mocked — no spend, so the pipeline can be tested.
-    if (isTestAccount(user.email!) && !isAiMocked()) {
-      logger.warn('Blocked test account from DM TODO generation', {
-        sessionId,
-        userEmail: user.email
-      });
+    const limited = enforceRateLimit(request, user.id, aiSummaryRateLimiter);
+    if (limited) return limited;
 
+    // COST PROTECTION: Block test accounts from real AI calls (skipped when mocked).
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       return NextResponse.json(
         {
           error: 'Test accounts cannot use AI TODO list services. Please use a real email address to access this feature.',
-          isTestAccount: true
+          isTestAccount: true,
         },
         { status: 403 }
       );
@@ -44,34 +41,18 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const force = body?.force === true;
 
-    // Check if session exists
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // IDEMPOTENCY: skip when a TODO list exists, unless explicitly regenerating
     const existingTodoList = await db.getDmTodoList(sessionId);
     if (existingTodoList && !force) {
-      logger.info('DM TODO list already exists, skipping', { sessionId });
-
       return NextResponse.json({
         message: 'DM TODO list already exists',
         content: existingTodoList.content,
-        skipped: true
+        skipped: true,
       });
     }
 
     const todoContent = await runDmTodoStep(sessionId, { force });
 
-    return NextResponse.json({
-      message: 'DM TODO list generated successfully',
-      content: todoContent
-    });
-
+    return NextResponse.json({ message: 'DM TODO list generated successfully', content: todoContent });
   } catch (error) {
     logger.error('DM TODO generation error', error as Error, { sessionId });
 
@@ -82,10 +63,7 @@ export async function POST(
       );
     }
 
-    return NextResponse.json(
-      { error: 'Failed to generate DM TODO list' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to generate DM TODO list' }, { status: 500 });
   }
 }
 
@@ -97,27 +75,18 @@ export async function GET(
   const { sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error } = await requireAuth();
+    const { error } = await requireSessionOwner(sessionId);
     if (error) return error;
 
     const todoList = await db.getDmTodoList(sessionId);
-
     if (!todoList) {
-      return NextResponse.json(
-        { error: 'DM TODO list not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'DM TODO list not found' }, { status: 404 });
     }
 
     return NextResponse.json(todoList);
   } catch (error) {
     logger.error('Failed to fetch DM TODO list', error as Error);
-
-    return NextResponse.json(
-      { error: 'Failed to fetch DM TODO list' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch DM TODO list' }, { status: 500 });
   }
 }
 
@@ -129,63 +98,25 @@ export async function PUT(
   const { sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error: authError, user } = await requireAuth();
+    const { error: authError } = await requireSessionOwner(sessionId);
     if (authError) return authError;
 
-    const body = await request.json();
-    const validatedData = updateDmTodoSchema.parse(body);
+    const validatedData = updateDmTodoSchema.parse(await request.json());
 
-    // Verify session exists and belongs to user
-    const gamingSession = await db.getSessionById(sessionId);
-    if (!gamingSession) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check if user owns the campaign this session belongs to
-    const campaign = await db.getCampaignById(gamingSession.campaignId);
-    if (!campaign || campaign.userId !== user.id) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // Verify TODO list exists
     const existingTodoList = await db.getDmTodoList(sessionId);
     if (!existingTodoList) {
-      return NextResponse.json(
-        { error: 'DM TODO list not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'DM TODO list not found' }, { status: 404 });
     }
 
-    // Update TODO list
     const updatedTodoList = await db.updateDmTodoList(sessionId, validatedData.content);
-
     logger.info('DM TODO list updated', { sessionId });
 
-    return NextResponse.json({
-      message: 'DM TODO list updated successfully',
-      todoList: updatedTodoList
-    });
-
+    return NextResponse.json({ message: 'DM TODO list updated successfully', todoList: updatedTodoList });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
-    }
+    const zodError = zodErrorResponse(error);
+    if (zodError) return zodError;
 
     logger.error('Failed to update DM TODO list', error as Error);
-
-    return NextResponse.json(
-      { error: 'Failed to update DM TODO list' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update DM TODO list' }, { status: 500 });
   }
 }

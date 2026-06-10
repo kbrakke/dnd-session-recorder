@@ -174,7 +174,7 @@ export async function PUT(
       );
     }
 
-    console.error('Error replacing upload:', error);
+    logger.error('Failed to replace upload', error as Error);
     return NextResponse.json(
       { error: 'Failed to replace upload' },
       { status: 500 }
@@ -218,7 +218,7 @@ export async function DELETE(
     });
 
   } catch (error) {
-    console.error('Error unlinking upload from session:', error);
+    logger.error('Failed to unlink upload from session', error as Error);
     return NextResponse.json(
       { error: 'Failed to unlink upload from session' },
       { status: 500 }

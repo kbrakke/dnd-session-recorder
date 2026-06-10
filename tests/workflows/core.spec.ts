@@ -5,11 +5,11 @@ test.describe('Core Application Tests', () => {
   test('should load all main pages', async ({ page }) => {
     // Homepage
     await page.goto('/');
-    await expect(page).toHaveTitle(/D&D Session Recorder/);
+    await expect(page).toHaveTitle(/StoryScribe/);
     
     // Auth pages
     await page.goto('/auth/signin');
-    await expect(page.locator('h1, h2').filter({ hasText: /sign in/i })).toBeVisible();
+    await expect(page.locator('h1, h2').filter({ hasText: /welcome back/i })).toBeVisible();
     
     await page.goto('/auth/signup');
     await expect(page.locator('h1, h2').filter({ hasText: /create|sign up/i })).toBeVisible();
@@ -21,7 +21,7 @@ test.describe('Core Application Tests', () => {
     
     // Navigate to signin
     await page.goto('/auth/signin');
-    await expect(page.locator('h1, h2').filter({ hasText: /sign in/i })).toBeVisible();
+    await expect(page.locator('h1, h2').filter({ hasText: /welcome back/i })).toBeVisible();
     
     // Navigate to signup
     await page.goto('/auth/signup');
@@ -29,7 +29,7 @@ test.describe('Core Application Tests', () => {
     
     // Back to home
     await page.goto('/');
-    await expect(page).toHaveTitle(/D&D Session Recorder/);
+    await expect(page).toHaveTitle(/StoryScribe/);
   });
 
   // Form validation test

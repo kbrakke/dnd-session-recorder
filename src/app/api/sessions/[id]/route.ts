@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/services/database';
-import { requireAuth } from '@/lib/auth-utils';
+import { requireSessionOwner, zodErrorResponse } from '@/lib/route-utils';
 import { logger } from '@/lib/logger';
 
 const updateSessionStatusSchema = z.object({
@@ -13,37 +13,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const sessionId = (await params).id;
-    
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Invalid session ID' },
-        { status: 400 }
-      );
-    }
-    
-    const session = await db.getSessionById(sessionId);
-    
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-    
-    // Transform data to match existing API format
-    const transformedSession = {
-      ...session,
-      campaign_name: session.campaign.name,
-    };
-    
-    return NextResponse.json(transformedSession);
+    const { error, session } = await requireSessionOwner((await params).id);
+    if (error) return error;
+
+    return NextResponse.json({ ...session, campaign_name: session.campaign.name });
   } catch (error) {
     logger.error('Failed to fetch session', error as Error);
-    return NextResponse.json(
-      { error: 'Failed to fetch session' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch session' }, { status: 500 });
   }
 }
 
@@ -51,35 +27,22 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const sessionId = (await params).id;
+
   try {
-    const sessionId = (await params).id;
-    
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Invalid session ID' },
-        { status: 400 }
-      );
-    }
-    
-    const body = await request.json();
-    const validatedData = updateSessionStatusSchema.parse(body);
-    
+    const { error } = await requireSessionOwner(sessionId);
+    if (error) return error;
+
+    const validatedData = updateSessionStatusSchema.parse(await request.json());
     const session = await db.updateSessionStatus(sessionId, validatedData.status);
-    
+
     return NextResponse.json({ message: 'Session status updated successfully', session });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
-    }
+    const zodError = zodErrorResponse(error);
+    if (zodError) return zodError;
 
     logger.error('Failed to update session status', error as Error);
-    return NextResponse.json(
-      { error: 'Failed to update session status' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update session status' }, { status: 500 });
   }
 }
 
@@ -87,42 +50,18 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const sessionId = (await params).id;
+
   try {
-    // Check authentication
-    const { error: authError } = await requireAuth();
-    if (authError) return authError;
-
-    const sessionId = (await params).id;
-
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Invalid session ID' },
-        { status: 400 }
-      );
-    }
-
-    // Get session to return campaign ID for redirect
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
+    const { error, session } = await requireSessionOwner(sessionId);
+    if (error) return error;
 
     const campaignId = session.campaignId;
-
     await db.deleteSession(sessionId);
 
-    return NextResponse.json({
-      message: 'Session deleted successfully',
-      campaignId
-    });
+    return NextResponse.json({ message: 'Session deleted successfully', campaignId });
   } catch (error) {
     logger.error('Failed to delete session', error as Error);
-    return NextResponse.json(
-      { error: 'Failed to delete session' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete session' }, { status: 500 });
   }
 }

@@ -4,7 +4,6 @@ import { logger } from '@/lib/logger';
 
 export async function GET() {
   try {
-    // Check database connectivity
     await prisma.$queryRaw`SELECT 1 as health_check`;
     
     // Check if schema is initialized by testing User table and new columns
@@ -45,7 +44,6 @@ export async function GET() {
       database: 'connected',
       schema: schemaStatus,
       ...(missingColumns.length > 0 && { missingColumns }),
-      databaseUrl: process.env.DATABASE_URL?.replace(/:[^@]*@/, ':***@').replace(/\/[^\/]*$/, '/***'),
     });
   } catch (error) {
     logger.error('Health check failed', error as Error);

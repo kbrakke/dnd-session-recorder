@@ -1,10 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, AlertCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { formatDate, formatDurationSeconds } from '@/lib/formatting';
 
 interface Session {
   id: string;
@@ -26,31 +29,25 @@ interface Session {
 }
 
 export default function SessionsPage() {
+  const { status } = useSession();
+  const router = useRouter();
   const [filter, setFilter] = useState<'all' | 'completed' | 'processing' | 'error'>('all');
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+    }
+  }, [status, router]);
 
   const { data: sessions, isLoading } = useQuery<Session[]>({
     queryKey: ['sessions'],
+    enabled: status === 'authenticated',
     queryFn: async () => {
       const response = await fetch('/api/sessions');
       if (!response.ok) throw new Error('Failed to fetch sessions');
       return response.json();
     },
   });
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return 'N/A';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -94,7 +91,7 @@ export default function SessionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sessions</h1>
-          <p className="text-gray-600 mt-1">Total: {formatDuration(totalHours)}</p>
+          <p className="text-gray-600 mt-1">Total: {formatDurationSeconds(totalHours)}</p>
         </div>
         <Link href="/sessions/upload">
           <Button className="flex items-center space-x-2">
@@ -182,7 +179,7 @@ export default function SessionsPage() {
                     </div>
                     <div className="flex items-center">
                       <Clock className="h-4 w-4 mr-1 text-purple-600" />
-                      <span>{formatDuration(session.duration)}</span>
+                      <span>{formatDurationSeconds(session.duration)}</span>
                     </div>
                   </div>
                 </div>
@@ -194,7 +191,7 @@ export default function SessionsPage() {
                   <div className="text-sm text-gray-600">Transcribed</div>
                 </div>
                 <div className="bg-green-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-green-600">{formatDuration(session.total_speech_time)}</div>
+                  <div className="text-2xl font-bold text-green-600">{formatDurationSeconds(session.total_speech_time)}</div>
                   <div className="text-sm text-gray-600">Speech Time</div>
                 </div>
                 <div className="bg-purple-50 rounded-lg p-4 text-center">

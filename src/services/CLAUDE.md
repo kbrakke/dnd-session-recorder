@@ -35,16 +35,13 @@ Singleton class (`db` export) that wraps Prisma Client with typed methods for al
 
 **Upload operations:**
 - `createUpload(data)`, `getUploads(userId)`, `getUploadById(id)`
-- `updateUploadStatus(id, status, chunkPaths?)`, `deleteUpload(id)`
+- `updateUploadStatus(id, status)`, `deleteUpload(id)`
 - `getUploadUsage(userId)` — storage usage stats
 - `linkSessionToUpload(sessionId, uploadId)`, `unlinkSessionFromUpload(sessionId)`
 
 **Utility:**
 - `getTotalSpeechTime(userId)`, `getSessionStats(userId)`
 - `getUserByEmail(email)`, `deleteUser(userId)`
-
-### `database.d.ts` — Type Definitions
-TypeScript declaration file for the DatabaseService. Provides interface types without implementation.
 
 ### `pipeline/` — Durable Processing Pipeline
 Postgres-backed job queue + worker for the transcribe → summarize → dm-todo
@@ -59,20 +56,19 @@ loop. See `docs/PIPELINE_DURABILITY.md` for design and failure-mode analysis.
 - Worker config: `PIPELINE_WORKER_ENABLED=false` disables; `PIPELINE_POLL_INTERVAL_MS` tunes polling
 
 ### `storage.ts` — Audio Storage Abstraction
-Two backends selected by env: Tigris/S3 object storage (`BUCKET_NAME` + `AWS_ENDPOINT_URL_S3`, set by `fly storage create`) or local `UPLOAD_DIR` (dev default). Upload rows carry `storageKey`; legacy rows (null) are absolute local paths.
+Two backends selected by env: Tigris/S3 object storage (`BUCKET_NAME` + `AWS_ENDPOINT_URL_S3`, set by `fly storage create`) or local `UPLOAD_DIR` (dev default). Every upload row carries a non-null `storageKey` (backend-relative); `localPathForKey` resolves it for the local backend.
 - `saveAudio(key, buffer, contentType)` / `deleteAudio(upload)` / `audioExists(upload)`
 - `ensureLocalAudio(upload)` — downloads object to a stable temp path for FFmpeg (worker); `cleanupWorkFile()` removes temp copies
 - `getPlaybackUrl(upload)` — presigned GET (S3) or null (local → route streams)
+- `getLocalAudioPath(upload)` — local file path for playback streaming
 - `buildAudioKey(userId, filename)` — `audio/<userId>/<filename>`
-- Original audio is RETAINED after transcription (browser playback); never disk-check `upload.path` to decide existence — use `audioExists()`
+- Original audio is RETAINED after transcription (browser playback); never disk-check to decide existence — use `audioExists()`
 
-### `fileCleanup.ts` — FileCleanupService (legacy)
-Manages cleanup of uploaded audio files and their chunks after processing:
-- `cleanupUploadFiles(uploadId)` — removes original file and all chunk files
-- Checks upload status before cleanup
-- Parses JSON-stored chunk paths
-- Uses `Promise.allSettled` for batch cleanup (doesn't fail on individual file errors)
-- No-op if file already deleted
+### `audioProcessing.ts` — FFmpeg helpers
+- `splitAudioBySize()` — chunk audio under Whisper's size limit (pipeline)
+- `getAudioDuration()` / `validateAudioFile()` — fluent-ffmpeg probing
+- `probeAudioDurationSeconds()` — duration via `execFile` (array args, no shell) for upload routes
+- `cleanupChunkFiles()` — remove temp chunk files
 
 ## Architecture
 

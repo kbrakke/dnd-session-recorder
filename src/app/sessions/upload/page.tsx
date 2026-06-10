@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, Calendar, BookOpen, Plus, FileAudio, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
@@ -68,7 +69,14 @@ function SessionUploadPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  
+  const { status } = useSession();
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+    }
+  }, [status, router]);
+
   const [formState, setFormState] = useState<FormState>({
     title: '',
     campaignId: '',

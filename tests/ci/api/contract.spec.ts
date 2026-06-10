@@ -84,7 +84,8 @@ test.describe('API Contract Tests', () => {
   test('public endpoints are accessible', async ({ request }) => {
     const publicEndpoints = [
       { path: '/api/health', expectedStatus: 200 },
-      { path: '/api/auth/register', expectedStatus: [200, 201, 400] }, // 400 if validation fails
+      // register is POST-only: a GET reaches it (not 401-blocked) and yields 405.
+      { path: '/api/auth/register', expectedStatus: [200, 201, 400, 405] },
     ];
 
     for (const { path, expectedStatus } of publicEndpoints) {

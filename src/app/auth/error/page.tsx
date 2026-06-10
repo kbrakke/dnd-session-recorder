@@ -29,7 +29,6 @@ function AuthErrorForm() {
   
   const errorMessage = errorMessages[error as keyof typeof errorMessages] || errorMessages.Default;
 
-  // Log the error for debugging
   logger.error('Authentication error page displayed', new Error(`Auth error: ${error}`), { error, errorMessage });
 
   const getErrorTitle = (error: string) => {

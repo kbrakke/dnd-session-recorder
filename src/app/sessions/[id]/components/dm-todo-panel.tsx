@@ -50,7 +50,6 @@ export function DMTodoPanel({
     setEditText('');
   };
 
-  // Count rough number of tasks from markdown (lines starting with - [ ] or - [x] or just - or *)
   const taskCount = todoList
     ? todoList.content.split('\n').filter((line) => /^\s*[-*]\s/.test(line)).length
     : 0;
@@ -61,7 +60,6 @@ export function DMTodoPanel({
       sessionStatus === 'summarizing' ||
       sessionStatus === 'completed');
 
-  // ── Empty state ──────────────────────────────────────────────
   if (!todoList) {
     return (
       <div style={{ marginTop: 18 }}>
@@ -77,7 +75,6 @@ export function DMTodoPanel({
             gap: 16,
           }}
         >
-          {/* Icon plate */}
           <div
             style={{
               width: 40,
@@ -173,7 +170,6 @@ export function DMTodoPanel({
     );
   }
 
-  // ── Filled state ─────────────────────────────────────────────
   return (
     <div style={{ marginTop: 18 }}>
       {/* Header row */}

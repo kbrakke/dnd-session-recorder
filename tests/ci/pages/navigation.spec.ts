@@ -55,11 +55,14 @@ test.describe('Navigation Tests', () => {
     
     await page.waitForLoadState('networkidle');
     
-    const criticalErrors = errors.filter(error => 
-      !error.includes('favicon') && 
-      !error.includes('analytics')
+    const criticalErrors = errors.filter(error =>
+      !error.includes('favicon') &&
+      !error.includes('analytics') &&
+      // Rapid client-side navigation aborts the in-flight next-auth
+      // /api/auth/session fetch; the resulting CLIENT_FETCH_ERROR is benign.
+      !error.includes('CLIENT_FETCH_ERROR')
     );
-    
+
     expect(criticalErrors).toHaveLength(0);
   });
 });

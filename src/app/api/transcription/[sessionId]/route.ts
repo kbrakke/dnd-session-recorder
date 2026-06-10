@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { prisma } from '@/lib/prisma';
 import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { enqueueProcessSession, cancelActiveJobs } from '@/services/pipeline/queue';
 import { audioExists } from '@/services/storage';
+import { requireSessionOwner, enforceRateLimit } from '@/lib/route-utils';
+import { aiTranscriptionRateLimiter } from '@/lib/rate-limiter';
 import { logger } from '@/lib/logger';
 
 // POST /api/transcription/[sessionId] - Queue transcription for a session.
@@ -19,49 +20,32 @@ export async function POST(
   const { sessionId } = await params;
 
   try {
-    await request.json().catch(() => ({})); // Read body to prevent stream errors
-
-    const { error: authError, user } = await requireAuth();
+    const { error: authError, user, session } = await requireSessionOwner(sessionId);
     if (authError) return authError;
 
-    // COST PROTECTION: Block test accounts from making real AI API calls.
-    // Skipped when AI is mocked — no spend, so the pipeline can be tested.
-    if (isTestAccount(user.email!) && !isAiMocked()) {
-      logger.warn('Blocked test account from transcription', {
-        sessionId,
-        userEmail: user.email
-      });
+    const limited = enforceRateLimit(request, user.id, aiTranscriptionRateLimiter);
+    if (limited) return limited;
 
+    // COST PROTECTION: Block test accounts from real AI calls (skipped when mocked).
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       return NextResponse.json(
         {
           error: 'Test accounts cannot use AI transcription services. Please use a real email address to access this feature.',
-          isTestAccount: true
+          isTestAccount: true,
         },
         { status: 403 }
       );
     }
 
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // IDEMPOTENCY: Check if transcription already exists
     const existingTranscriptions = await db.getTranscriptions(sessionId);
-    if (existingTranscriptions && existingTranscriptions.length > 0) {
-      logger.info('Transcription already exists, skipping', { sessionId });
-
+    if (existingTranscriptions.length > 0) {
       if (session.status !== 'transcribed' && session.status !== 'completed') {
         await db.updateSession(sessionId, { status: 'transcribed' });
       }
-
       return NextResponse.json({
         message: 'Transcription already exists',
         transcriptionLength: existingTranscriptions[0].text.length,
-        skipped: true
+        skipped: true,
       });
     }
 
@@ -73,48 +57,9 @@ export async function POST(
     }
 
     if (!(await audioExists(session.upload))) {
-      logger.warn('Audio not found in storage', {
-        sessionId,
-        storageKey: session.upload.storageKey,
-        path: session.upload.path
-      });
-
-      // Destructive reconciliation applies ONLY to legacy local-disk uploads
-      // (no storageKey) — those files are genuinely unrecoverable. Object
-      // storage uploads keep their records; a missing object is surfaced
-      // without deleting anything.
-      if (!session.upload.storageKey) {
-        try {
-          logger.info('Removing upload record for missing legacy file', {
-            sessionId,
-            uploadId: session.upload.id
-          });
-          await db.deleteUpload(session.upload.id);
-
-          // Clear the session's upload link and revert to draft status
-          await db.updateSession(sessionId, {
-            uploadId: null,
-            status: 'draft'
-          });
-
-          logger.info('Cleaned up database records for missing file', { sessionId });
-        } catch (cleanupError) {
-          logger.error('File reconciliation cleanup failed', cleanupError as Error, { sessionId });
-        }
-
-        return NextResponse.json(
-          {
-            error: `Audio file not found at path: ${session.upload.path}. Database records have been cleaned up. Please re-upload the file.`,
-            fileReconciled: true
-          },
-          { status: 404 }
-        );
-      }
-
+      logger.warn('Audio not found in storage', { sessionId, storageKey: session.upload.storageKey });
       return NextResponse.json(
-        {
-          error: 'Audio is missing from object storage. Please re-upload the file.',
-        },
+        { error: 'Audio is missing from storage. Please re-upload the file.' },
         { status: 404 }
       );
     }
@@ -125,22 +70,11 @@ export async function POST(
 
     logger.info('Transcription queued', { sessionId, jobId: job.id });
 
-    return NextResponse.json({
-      message: 'Transcription queued',
-      jobId: job.id,
-      queued: true,
-    }, { status: 202 });
-
+    return NextResponse.json({ message: 'Transcription queued', jobId: job.id, queued: true }, { status: 202 });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error('Failed to queue transcription', error as Error, { sessionId });
-
     return NextResponse.json(
-      {
-        error: 'Failed to queue transcription',
-        details: errorMessage,
-        canRetry: true,
-      },
+      { error: 'Failed to queue transcription', canRetry: true },
       { status: 500 }
     );
   }
@@ -154,20 +88,13 @@ export async function GET(
   const { sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error } = await requireAuth();
+    const { error } = await requireSessionOwner(sessionId);
     if (error) return error;
 
-    const transcriptions = await db.getTranscriptions(sessionId);
-
-    return NextResponse.json(transcriptions);
+    return NextResponse.json(await db.getTranscriptions(sessionId));
   } catch (error) {
     logger.error('Failed to fetch transcriptions', error as Error);
-
-    return NextResponse.json(
-      { error: 'Failed to fetch transcriptions' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch transcriptions' }, { status: 500 });
   }
 }
 
@@ -179,18 +106,8 @@ export async function DELETE(
   const { sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error } = await requireAuth();
+    const { error } = await requireSessionOwner(sessionId);
     if (error) return error;
-
-    // Check if session exists
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
 
     const { isTimedOut, minutesElapsed } = await db.checkProcessingTimeout(sessionId, 30);
 
@@ -200,12 +117,7 @@ export async function DELETE(
     await prisma.transcriptChunk.deleteMany({ where: { sessionId } });
     await db.cancelTranscription(sessionId);
 
-    logger.info('Transcription cancelled', {
-      sessionId,
-      cancelledJobs,
-      minutesElapsed,
-      wasTimedOut: isTimedOut
-    });
+    logger.info('Transcription cancelled', { sessionId, cancelledJobs, minutesElapsed, wasTimedOut: isTimedOut });
 
     return NextResponse.json({
       message: 'Transcription cancelled successfully',
@@ -214,10 +126,6 @@ export async function DELETE(
     });
   } catch (error) {
     logger.error('Failed to cancel transcription', error as Error);
-
-    return NextResponse.json(
-      { error: 'Failed to cancel transcription' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to cancel transcription' }, { status: 500 });
   }
 }

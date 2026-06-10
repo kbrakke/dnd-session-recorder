@@ -34,7 +34,6 @@ export function TranscriptSection({
     return transcriptions.filter((t) => t.text.toLowerCase().includes(q));
   }, [transcriptions, searchQuery]);
 
-  // ── Empty state ──────────────────────────────────────────────
   if (transcriptions.length === 0) {
     return (
       <div style={{ marginTop: 18 }}>
@@ -50,7 +49,6 @@ export function TranscriptSection({
             gap: 16,
           }}
         >
-          {/* Icon plate */}
           <div
             style={{
               width: 40,
@@ -120,7 +118,6 @@ export function TranscriptSection({
     );
   }
 
-  // ── Filled state ─────────────────────────────────────────────
   return (
     <div style={{ marginTop: 18 }}>
       {/* Search input */}

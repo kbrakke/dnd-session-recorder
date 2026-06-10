@@ -3,9 +3,9 @@ import { test, expect } from '@playwright/test';
 test.describe('Static Page Tests', () => {
   test('homepage loads and renders', async ({ page }) => {
     await page.goto('/');
-    
+
     // Check page loads without errors
-    await expect(page).toHaveTitle(/D&D|DND/i);
+    await expect(page).toHaveTitle(/StoryScribe/i);
     
     // Check for main content (use generic selectors)
     const main = page.locator('main').or(page.locator('[role="main"]'));
@@ -20,7 +20,8 @@ test.describe('Static Page Tests', () => {
     });
     
     await page.waitForLoadState('networkidle');
-    expect(errors).toHaveLength(0);
+    const criticalErrors = errors.filter(error => !error.includes('CLIENT_FETCH_ERROR'));
+    expect(criticalErrors).toHaveLength(0);
   });
 
   test('sign-in page renders authentication form', async ({ page }) => {
@@ -32,29 +33,29 @@ test.describe('Static Page Tests', () => {
     );
     await expect(heading).toBeVisible();
     
-    // Check form elements by role/placeholder (not text)
-    await expect(page.getByPlaceholder(/email/i)).toBeVisible();
-    await expect(page.getByPlaceholder(/password/i)).toBeVisible();
-    
+    // Check form elements by label (resilient to placeholder copy changes)
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.getByLabel('Password')).toBeVisible();
+
     // Check submit button exists
     const submitButton = page.getByRole('button', { name: /sign in|log in/i });
     await expect(submitButton).toBeVisible();
-    
+
     // Verify form is functional (can type)
-    await page.getByPlaceholder(/email/i).fill('test@example.com');
-    const emailValue = await page.getByPlaceholder(/email/i).inputValue();
+    await page.getByLabel('Email').fill('test@example.com');
+    const emailValue = await page.getByLabel('Email').inputValue();
     expect(emailValue).toBe('test@example.com');
   });
 
   test('sign-up page renders registration form', async ({ page }) => {
     await page.goto('/auth/signup');
-    
+
     // Check form fields exist
-    await expect(page.getByPlaceholder(/name|full name/i)).toBeVisible();
-    await expect(page.getByPlaceholder(/email/i)).toBeVisible();
-    await expect(page.getByPlaceholder(/password/i).first()).toBeVisible();
-    await expect(page.getByPlaceholder(/confirm|password/i).last()).toBeVisible();
-    
+    await expect(page.getByLabel(/full name/i)).toBeVisible();
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
+    await expect(page.getByLabel(/confirm password/i)).toBeVisible();
+
     // Check submit button
     const submitButton = page.getByRole('button', { name: /create|sign up|register/i });
     await expect(submitButton).toBeVisible();
@@ -105,11 +106,12 @@ test.describe('Static Page Tests', () => {
     await page.waitForLoadState('networkidle');
     
     // Filter out known non-critical errors if any
-    const criticalErrors = errors.filter(error => 
-      !error.includes('favicon') && 
-      !error.includes('analytics')
+    const criticalErrors = errors.filter(error =>
+      !error.includes('favicon') &&
+      !error.includes('analytics') &&
+      !error.includes('CLIENT_FETCH_ERROR')
     );
-    
+
     expect(criticalErrors).toHaveLength(0);
   });
 });

@@ -1,9 +1,12 @@
 import path from 'path';
 import fs from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import ffmpeg from 'fluent-ffmpeg';
+import ffprobe from 'ffprobe-static';
 import { logger } from '@/lib/logger';
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+const execFileAsync = promisify(execFile);
 
 export interface AudioChunk {
   path: string;
@@ -195,30 +198,25 @@ export async function validateAudioFile(filePath: string): Promise<{
 }
 
 /**
- * Resolve an upload file path, checking multiple locations.
+ * Probe an audio file's duration in whole seconds, returning null on failure.
  *
- * Handles legacy file paths that may or may not include the uploads/ directory prefix.
+ * Uses execFile with argument arrays (never a shell string) so user-controlled
+ * filenames can't inject shell commands. Prefers the system ffprobe in
+ * production and the bundled ffprobe-static binary elsewhere.
  */
-export function resolveUploadPath(filename: string): string | null {
-  // Try exact path first
-  if (fs.existsSync(filename)) {
-    return filename;
+export async function probeAudioDurationSeconds(filePath: string): Promise<number | null> {
+  const ffprobeBin = process.env.NODE_ENV === 'production' ? 'ffprobe' : (ffprobe.path as string);
+  try {
+    const { stdout } = await execFileAsync(ffprobeBin, [
+      '-v', 'quiet',
+      '-show_entries', 'format=duration',
+      '-of', 'csv=p=0',
+      filePath,
+    ]);
+    const duration = parseFloat(stdout.trim());
+    return isNaN(duration) ? null : Math.round(duration);
+  } catch (error) {
+    logger.error('Failed to get audio duration', error as Error);
+    return null;
   }
-
-  // Try with uploads/ prefix
-  const withPrefix = path.join(UPLOAD_DIR, filename);
-  if (fs.existsSync(withPrefix)) {
-    return withPrefix;
-  }
-
-  // Try without uploads/ prefix (if filename starts with it)
-  if (filename.startsWith('uploads/')) {
-    const withoutPrefix = filename.replace(/^uploads\//, '');
-    const resolved = path.join(UPLOAD_DIR, withoutPrefix);
-    if (fs.existsSync(resolved)) {
-      return resolved;
-    }
-  }
-
-  return null;
 }

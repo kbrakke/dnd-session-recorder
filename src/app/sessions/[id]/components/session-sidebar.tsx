@@ -34,10 +34,8 @@ export function SessionSidebar({
   onPickSession,
 }: SessionsRailProps) {
   /* ------------------------------------------------------------------ */
-  /*  Collapsed rail                                                     */
   /* ------------------------------------------------------------------ */
   if (!open) {
-    // Show at most 5 session chips
     const visibleSessions = sessions.slice(0, 5);
 
     return (
@@ -106,7 +104,6 @@ export function SessionSidebar({
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Expanded rail                                                      */
   /* ------------------------------------------------------------------ */
   return (
     <aside

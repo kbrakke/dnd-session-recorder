@@ -1,7 +1,7 @@
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { writeFile, mkdir, unlink, copyFile } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import {
   S3Client,
   PutObjectCommand,
@@ -23,8 +23,8 @@ import { logger } from '@/lib/logger';
  *   pipeline worker on Fly.
  * - **Local disk** (`UPLOAD_DIR`) otherwise — dev and test default.
  *
- * Upload rows carry `storageKey` (backend-relative key). Legacy rows have
- * only `path` (absolute local filesystem path) and are always local.
+ * Every upload row carries a backend-relative `storageKey`; `localPathForKey`
+ * resolves it to a path for the local backend.
  */
 
 const uploadDir =
@@ -45,8 +45,6 @@ function s3(): S3Client {
       // Tigris uses the default virtual-host style; MinIO (tests) needs
       // path-style.
       forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
-      // Credentials come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env
-      // vars via the SDK's default provider chain.
     });
   }
   return s3Singleton;
@@ -65,38 +63,25 @@ export function buildAudioKey(userId: string, filename: string): string {
   return `audio/${userId}/${filename}`;
 }
 
-/**
- * Persist an uploaded audio buffer. Returns the storage key and, for the
- * local backend, the absolute path written.
- */
-export async function saveAudio(
-  key: string,
-  buffer: Buffer,
-  contentType: string
-): Promise<{ key: string; localPath: string | null }> {
+/** Persist an uploaded audio buffer to the active backend. */
+export async function saveAudio(key: string, buffer: Buffer, contentType: string): Promise<void> {
   if (isObjectStorageEnabled()) {
     await s3().send(
-      new PutObjectCommand({
-        Bucket: bucket(),
-        Key: key,
-        Body: buffer,
-        ContentType: contentType,
-      })
+      new PutObjectCommand({ Bucket: bucket(), Key: key, Body: buffer, ContentType: contentType })
     );
     logger.info('Audio saved to object storage', { key, bucket: bucket(), size: buffer.length });
-    return { key, localPath: null };
+    return;
   }
 
   const dest = localPathForKey(key);
   await mkdir(path.dirname(dest), { recursive: true });
   await writeFile(dest, buffer);
   logger.info('Audio saved to local storage', { key, path: dest });
-  return { key, localPath: dest };
 }
 
 /** Whether the audio object/file for an upload still exists. */
-export async function audioExists(upload: Pick<Upload, 'storageKey' | 'path'>): Promise<boolean> {
-  if (upload.storageKey && isObjectStorageEnabled()) {
+export async function audioExists(upload: Pick<Upload, 'storageKey'>): Promise<boolean> {
+  if (isObjectStorageEnabled()) {
     try {
       await s3().send(new HeadObjectCommand({ Bucket: bucket(), Key: upload.storageKey }));
       return true;
@@ -104,8 +89,7 @@ export async function audioExists(upload: Pick<Upload, 'storageKey' | 'path'>): 
       return false;
     }
   }
-  const localPath = upload.storageKey ? localPathForKey(upload.storageKey) : upload.path;
-  return fs.existsSync(localPath);
+  return fs.existsSync(localPathForKey(upload.storageKey));
 }
 
 /**
@@ -117,9 +101,9 @@ export async function audioExists(upload: Pick<Upload, 'storageKey' | 'path'>): 
  * delete when done (`cleanupWorkFile`).
  */
 export async function ensureLocalAudio(
-  upload: Pick<Upload, 'id' | 'storageKey' | 'path' | 'filename'>
+  upload: Pick<Upload, 'id' | 'storageKey' | 'filename'>
 ): Promise<{ localPath: string; isTemp: boolean } | null> {
-  if (upload.storageKey && isObjectStorageEnabled()) {
+  if (isObjectStorageEnabled()) {
     const workDir = path.join(os.tmpdir(), 'dnd-audio-work');
     await mkdir(workDir, { recursive: true });
     const ext = path.extname(upload.filename);
@@ -147,7 +131,7 @@ export async function ensureLocalAudio(
     return { localPath: tempPath, isTemp: true };
   }
 
-  const localPath = upload.storageKey ? localPathForKey(upload.storageKey) : upload.path;
+  const localPath = localPathForKey(upload.storageKey);
   if (!fs.existsSync(localPath)) {
     return null;
   }
@@ -167,16 +151,15 @@ export async function cleanupWorkFile(localPath: string, isTemp: boolean): Promi
 }
 
 /** Permanently delete an upload's audio from whichever backend holds it. */
-export async function deleteAudio(upload: Pick<Upload, 'storageKey' | 'path'>): Promise<void> {
-  if (upload.storageKey && isObjectStorageEnabled()) {
+export async function deleteAudio(upload: Pick<Upload, 'storageKey'>): Promise<void> {
+  if (isObjectStorageEnabled()) {
     await s3().send(new DeleteObjectCommand({ Bucket: bucket(), Key: upload.storageKey }));
     logger.info('Audio deleted from object storage', { key: upload.storageKey });
     return;
   }
-  const localPath = upload.storageKey ? localPathForKey(upload.storageKey) : upload.path;
   try {
-    await unlink(localPath);
-    logger.info('Audio deleted from local storage', { path: localPath });
+    await unlink(localPathForKey(upload.storageKey));
+    logger.info('Audio deleted from local storage', { key: upload.storageKey });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
@@ -193,7 +176,7 @@ export async function getPlaybackUrl(
   upload: Pick<Upload, 'storageKey' | 'mimetype'>,
   expiresInSeconds = 3600
 ): Promise<string | null> {
-  if (upload.storageKey && isObjectStorageEnabled()) {
+  if (isObjectStorageEnabled()) {
     return getSignedUrl(
       s3(),
       new GetObjectCommand({
@@ -208,25 +191,6 @@ export async function getPlaybackUrl(
 }
 
 /** Resolve the local file path for a local-backend upload (playback streaming). */
-export function getLocalAudioPath(upload: Pick<Upload, 'storageKey' | 'path'>): string {
-  return upload.storageKey && !isObjectStorageEnabled()
-    ? localPathForKey(upload.storageKey)
-    : upload.path;
-}
-
-/**
- * Migrate a legacy local file into the active backend (used opportunistically
- * when old uploads are touched while object storage is enabled).
- */
-export async function promoteLocalFile(localPath: string, key: string): Promise<void> {
-  if (isObjectStorageEnabled()) {
-    const buffer = await fs.promises.readFile(localPath);
-    await s3().send(
-      new PutObjectCommand({ Bucket: bucket(), Key: key, Body: buffer })
-    );
-  } else {
-    const dest = localPathForKey(key);
-    await mkdir(path.dirname(dest), { recursive: true });
-    await copyFile(localPath, dest);
-  }
+export function getLocalAudioPath(upload: Pick<Upload, 'storageKey'>): string {
+  return localPathForKey(upload.storageKey);
 }

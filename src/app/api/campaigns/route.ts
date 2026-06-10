@@ -5,9 +5,11 @@ import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
 const createCampaignSchema = z.object({
-  name: z.string().min(1, 'Campaign name is required'),
-  description: z.string().optional(),
-  systemPrompt: z.string().optional(),
+  name: z.string().min(1, 'Campaign name is required').max(100),
+  description: z.string().max(500).optional(),
+  // Bounded: this text is injected verbatim into every GPT-4o prompt for the
+  // campaign, so its length directly drives token cost.
+  systemPrompt: z.string().max(2000).optional(),
 });
 
 export async function GET() {

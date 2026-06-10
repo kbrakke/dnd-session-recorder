@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth-utils';
-import { db } from '@/services/database';
 import { getLatestJob } from '@/services/pipeline/queue';
+import { requireSessionOwner } from '@/lib/route-utils';
 import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/progress - Get session progress
@@ -10,28 +9,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { error: authError, user } = await requireAuth();
-    if (authError) return authError;
-
     const sessionId = (await params).id;
-
-    // Get session with progress information
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check if user owns the campaign this session belongs to
-    const campaign = await db.getCampaignById(session.campaignId);
-    if (!campaign || campaign.userId !== user.id) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
+    const { error, session } = await requireSessionOwner(sessionId);
+    if (error) return error;
 
     const job = await getLatestJob(sessionId);
 

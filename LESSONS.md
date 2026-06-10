@@ -116,6 +116,89 @@ A prior `cd /tmp` in an earlier Bash call made a background `npx next dev` run i
 ### Multiple routes triggered processing, not just `/process`
 `create-with-upload` also auto-triggered the pipeline (old: self-fetch; now: direct enqueue). When changing pipeline trigger semantics, grep for `enqueueProcessSession` AND any leftover `fetch(`/api/` patterns.
 
+## Cleanup pass (2026-06-10): security, legacy removal, DRY
+
+### Ownership checks must be explicit — middleware only proves identity
+`middleware.ts` blocks unauthenticated `/api/*`, so the real risk was one
+logged-in user reaching another's data. Several routes authenticated but never
+checked ownership: `GET/PATCH/DELETE /api/sessions/[id]`, `GET/POST` on
+`summary`/`dm-todo`/`transcription/[sessionId]`. All now go through
+`requireSessionOwner` / `requireCampaignOwner` in `@/lib/route-utils`, which
+returns a 404 (not 403) for both missing and not-owned.
+
+### Cost-driving AI POSTs were unthrottled
+`aiTranscriptionRateLimiter` / `aiSummaryRateLimiter` existed but were unused.
+They're now applied via `enforceRateLimit()` on `process`, `transcription`,
+`summary`, `dm-todo` POSTs. `campaign.systemPrompt` is capped server-side
+(`.max(2000)`) since it's injected verbatim into every GPT call.
+
+### ffprobe was shelled with a string template — command injection
+Both upload routes built `` `${bin} ... "${filePath}"` `` and ran it via
+`exec`. User-controlled filenames could break out. Replaced with one shared
+`probeAudioDurationSeconds()` in `audioProcessing.ts` using `execFile` (arg
+array, no shell).
+
+### Legacy null-`storageKey` handling is gone; `path`/`chunk_paths` columns dropped
+With nothing deployed and the DB rebuildable, the per-row "legacy local-disk"
+fallbacks were deleted: `storageKey` is now NOT NULL, the `Upload.path` and
+`Upload.chunk_paths` columns were dropped (migration
+`20260610120000_drop_upload_legacy_columns`), and `storage.ts` uses
+`storageKey` exclusively. Also deleted: `fileCleanup.ts` (unused),
+`promoteLocalFile`, `resolveUploadPath`, `db.saveTranscriptions`,
+`db.getTranscriptionCount`, and the stale committed `prisma.d.ts` /
+`database.d.ts` (hand-edited build artifacts with wrong `number` id types).
+**Re-run `npx prisma generate` after pulling — the Upload type changed.**
+
+### Duplicated formatters consolidated to `@/lib/formatting`
+`formatDate`/`formatDuration` were copy-pasted in `Dashboard`, `sessions/page`,
+`session-header` with subtly different units (seconds vs minutes) and date
+styles. Shared module exposes `formatDate(s, 'short'|'long')`,
+`formatDurationSeconds`, `formatDurationMinutes` — call sites kept their
+original behavior (note: `session-header` treats `duration` as minutes, which
+looks like a pre-existing bug but was preserved, not "fixed", in this pass).
+
+### Test config deletion deferred
+`playwright-staging.config.ts` and `playwright.config.post-deploy.ts` are
+unreferenced but the test stages are mid-migration (see above) — left in place
+rather than risk breaking local tooling.
+
+## CI test repair (2026-06-10): stale assertions after StoryScribe redesign
+
+### The app was rebranded "D&D Session Recorder" → "StoryScribe"
+`layout.tsx` title is `StoryScribe`; signin heading is "Welcome back", signup
+is "Create your account"; auth inputs no longer use `email`/`password`
+*placeholders* (they're `dm@yourtable.com` / `••••••••`). Tests asserting the
+old title/heading/placeholder failed. Fixes: assert `/StoryScribe/`, match the
+real headings, and select inputs by **label** (`getByLabel('Email')`) — the
+`TextInput` component renders proper `<label htmlFor>`, so label selectors are
+stable across copy changes. Files: `tests/ci/pages/*`, `tests/workflows/*`.
+
+### The redesign dropped client-side auth guards from some protected pages
+`tests/ci/middleware/route-protection.spec.ts` requires `/campaigns`,
+`/sessions`, `/settings`, `/sessions/upload` to redirect unauthenticated users
+to `/auth/signin`. Only `/settings` still did it. Restored the standard guard
+(`useSession()` + `useEffect` → `router.push('/auth/signin')`, plus
+`enabled: status === 'authenticated'` on the queries) to the other three. The
+guard is the intended behavior — middleware only covers `/api/*`, pages guard
+themselves.
+
+### `CLIENT_FETCH_ERROR` during rapid navigation is benign
+The "route transitions do not cause errors" test does back-to-back `page.goto`
+with no wait; that aborts next-auth's in-flight `/api/auth/session` fetch and
+logs a `CLIENT_FETCH_ERROR`. Filtered it out alongside favicon/analytics.
+
+### GET on a POST-only route is 405, not 404
+`contract.spec` asserted GET `/api/auth/register` ∈ `[200,201,400]`; it's
+POST-only so a GET returns **405** (reachable, wrong method — proves it's not
+auth-blocked, which was the test's intent). Widened the expectation.
+
+### Running CI Playwright locally with Podman
+`test:ci` / `test:workflows` use `scripts/test-server.js`, which spins up a
+Postgres testcontainer **only when `CI=true`**. To run locally against Podman:
+`DOCKER_HOST=unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')`
+`TESTCONTAINERS_RYUK_DISABLED=true CI=true npx playwright test --config=playwright.config.ci.ts`.
+Ryuk (the testcontainers reaper) must be disabled on Podman.
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.

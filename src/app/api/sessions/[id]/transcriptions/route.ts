@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { requireSessionOwner } from '@/lib/route-utils';
 import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/transcriptions - Get transcriptions for a session
@@ -11,36 +11,12 @@ export async function GET(
   const { id: sessionId } = await params;
 
   try {
-    // Check authentication
-    const { error, user } = await requireAuth();
+    const { error } = await requireSessionOwner(sessionId);
     if (error) return error;
 
-    // Check if session exists
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    if (session.userId !== user.id) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get transcriptions
-    const transcriptions = await db.getTranscriptions(sessionId);
-
-    return NextResponse.json(transcriptions);
+    return NextResponse.json(await db.getTranscriptions(sessionId));
   } catch (error) {
     logger.error('Failed to fetch transcriptions', error as Error);
-
-    return NextResponse.json(
-      { error: 'Failed to fetch transcriptions' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch transcriptions' }, { status: 500 });
   }
 }

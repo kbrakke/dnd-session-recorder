@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { deleteAudio } from '@/services/storage';
-import { unlink } from 'fs/promises';
-import { existsSync } from 'fs';
 import { logger } from '@/lib/logger';
 
 // GET /api/uploads/[id] - Get specific upload
@@ -137,70 +135,22 @@ export async function DELETE(
       userId: user.id
     });
 
-    // Delete the audio from whichever storage backend holds it
-    // (Tigris object storage or local disk).
-    let filesDeleted = 0;
-    let filesFailedToDelete = 0;
-
+    // Delete the audio from whichever storage backend holds it. A missing
+    // object is fine — the goal is that it no longer exists.
     try {
       await deleteAudio(upload);
-      filesDeleted++;
-      logger.debug('Deleted audio', { storageKey: upload.storageKey, path: upload.path, uploadId: id });
     } catch (fileError) {
-      filesFailedToDelete++;
       logger.error('Failed to delete audio', fileError as Error, {
         storageKey: upload.storageKey,
-        path: upload.path,
-        uploadId: id
+        uploadId: id,
       });
     }
 
-    // Delete chunk files if they exist
-    if (upload.chunkPaths) {
-      try {
-        const chunkPaths = JSON.parse(upload.chunkPaths);
-        logger.debug('Deleting chunk files', {
-          uploadId: id,
-          chunkCount: chunkPaths.length
-        });
-
-        for (const chunkPath of chunkPaths) {
-          if (existsSync(chunkPath)) {
-            try {
-              await unlink(chunkPath);
-              filesDeleted++;
-            } catch (chunkError) {
-              filesFailedToDelete++;
-              logger.error('Failed to delete chunk', chunkError as Error, {
-                path: chunkPath,
-                uploadId: id
-              });
-            }
-          }
-        }
-      } catch (parseError) {
-        logger.error('Failed to parse chunk paths', parseError as Error, { uploadId: id });
-      }
-    }
-
-    // Delete upload record from database
     await db.deleteUpload(id);
 
-    logger.info('Upload deleted successfully', {
-      uploadId: id,
-      filesDeleted,
-      filesFailedToDelete,
-      userId: user.id
-    });
+    logger.info('Upload deleted successfully', { uploadId: id, userId: user.id });
 
-    return NextResponse.json({
-      message: 'Upload deleted successfully',
-      details: {
-        uploadId: id,
-        filesDeleted,
-        filesFailedToDelete,
-      }
-    });
+    return NextResponse.json({ message: 'Upload deleted successfully', uploadId: id });
 
   } catch (error) {
     logger.error('Upload deletion error', error as Error);

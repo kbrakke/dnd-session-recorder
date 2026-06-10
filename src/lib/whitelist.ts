@@ -40,8 +40,8 @@ export function isEmailWhitelisted(email: string): boolean {
   const normalizedEmail = email.toLowerCase();
 
   return whitelist.includes(normalizedEmail) ||
-         email.includes('@test.com') ||
-         email.includes('@example.com');
+         normalizedEmail.includes('@test.com') ||
+         normalizedEmail.includes('@example.com');
 }
 
 export function getWhitelistMessage(context: 'signup' | 'login'): string {

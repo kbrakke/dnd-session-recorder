@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
 import { enqueueProcessSession } from '@/services/pipeline/queue';
+import { requireSessionOwner, enforceRateLimit } from '@/lib/route-utils';
+import { aiTranscriptionRateLimiter } from '@/lib/rate-limiter';
 import { logger } from '@/lib/logger';
 
 /**
@@ -24,16 +25,11 @@ export async function POST(
   const { id: sessionId } = await params;
 
   try {
-    const { error: authError, user } = await requireAuth();
+    const { error: authError, user, session } = await requireSessionOwner(sessionId);
     if (authError) return authError;
 
-    const session = await db.getSessionById(sessionId);
-    if (!session || session.userId !== user.id) {
-      return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
-      );
-    }
+    const limited = enforceRateLimit(request, user.id, aiTranscriptionRateLimiter);
+    if (limited) return limited;
 
     // COST PROTECTION: the worker runs without request context, so the test
     // account check must happen here at enqueue time.

@@ -20,7 +20,7 @@ Defines the data model for PostgreSQL. Uses `cuid()` for primary keys on most mo
 | `Transcription` | Audio text segments | startTime, endTime, text, confidence |
 | `Summary` | AI-generated session summary | summaryText, keyEvents, isEdited, originalText |
 | `DmTodoList` | AI-generated DM notes | content (markdown), isEdited, originalText |
-| `Upload` | Audio file metadata | filename, path, size, mimetype, duration, chunkPaths |
+| `Upload` | Audio file metadata | filename, storageKey, size, mimetype, duration |
 | `PipelineJob` | Durable work queue for processing pipeline | status, currentStep, attempts, runAfter (backoff), lockedBy/heartbeatAt (lease) |
 | `TranscriptChunk` | Per-chunk Whisper checkpoint (deleted after stitch) | chunkIndex, totalChunks, status, text |
 

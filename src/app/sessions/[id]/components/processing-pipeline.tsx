@@ -36,11 +36,9 @@ export function ProcessingPipeline({
   const hasTodos = !!dmTodoList;
   const isComplete = hasUpload && hasTranscription && hasSummary && hasTodos;
 
-  // Hide entirely when fully processed
   if (isComplete) return null;
 
   // ---------------------------------------------------------------------------
-  // Step status logic
   // ---------------------------------------------------------------------------
   const hasError = session.status === 'error';
 
@@ -70,7 +68,6 @@ export function ProcessingPipeline({
   };
 
   // ---------------------------------------------------------------------------
-  // Estimated time remaining (rough heuristic)
   // ---------------------------------------------------------------------------
   const isInFlight =
     session.status === 'transcribing' ||
@@ -113,7 +110,6 @@ export function ProcessingPipeline({
   })();
 
   // ---------------------------------------------------------------------------
-  // Render helpers
   // ---------------------------------------------------------------------------
   const statuses: StepStatus[] = STEPS.map(getStepStatus);
 

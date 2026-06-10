@@ -54,7 +54,7 @@ export async function runTranscribeStep(sessionId: string, ctx: StepContext): Pr
     // Deliberately non-destructive: keep the upload/session records so the
     // user can see what happened and re-upload.
     throw new PermanentJobError(
-      `Audio for this session could not be found in storage (${session.upload.storageKey ?? session.upload.path}). Please re-upload the audio file and re-run processing.`
+      `Audio for this session could not be found in storage (${session.upload.storageKey}). Please re-upload the audio file and re-run processing.`
     );
   }
   const fullPath = audio.localPath;
@@ -182,10 +182,9 @@ export async function runTranscribeStep(sessionId: string, ctx: StepContext): Pr
   await db.updateSession(sessionId, { status: 'transcribed' });
 
   if (session.uploadId) {
-    // Chunk files are temp-only; never persist their paths. The original
-    // audio is deliberately KEPT in storage so the session stays playable
-    // in the browser.
-    await db.updateUploadStatus(session.uploadId, 'transcribed', []);
+    // The original audio is deliberately KEPT in storage so the session stays
+    // playable in the browser.
+    await db.updateUploadStatus(session.uploadId, 'transcribed');
   }
 
   // Remove the temp working copy downloaded from object storage (no-op for
