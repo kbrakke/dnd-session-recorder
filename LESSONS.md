@@ -313,7 +313,10 @@ After `git revert`/checkout of a bad dependency change, `node_modules` still hol
 ## npm audit gate (2026-06-11): cleared to 0 vulns without --force
 
 ### The audit blockers were transitive pins — fixed with `overrides`, not upgrades
-`npm audit fix --force` again proposed next@9.3.3 / next-auth@3 (same trap as before — never run it). The actual fixes: `package.json` `"overrides"` forcing `postcss@^8.5.10` inside `next`, `uuid@^11.1.1` inside `next-auth` and `dockerode`, and `cookie@^0.7.0` inside next-auth's pinned `@auth/core`. Plus one real (low-sev) upgrade: `ai` 5→6 + `@ai-sdk/openai` 2→3, which needed ZERO code changes (`generateText` / `experimental_transcribe` APIs unchanged).
+`npm audit fix --force` again proposed next@9.3.3 / next-auth@3 (same trap as before — never run it). The actual fixes: `package.json` `"overrides"` forcing `postcss@^8.5.10` inside `next`, `uuid@^11.1.1` inside `next-auth` and `dockerode`, and a GLOBAL `"cookie": "^0.7.0"`. Plus one real (low-sev) upgrade: `ai` 5→6 + `@ai-sdk/openai` 2→3, which needed ZERO code changes (`generateText` / `experimental_transcribe` APIs unchanged).
+
+### Doubly-nested overrides FLAP — keep overrides at most one level deep
+The first attempt used `"next-auth": {"@auth/core": {"cookie": "^0.7.0"}}`. It applied at lockfile-regen time (audit 0), then a later plain `npm install` silently re-resolved the deep entry back to the vulnerable cookie@0.6.0 (+11 lockfile lines) — npm's override handling is only reliable for top-level and one-level-nested rules. Fix: global `"cookie": "^0.7.0"` (allowed because cookie isn't a direct dep), which survives repeated installs. If an override-protected vuln "comes back", suspect this flapping before suspecting new advisories.
 
 ### Changing `overrides` does NOT update an existing package-lock
 npm 10 marks the tree `invalid ... overridden` in `npm ls` but `npm install` keeps the old nested versions from the lockfile (long-standing npm bug). Surgically deleting the nested dirs doesn't help either — the lockfile wins. The reliable fix: `rm -rf node_modules package-lock.json && npm install`, then re-verify everything because all transitives move within their ranges.

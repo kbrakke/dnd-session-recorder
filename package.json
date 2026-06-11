@@ -64,14 +64,12 @@
       "postcss": "^8.5.10"
     },
     "next-auth": {
-      "uuid": "^11.1.1",
-      "@auth/core": {
-        "cookie": "^0.7.0"
-      }
+      "uuid": "^11.1.1"
     },
     "dockerode": {
       "uuid": "^11.1.1"
-    }
+    },
+    "cookie": "^0.7.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
