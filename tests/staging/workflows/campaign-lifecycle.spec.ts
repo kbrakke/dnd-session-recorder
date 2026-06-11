@@ -1,99 +1,71 @@
 import { test, expect } from '@playwright/test';
-import { 
-  createTestUserViaAPI, 
-  loginViaUI, 
-  cleanupTestUser, 
-  generateTestUser 
+import {
+  createTestUserViaAPI,
+  loginViaUI,
+  createCampaignViaUI,
+  cleanupTestUsers,
+  generateTestUser,
+  TestUser,
 } from '../helpers/users';
 
 test.describe('Campaign Lifecycle', () => {
-  let testUser: { email: string; password: string } | null = null;
+  // One user shared across the file — registration is rate-limited
+  // (10/min/IP), so per-test users would trip 429s. Each test still gets a
+  // uniquely named campaign.
+  let testUser: TestUser | null = null;
   let campaignName: string;
 
   test.beforeEach(async ({ page, request }) => {
-    // Create test user
-    const user = generateTestUser('campaign');
-    await createTestUserViaAPI(request, user);
-    testUser = { email: user.email, password: user.password };
-    
+    if (!testUser) {
+      testUser = await createTestUserViaAPI(request, generateTestUser('campaign'));
+    }
+
     // Login
-    await loginViaUI(page, user.email, user.password);
-    
+    await loginViaUI(page, testUser.email, testUser.password);
+
     // Generate unique campaign name
     campaignName = `Test Campaign ${Date.now()}`;
   });
 
-  test.afterEach(async ({ request }) => {
+  test.afterAll(async ({ playwright }, testInfo) => {
     // Cleanup test user (this will cascade delete campaigns)
-    if (testUser?.email) {
-      await cleanupTestUser(request, testUser.email);
-    }
+    await cleanupTestUsers(playwright, testInfo, [testUser?.email]);
+    testUser = null;
   });
 
   test('user can create a campaign', async ({ page }) => {
-    await page.goto('/campaigns');
-    await page.waitForLoadState('networkidle');
-    
-    // Click create campaign button
-    const createButton = page.getByRole('button', { name: /create campaign|new campaign/i }).first();
-    await createButton.click();
-    
-    // Fill campaign form
-    await page.getByPlaceholder(/campaign name|name/i).fill(campaignName);
-    await page.getByPlaceholder(/description/i).fill('Test campaign description');
-    
-    // Submit form
-    await page.locator('form').getByRole('button', { name: /create|save/i }).click();
-    
-    // Wait for campaign to appear
+    await createCampaignViaUI(page, campaignName, 'Test campaign description');
+
     await expect(page.getByText(campaignName)).toBeVisible({ timeout: 10000 });
   });
 
   test('user can view campaign details', async ({ page }) => {
-    // First create a campaign
-    await page.goto('/campaigns');
-    await page.waitForLoadState('networkidle');
-    
-    const createButton = page.getByRole('button', { name: /create campaign/i }).first();
-    await createButton.click();
-    await page.getByPlaceholder(/campaign name/i).fill(campaignName);
-    await page.getByPlaceholder(/description/i).fill('Test description');
-    await page.locator('form').getByRole('button', { name: /create/i }).click();
-    
-    // Wait for campaign to appear, then click it
-    await expect(page.getByText(campaignName)).toBeVisible({ timeout: 10000 });
+    await createCampaignViaUI(page, campaignName, 'Test description');
+
+    // Click the campaign card to open it
     await page.getByText(campaignName).click();
-    
+
     // Should navigate to campaign detail page
     await expect(page).toHaveURL(/\/campaigns\/[a-z0-9]+/);
-    await expect(page.getByText(campaignName)).toBeVisible();
+    await expect(page.getByText(campaignName).first()).toBeVisible();
   });
 
   test('user can delete a campaign', async ({ page }) => {
-    // Create campaign first
-    await page.goto('/campaigns');
-    await page.waitForLoadState('networkidle');
-    
-    const createButton = page.getByRole('button', { name: /create campaign/i }).first();
-    await createButton.click();
-    await page.getByPlaceholder(/campaign name/i).fill(campaignName);
-    await page.getByPlaceholder(/description/i).fill('Test description');
-    await page.locator('form').getByRole('button', { name: /create/i }).click();
-    
-    await expect(page.getByText(campaignName)).toBeVisible({ timeout: 10000 });
-    
-    // Find and click delete button
-    const campaignCard = page.locator('div, article, section')
-      .filter({ hasText: campaignName })
-      .first();
-    
-    const deleteButton = campaignCard.getByRole('button', { name: /delete/i });
-    await deleteButton.click();
-    
-    // Confirm deletion
-    const confirmButton = page.getByRole('button', { name: /delete campaign|confirm/i }).last();
-    await confirmButton.click();
-    
+    await createCampaignViaUI(page, campaignName, 'Test description');
+
+    // Deletion is confirmed via a native confirm() dialog — accept it
+    page.on('dialog', (dialog) => dialog.accept());
+
+    // Innermost div containing both this campaign's heading and a delete
+    // button is the campaign card (other tests' campaigns may also be listed)
+    const campaignCard = page
+      .locator('div')
+      .filter({ has: page.getByRole('heading', { name: campaignName }) })
+      .filter({ has: page.getByRole('button', { name: /delete/i }) })
+      .last();
+
+    await campaignCard.getByRole('button', { name: /delete/i }).click();
+
     // Campaign should be removed
     await expect(page.getByText(campaignName)).not.toBeVisible({ timeout: 10000 });
   });
@@ -101,19 +73,22 @@ test.describe('Campaign Lifecycle', () => {
   test('campaign creation validates required fields', async ({ page }) => {
     await page.goto('/campaigns');
     await page.waitForLoadState('networkidle');
-    
-    const createButton = page.getByRole('button', { name: /create campaign/i }).first();
-    await createButton.click();
-    
+
+    await page
+      .getByRole('button', { name: /create campaign|new campaign/i })
+      .first()
+      .click();
+
     // Try to submit without filling name
-    await page.locator('form').getByRole('button', { name: /create|save/i }).click();
-    
-    // Should show validation error or prevent submission
-    const nameInput = page.getByPlaceholder(/campaign name|name/i);
-    const nameRequired = await nameInput.getAttribute('required').catch(() => null);
-    
-    // Name should be required
-    expect(nameRequired !== null || page.url().includes('/campaigns')).toBe(true);
+    await page
+      .locator('form')
+      .getByRole('button', { name: /create campaign/i })
+      .click();
+
+    // Zod validation should block submission and show an error
+    await expect(page.getByText('Campaign name is required')).toBeVisible({ timeout: 5000 });
+
+    // Modal is still open (form did not submit)
+    await expect(page.getByLabel('Campaign Name')).toBeVisible();
   });
 });
-

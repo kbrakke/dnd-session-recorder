@@ -19,6 +19,13 @@ export default withAuth(
           return true;
         }
 
+        // Allow the test cleanup endpoint — it enforces its own auth
+        // (X-Test-Key must match TEST_CLEANUP_KEY, 503s when unconfigured)
+        // and test teardown contexts have no session cookie
+        if (req.nextUrl.pathname === '/api/test/cleanup-user') {
+          return true;
+        }
+
         // For API routes, require a valid token
         if (req.nextUrl.pathname.startsWith('/api/')) {
           return !!token;

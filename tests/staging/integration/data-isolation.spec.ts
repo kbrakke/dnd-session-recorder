@@ -1,34 +1,31 @@
 import { test, expect } from '@playwright/test';
-import { 
-  createTestUserViaAPI, 
-  loginViaUI, 
-  cleanupTestUser, 
-  generateTestUser 
+import {
+  createTestUserViaAPI,
+  loginViaUI,
+  cleanupTestUsers,
+  generateTestUser,
+  TestUser,
 } from '../helpers/users';
 
 test.describe('Data Isolation', () => {
-  let userA: { email: string; password: string } | null = null;
-  let userB: { email: string; password: string } | null = null;
+  // Two users shared across the file — registration is rate-limited
+  // (10/min/IP), so per-test users would trip 429s.
+  let userA: TestUser | null = null;
+  let userB: TestUser | null = null;
 
   test.beforeEach(async ({ request }) => {
-    // Create two test users
-    const user1 = generateTestUser('user-a');
-    const user2 = generateTestUser('user-b');
-
-    await createTestUserViaAPI(request, user1);
-    await createTestUserViaAPI(request, user2);
-
-    userA = { email: user1.email, password: user1.password };
-    userB = { email: user2.email, password: user2.password };
+    if (!userA) {
+      userA = await createTestUserViaAPI(request, generateTestUser('user-a'));
+    }
+    if (!userB) {
+      userB = await createTestUserViaAPI(request, generateTestUser('user-b'));
+    }
   });
 
-  test.afterEach(async ({ request }) => {
-    if (userA?.email) {
-      await cleanupTestUser(request, userA.email);
-    }
-    if (userB?.email) {
-      await cleanupTestUser(request, userB.email);
-    }
+  test.afterAll(async ({ playwright }, testInfo) => {
+    await cleanupTestUsers(playwright, testInfo, [userA?.email, userB?.email]);
+    userA = null;
+    userB = null;
   });
 
   test('user A cannot access user B sessions via API', async ({ page }) => {

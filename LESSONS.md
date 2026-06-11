@@ -199,6 +199,34 @@ Postgres testcontainer **only when `CI=true`**. To run locally against Podman:
 `TESTCONTAINERS_RYUK_DISABLED=true CI=true npx playwright test --config=playwright.config.ci.ts`.
 Ryuk (the testcontainers reaper) must be disabled on Podman.
 
+## Migrations (2026-06-10): `SET NOT NULL` fails on existing legacy rows
+
+### A column can't go NOT NULL while old rows hold NULLs
+`20260610120000_drop_upload_legacy_columns` did a bare
+`ALTER COLUMN storage_key SET NOT NULL`. That works on a fresh DB (CI
+testcontainers) but **failed on staging** (`23502: column "storage_key" …
+contains null values`) because pre-object-storage uploads had NULL keys.
+Fix: backfill first — `UPDATE uploads SET storage_key = 'legacy/' || id WHERE
+storage_key IS NULL;` — then `SET NOT NULL`. Also use `DROP COLUMN IF EXISTS`
+so partial/manual recovery states don't wedge it. Verified both on a fresh
+chain and on a table seeded with a NULL row (podman throwaway Postgres).
+**Lesson: any migration that tightens a constraint must assume real data
+exists, even if local/CI DBs are always fresh.**
+
+### A failed migration wedges all future deploys until resolved
+Once `migrate deploy` records a migration as failed in `_prisma_migrations`,
+Prisma refuses to apply anything new until it's `migrate resolve`d — editing
+the migration file alone does NOT make it retry (and changes the checksum).
+`scripts/init-database.ts` only auto-resolves ONE hardcoded migration name
+(`20250826132223_…`), so any other failed migration needs manual recovery. On
+a disposable DB the clean fix is `DROP SCHEMA public CASCADE; CREATE SCHEMA
+public;` then redeploy — wipes the corrupted history AND the legacy rows.
+
+### Editing an already-attempted migration is only safe pre-reset
+The staging failure recorded a checksum for the old migration body. Editing it
+is fine **only because staging's `_prisma_migrations` is being wiped** by the
+schema reset. Never edit a migration that's cleanly applied in a durable env.
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.

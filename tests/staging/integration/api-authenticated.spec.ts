@@ -1,25 +1,27 @@
 import { test, expect } from '@playwright/test';
-import { 
-  createTestUserViaAPI, 
-  loginViaUI, 
-  cleanupTestUser, 
-  generateTestUser 
+import {
+  createTestUserViaAPI,
+  loginViaUI,
+  cleanupTestUsers,
+  generateTestUser,
+  TestUser,
 } from '../helpers/users';
 
 test.describe('Authenticated API Tests', () => {
-  let testUser: { email: string; password: string } | null = null;
+  // One user for the whole file — registration is rate-limited (10/min/IP),
+  // so per-test users would trip 429s. Single worker makes this safe.
+  let testUser: TestUser | null = null;
 
   test.beforeEach(async ({ page, request }) => {
-    const user = generateTestUser('api');
-    await createTestUserViaAPI(request, user);
-    testUser = { email: user.email, password: user.password };
-    await loginViaUI(page, user.email, user.password);
+    if (!testUser) {
+      testUser = await createTestUserViaAPI(request, generateTestUser('api'));
+    }
+    await loginViaUI(page, testUser.email, testUser.password);
   });
 
-  test.afterEach(async ({ request }) => {
-    if (testUser?.email) {
-      await cleanupTestUser(request, testUser.email);
-    }
+  test.afterAll(async ({ playwright }, testInfo) => {
+    await cleanupTestUsers(playwright, testInfo, [testUser?.email]);
+    testUser = null;
   });
 
   test('authenticated GET /api/sessions returns user sessions', async ({ page }) => {
@@ -52,11 +54,12 @@ test.describe('Authenticated API Tests', () => {
 
   test('authenticated GET /api/uploads returns user uploads', async ({ page }) => {
     const response = await page.request.get('/api/uploads');
-    
+
     expect(response.status()).toBe(200);
-    
-    const uploads = await response.json();
-    expect(Array.isArray(uploads)).toBe(true);
+
+    // Endpoint returns { uploads: [...] }
+    const body = await response.json();
+    expect(Array.isArray(body.uploads)).toBe(true);
   });
 
   test('authenticated POST /api/campaigns creates campaign', async ({ page }) => {

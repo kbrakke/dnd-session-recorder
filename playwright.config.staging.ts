@@ -14,7 +14,11 @@ export default defineConfig({
       ]
     : [['html', { outputFolder: 'test-results-staging' }]],
   use: {
-    baseURL: process.env.STAGING_URL || 'https://dnd-recorder-staging.fly.dev',
+    // CI (post-deploy-tests.yml) exports DEPLOY_URL; STAGING_URL wins locally
+    baseURL:
+      process.env.STAGING_URL ||
+      process.env.DEPLOY_URL ||
+      'https://dnd-recorder-staging.fly.dev',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
