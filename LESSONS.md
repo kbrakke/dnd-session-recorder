@@ -310,6 +310,20 @@ It "fixed" the uuid advisory by downgrading next-auth 4 → 3 and next 15 → **
 ### Reverting package.json/lockfile does NOT revert node_modules
 After `git revert`/checkout of a bad dependency change, `node_modules` still holds the bad tree until `npm ci`. Detection: `npm outdated`'s **Current** column reads node_modules, while `npm audit` reads the lockfile — if Current shows versions outside the ranges in package.json, the tree is out of sync.
 
+## npm audit gate (2026-06-11): cleared to 0 vulns without --force
+
+### The audit blockers were transitive pins — fixed with `overrides`, not upgrades
+`npm audit fix --force` again proposed next@9.3.3 / next-auth@3 (same trap as before — never run it). The actual fixes: `package.json` `"overrides"` forcing `postcss@^8.5.10` inside `next`, `uuid@^11.1.1` inside `next-auth` and `dockerode`, and `cookie@^0.7.0` inside next-auth's pinned `@auth/core`. Plus one real (low-sev) upgrade: `ai` 5→6 + `@ai-sdk/openai` 2→3, which needed ZERO code changes (`generateText` / `experimental_transcribe` APIs unchanged).
+
+### Changing `overrides` does NOT update an existing package-lock
+npm 10 marks the tree `invalid ... overridden` in `npm ls` but `npm install` keeps the old nested versions from the lockfile (long-standing npm bug). Surgically deleting the nested dirs doesn't help either — the lockfile wins. The reliable fix: `rm -rf node_modules package-lock.json && npm install`, then re-verify everything because all transitives move within their ranges.
+
+### A lockfile regen that bumps @playwright/test needs `npx playwright install`
+After the regen (1.54→1.60), every BROWSER-based test failed in 0ms with "Executable doesn't exist", while pure-request API tests kept passing. Recognize that split-failure pattern as "browsers missing", not a code regression.
+
+### CI audit gate levels
+`pull-request.yml` + `staging.yml` fail on `--audit-level moderate`; `production.yml` on `high`. Low-severity findings never block, so don't take majors just to silence lows unless the upgrade is trivial (the ai v6 bump was).
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.
