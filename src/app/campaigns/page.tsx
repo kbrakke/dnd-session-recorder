@@ -51,18 +51,6 @@ export default function CampaignsPage() {
     },
   });
 
-  useEffect(() => {
-    if (modalOpen && editingCampaign) {
-      reset({
-        name: editingCampaign.name,
-        description: editingCampaign.description || '',
-        systemPrompt: editingCampaign.systemPrompt || '',
-      });
-    } else if (modalOpen) {
-      reset({ name: '', description: '', systemPrompt: '' });
-    }
-  }, [modalOpen, editingCampaign, reset]);
-
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['campaigns'],
     enabled: status === 'authenticated',
@@ -137,6 +125,13 @@ export default function CampaignsPage() {
   };
 
   const handleEdit = (campaign: Campaign) => {
+    // Reset synchronously before opening — resetting in an effect after the
+    // modal renders races fast input (typed text gets wiped by the reset).
+    reset({
+      name: campaign.name,
+      description: campaign.description || '',
+      systemPrompt: campaign.systemPrompt || '',
+    });
     setEditingCampaign(campaign);
     setModalOpen(true);
   };
@@ -148,6 +143,7 @@ export default function CampaignsPage() {
   };
 
   const openCreateModal = () => {
+    reset({ name: '', description: '', systemPrompt: '' });
     setEditingCampaign(null);
     setModalOpen(true);
   };

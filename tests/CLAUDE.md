@@ -8,19 +8,17 @@ Playwright-based test suites organized by environment and purpose.
 tests/
   ci/              Tests run in CI (with testcontainers)
     middleware/     Route protection tests
-  staging/         Tests run against staging environment
+  staging/         Tests run against a deployed environment (staging/review/prod)
     workflows/     End-to-end user journey tests
     integration/   API integration tests
     helpers/       Test utilities and fixtures
-  post-deploy/     Tests run after production deployment
-    auth/          Authentication flow verification
-  unit/            Unit tests
-    auth/          Whitelist, session validation
   fixtures/        Shared test data
   helpers/         Shared test utilities
   setup/           Test environment setup
-  workflows/       Workflow-specific tests
+  workflows/       Workflow-specific tests (post-merge CI)
 ```
+
+Unit tests live under `src/**/__tests__/*.test.ts` (Vitest), not in this directory.
 
 ## Test Environments
 
@@ -31,17 +29,13 @@ Config: `playwright.config.ci.ts`
 - 2 retries in CI mode
 - Tests: route protection, middleware behavior
 
-### Staging Tests (`npm run test:staging`)
-Config: `playwright.config.staging.ts`
-- Runs against the staging deployment URL
-- Tests:
-  - **Workflows:** Full user journeys (auth, campaign lifecycle, session lifecycle, complete end-to-end)
-  - **Integration:** API auth, session persistence, data isolation between users
-
-### Post-Deploy Tests
-Config: `playwright.config.staging.ts` (reused)
-- Verifies production deployment is healthy
-- Tests: auth flows, login scenarios, error handling
+### Staging / Post-Deploy Tests (`npm run test:staging` / `npm run test:post-deploy`)
+Both scripts run the same suite with `playwright.config.staging.ts` — the target
+is selected by env: `STAGING_URL` > `DEPLOY_URL` > the staging default. CI
+workflows set `DEPLOY_URL` (staging, review apps, production).
+- **Workflows:** Full user journeys (auth, campaign lifecycle, session lifecycle, complete end-to-end)
+- **Integration:** API auth, session persistence, data isolation between users
+- Needs `TEST_CLEANUP_KEY` to delete test users afterward (no-ops with a warning if unset; the deployment also needs `TEST_CLEANUP_KEY` + `ALLOW_TEST_CLEANUP` set)
 
 ### Unit Tests (`npm test` / `npm run test:unit`)
 Config: `vitest.config.ts`

@@ -227,6 +227,56 @@ The staging failure recorded a checksum for the old migration body. Editing it
 is fine **only because staging's `_prisma_migrations` is being wiped** by the
 schema reset. Never edit a migration that's cleanly applied in a durable env.
 
+## CI workflow consolidation (2026-06-11)
+
+### `test:post-deploy` now exists and aliases the staging suite
+The missing-script failure (`npm error Missing script: "test:post-deploy"`) is
+fixed by adding the script as an alias of `playwright.config.staging.ts` —
+that config already targets `STAGING_URL` > `DEPLOY_URL` > staging default, so
+one suite serves staging pushes, review apps, and (later) production. The old
+`tests/post-deploy/` directory (2,606 lines, pre-redesign assertions, hardcoded
+URLs) and `playwright.config.post-deploy.ts` + `playwright-staging.config.ts`
+were deleted — they were superseded by the maintained `tests/staging/` suite.
+
+### A push to `staging` used to trigger TWO deploys
+`staging.yml` (push: staging) and `post-merge.yml` (push: main+staging) BOTH
+ran `flyctl deploy fly.staging.toml` concurrently — racing deploys plus a
+broken test step. `post-merge.yml`'s staging-deployment is now main-only
+(pre-production check); pushes to the staging branch are deployed solely by
+`staging.yml`. Post-merge also no longer runs `npx playwright test
+tests/integration/` (directory never existed).
+
+### The staging suite's env contract
+Workflows must pass `TEST_CLEANUP_KEY` (GitHub secret) — the suite's user
+cleanup no-ops with a warning without it, leaving test users in the staging DB.
+The previously-passed `TEST_USER_EMAIL`/`TEST_USER_PASSWORD`/`NEXTAUTH_SECRET`/
+`OPENAI_API_KEY` env vars were never read by these tests (users are generated
+per-run). The staging Fly app needs `TEST_CLEANUP_KEY` + `ALLOW_TEST_CLEANUP`
+set for the cleanup endpoint to work (staging runs NODE_ENV=production).
+
+### Strict-mode locators on staging differ from local CI
+Staging enables Google OAuth (`NEXT_PUBLIC_GOOGLE_ENABLED=true`), so the
+signin page has BOTH a navbar "Sign in" button and a "Sign in with Google"
+button that local CI (no Google) never renders. Any bare
+`getByRole('button', {name:/sign in/i})` strict-mode-fails there. Scope to the
+form AND use exact names: `page.locator('form').getByRole('button', {name:
+'Sign in', exact: true})`. A selector passing in CI proves nothing about
+staging if env flags change the DOM.
+
+### Don't reset react-hook-form in a modal-open effect
+`campaigns/page.tsx` reset the form in `useEffect([modalOpen, ...])` — the
+reset runs AFTER the modal renders, so input typed in that gap (Playwright
+`fill`, fast typists) gets wiped, and submit then fails "name is required"
+with confusingly empty fields. Reset synchronously in the open handler
+(`openCreateModal`/`handleEdit`) before `setModalOpen(true)` instead. Symptom
+to recognize: failure screenshot shows the modal open, fields empty, required
+error on a field the test definitely filled.
+
+### Don't pipe long Playwright runs through `tail`
+`npm run test:staging | tail -50` buffers ALL output until EOF — a hung test
+looks identical to a silent healthy run, for hours. Use `--reporter=line` and
+read the raw output file/stream instead.
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.

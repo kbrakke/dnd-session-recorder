@@ -82,17 +82,14 @@ jobs:
         env:
           DEPLOY_URL: ${{ needs.review_app.outputs.url }}
           CI: true
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TEST_CLEANUP_KEY: ${{ secrets.TEST_CLEANUP_KEY }}
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: review-app-test-results-${{ github.event.number }}
-          path: |
-            test-results-post-deploy/
-            playwright-report/
+          path: test-results-staging/
           retention-days: 7
 
       - name: Comment test results on PR

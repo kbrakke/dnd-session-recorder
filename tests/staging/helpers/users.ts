@@ -57,7 +57,13 @@ export async function loginViaUI(
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
 
-  await page.getByRole('button', { name: /sign in/i }).click();
+  // Form-scoped + exact: the navbar has its own "Sign in" button, and with
+  // Google OAuth enabled the form also contains "Sign in with Google" — both
+  // would trip strict mode with a looser selector.
+  await page
+    .locator('form')
+    .getByRole('button', { name: 'Sign in', exact: true })
+    .click();
 
   // Successful login redirects to home; wait until we leave /auth/*
   await page.waitForURL((url) => !url.pathname.startsWith('/auth'), {

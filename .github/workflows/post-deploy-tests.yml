@@ -62,27 +62,18 @@ jobs:
           fi
       
       - name: Run Post-Deploy Tests
-        run: |
-          if [ "${{ inputs.environment }}" = "staging" ]; then
-            echo "Running staging-specific health check tests..."
-            npm run test:staging
-          else
-            echo "Running full post-deploy test suite..."
-            npm run test:post-deploy
-          fi
+        run: npm run test:post-deploy
         env:
+          CI: true
           DEPLOY_URL: ${{ env.DEPLOY_URL }}
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
-      
+          TEST_CLEANUP_KEY: ${{ secrets.TEST_CLEANUP_KEY }}
+
       - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-test-results-${{ inputs.environment }}
-          path: |
-            test-results-staging/
-            test-results-post-deploy/
+          path: test-results-staging/
           retention-days: 30
 
       - name: Upload Test Videos
@@ -90,9 +81,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: post-deploy-test-videos-${{ inputs.environment }}
-          path: |
-            test-results-staging/**/*.webm
-            test-results-post-deploy/**/*.webm
+          path: test-results-staging/**/*.webm
           retention-days: 7
       
       - name: Notify on Failure

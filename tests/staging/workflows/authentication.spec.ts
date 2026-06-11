@@ -56,7 +56,10 @@ test.describe('Authentication Workflows', () => {
 
     await page.getByLabel('Email').fill('nonexistent@example.com');
     await page.getByLabel('Password', { exact: true }).fill('wrongpassword');
-    await page.getByRole('button', { name: /sign in/i }).click();
+    await page
+      .locator('form')
+      .getByRole('button', { name: 'Sign in', exact: true })
+      .click();
 
     // Should show error message
     await expect(page.getByText(/invalid|incorrect|wrong/i)).toBeVisible({ timeout: 10000 });

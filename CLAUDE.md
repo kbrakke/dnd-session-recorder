@@ -184,7 +184,6 @@ Multi-stage Dockerfile produces a standalone Next.js image on Node 22 Alpine wit
 ## Testing
 
 Playwright E2E tests organized by environment:
-- `tests/ci/` - Route protection, middleware (runs with testcontainers)
-- `tests/staging/` - Workflows and integration tests against staging
-- `tests/post-deploy/` - Post-deployment verification
-- `tests/unit/` - Unit tests (whitelist, auth)
+- `tests/ci/` - Route protection, middleware, page smoke tests (runs with testcontainers)
+- `tests/staging/` - Workflows and integration tests against a deployed environment (`test:staging` / `test:post-deploy` both run this suite; target picked via `DEPLOY_URL`)
+- `src/**/__tests__/` - Vitest unit tests (whitelist, auth-utils, audio processing)
