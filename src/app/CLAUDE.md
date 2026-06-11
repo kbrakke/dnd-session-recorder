@@ -49,3 +49,7 @@ All API routes are under `api/`. See `src/app/api/CLAUDE.md` for details.
 - Pages use `useSession()` from NextAuth for auth state
 - Pages use `useQuery()` / `useMutation()` from TanStack React Query for data
 - API routes are server-side only and use `requireAuth()` for authentication
+
+## Protected pages guard themselves
+
+Middleware only covers `/api/*` — every protected PAGE must carry the standard client-side guard: `useSession()` + `useEffect` redirecting unauthenticated users to `/auth/signin`, plus `enabled: status === 'authenticated'` on its queries. `tests/ci/middleware/route-protection.spec.ts` enforces this for `/campaigns`, `/sessions`, `/settings`, `/sessions/upload` — new protected pages need the same guard (a redesign once silently dropped it from three pages).

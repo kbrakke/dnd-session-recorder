@@ -5,11 +5,11 @@ Utility modules and shared configuration. These are imported throughout the appl
 ## Modules
 
 ### `ai.ts` — AI Service Wrapper
-Centralized access to OpenAI-backed services. The only place `@ai-sdk/openai` / `ai` are imported.
+Centralized access to OpenAI-backed services. The only place `@ai-sdk/openai` / `ai` are imported — add new AI calls here, never inline in routes.
 - `transcribeAudio(buffer)` — Whisper transcription, returns `{ text }`
-- `generateAiText(prompt, kind)` — GPT-4o generation; `kind` is `'summary' | 'dm-todo'`
-- `isAiMocked()` — true when `MOCK_AI_SERVICES=true`
-- When mocked, every call returns a deterministic fixture (no OpenAI request, no API key needed). Used by PR-stage integration tests.
+- `generateAiText(prompt, kind)` — text generation; `kind` is `'summary' | 'dm-todo'` and selects the model via `TEXT_MODEL`: summary → `gpt-4o`, dm-todo → `gpt-4o-mini` (the todo re-sends the full transcript, so the mini model cuts that call's cost ~90%)
+- `isAiMocked()` — true when `MOCK_AI_SERVICES === 'true'` (exact string)
+- When mocked, every call returns a deterministic fixture (no OpenAI request, no API key needed). Used by PR-stage integration tests; the test-account cost-protection block in AI routes is bypassed when mocked (see `src/app/api/CLAUDE.md`).
 
 ### `auth.ts` — NextAuth Configuration
 Exports `authOptions: NextAuthOptions`, the central auth config:
@@ -51,6 +51,7 @@ In-memory sliding window rate limiter. Exports multiple limiter instances:
 - `aiSummaryRateLimiter` — summary API calls
 - `getRateLimitIdentifier()` — extracts user ID or IP for rate key
 Auto-cleans expired entries every 5 minutes. Returns remaining count and reset time.
+IP keying trusts `Fly-Client-IP` (unforgeable behind Fly's proxy), then the **rightmost** `x-forwarded-for` entry — never the leftmost, which is client-supplied and spoofable.
 
 ### `whitelist.ts` — Staging Access Control
 Controls who can access the staging environment:
@@ -59,6 +60,16 @@ Controls who can access the staging environment:
 - `validateWhitelistAccess(email)` — returns `{ allowed, message }`
 - `isTestAccount(email)` — identifies `@test.com`, `@example.com`, and test patterns
 - Test accounts are blocked from making AI API calls (cost protection)
+
+### `session-status.ts` — Session Status Vocabulary
+The single source of truth for UI status handling. The backend writes exactly: `draft, uploaded, transcribing, transcribed, summarizing, completed, error`.
+- `IN_FLIGHT_STATUSES` / `isInFlight(status)` — the four queued/working statuses
+- `statusLabel(status)` — display labels (e.g. `uploaded` → "Queued")
+Never hand-roll status switch statements in components — earlier copies invented statuses (`'processing'`, `'pending'`) the backend never writes.
+
+### `formatting.ts` — Shared Formatters
+- `formatDate(s, 'short'|'long')`, `formatDurationSeconds`, `formatDurationMinutes`
+- Consolidates formatters that were copy-pasted with subtly different units. Note: `session-header` treats `duration` as minutes (pre-existing behavior, deliberately preserved).
 
 ### `utils.ts` — General Utilities
 - `cn(...inputs)` — merges Tailwind CSS classes using `clsx` + `tailwind-merge`

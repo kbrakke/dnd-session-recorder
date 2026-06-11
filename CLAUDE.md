@@ -2,7 +2,7 @@
 
 AI-powered transcription and summarization tool for Dungeons & Dragons sessions. Users upload audio recordings of their game sessions, which are transcribed via OpenAI Whisper and summarized via GPT-4o.
 
-> **Always read [LESSONS.md](LESSONS.md) at the start of any work in this repo.** It records mistakes made before, surprising things about the codebase, and the user's preferences. Append a new entry whenever you hit an issue, get corrected, or learn something non-obvious — so the same mistake never gets made twice.
+> **Always read [LESSONS.md](LESSONS.md) at the start of any work in this repo.** It records gotcha moments (surprising failures worth never repeating), pending action items, and the user's explicit requests/preferences. Append there when something blows up unexpectedly or the user corrects your approach. Durable architecture, conventions, and "how this works here" knowledge belongs in the nearest directory `CLAUDE.md` instead — when a lesson hardens into a convention, promote it.
 
 ## Tech Stack
 
@@ -36,7 +36,7 @@ docker/          Postgres init scripts
 
 1. User creates a **Campaign** (container with optional AI system prompt)
 2. User creates a **GamingSession** under a campaign
-3. User uploads an **audio file** (stored on disk, metadata in `Upload` table)
+3. User uploads an **audio file** (Tigris object storage, or local `UPLOAD_DIR` in dev; metadata in `Upload` table)
 4. User triggers **processing** via `/api/sessions/[id]/process`:
    - Audio is split into 24MB chunks (FFmpeg)
    - Each chunk is transcribed via Whisper API

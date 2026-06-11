@@ -51,6 +51,15 @@ Run migrations:
 - Production: `npm run db:deploy` (`prisma migrate deploy`)
 - Reset: `npm run db:reset` (tears down and rebuilds)
 
+### Migration practices (hard-won)
+
+- **Any migration that tightens a constraint must assume real data exists**, even though local/CI DBs are always fresh. `SET NOT NULL` on a column with legacy NULLs failed on staging (`23502`) — backfill first (`UPDATE … WHERE col IS NULL`), then tighten. Use `IF EXISTS`/`IF NOT EXISTS` guards so partial/manual recovery states don't wedge the migration.
+- **A failed `migrate deploy` wedges ALL future deploys** until `migrate resolve`d — editing the migration file alone does not retry it (and changes the checksum). `scripts/init-database.ts` only auto-resolves one hardcoded migration name. On a disposable DB the clean recovery is `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` then redeploy.
+- **Never edit a migration that's cleanly applied in a durable environment** — the recorded checksum will mismatch.
+- **Hand-written migrations:** use Prisma's default index/constraint names (e.g. `<table>_<column>_idx`) so the schema and DB don't drift, and verify with a throwaway Postgres: apply the full chain via `migrate deploy`, then `prisma migrate diff --from-url <db> --to-schema-datamodel prisma/schema.prisma --exit-code` must report no difference.
+- **`$queryRaw` binds JS numbers as bigint** — `make_interval(mins => ${n})` fails with `42883`. Use `(${n}::int * INTERVAL '1 minute')`. Only a real Postgres catches this; typecheck and unit tests can't.
+- **Postgres does not auto-index FK columns.** The hot per-user/per-session FK indexes were added in `20260611120000_add_fk_indexes`; new FK columns on hot query paths need their own `@@index`.
+
 ## Other Directories
 
 - `dbml/` — Database markup language files (documentation)

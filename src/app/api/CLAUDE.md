@@ -23,7 +23,7 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 
 ### Auth (`auth/`)
 - `[...nextauth]/route.ts` - NextAuth dynamic route handler (login, logout, session, callbacks)
-- `register/route.ts` - `POST` user registration (email/password with bcryptjs hashing)
+- `register/route.ts` - `POST` user registration (email/password with bcryptjs hashing). **Anti-enumeration contract:** always returns 201 + `{ message }` whether or not the email exists (no `{ user }`, no "already exists"), and hashes the password even on the existing-email path so timing doesn't leak. The signup page auto-signs-in afterward, which surfaces wrong-password naturally.
 
 ### Campaigns (`campaigns/`)
 - `route.ts` - `GET` list user's campaigns, `POST` create campaign
@@ -34,7 +34,7 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 - `create-with-upload/route.ts` - `POST` create session and link upload in one call
 - `[id]/route.ts` - `GET` session with includes, `DELETE` delete
 - `[id]/process/route.ts` - `POST` **orchestrator** that triggers the transcription->summary pipeline
-- `[id]/progress/route.ts` - `GET` processing progress (polled by frontend)
+- `[id]/progress/route.ts` - `GET` processing progress (polled by frontend). Hot path: uses a lightweight ownership check (`db.getSessionProgress` — no transcript include), NOT `requireSessionOwner`. Keep heavy includes out of this route.
 - `[id]/transcriptions/route.ts` - `GET` transcription segments for a session
 - `[id]/upload/route.ts` - `POST` link an upload to a session
 
@@ -56,8 +56,8 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 - `accounts/route.ts` - `GET` linked OAuth accounts
 
 ### Utility
-- `health/route.ts` - `GET` health check (public, no auth)
-- `test/cleanup-user/route.ts` - `POST` test cleanup utility
+- `health/route.ts` - `GET` health check (public, no auth). Never echo raw DB/driver error messages in its response — log them instead.
+- `test/cleanup-user/route.ts` - `DELETE` test cleanup utility. Fails closed: in production-mode envs it requires `ALLOW_TEST_CLEANUP` to be EXACTLY `'true'` (staging runs `NODE_ENV=production`, so staging must set it; production never should). Key compared with `crypto.timingSafeEqual`.
 
 ## Processing Pipeline
 
@@ -99,4 +99,6 @@ Frontend polls `GET /api/sessions/[id]/progress` for real-time updates
 
 Test accounts (`@test.com`, `@example.com`) are blocked from making real AI API calls (transcription, summary, DM TODO). This prevents cost from test automation.
 
-All AI calls route through `src/lib/ai.ts` (`transcribeAudio`, `generateAiText`). When `MOCK_AI_SERVICES=true`, those calls return deterministic fixtures and the test-account block is bypassed (no spend to protect against) — this lets PR-stage integration tests exercise the full pipeline.
+All AI calls route through `src/lib/ai.ts` (`transcribeAudio`, `generateAiText`). When `MOCK_AI_SERVICES=true`, those calls return deterministic fixtures and the test-account block is bypassed (no spend to protect against) — this lets PR-stage integration tests exercise the full pipeline. **If you add a new AI route, replicate the `if (isTestAccount(email) && !isAiMocked())` guard.**
+
+Cost-driving AI POSTs (`process`, `transcription`, `summary`, `dm-todo`) are rate-limited via `enforceRateLimit()` with the AI-specific limiters. `campaign.systemPrompt` is capped server-side (`.max(2000)`) because it's injected verbatim into every GPT call.
