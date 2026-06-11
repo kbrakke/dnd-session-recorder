@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, AlertCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { formatDate, formatDurationSeconds } from '@/lib/formatting';
+import { isInFlight, statusLabel } from '@/lib/session-status';
 
 interface Session {
   id: string;
@@ -52,8 +53,11 @@ export default function SessionsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800 border-green-200';
-      case 'processing': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'uploaded': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      case 'transcribing':
+      case 'transcribed':
+      case 'summarizing': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'draft': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'error': return 'bg-red-100 text-red-800 border-red-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
@@ -62,8 +66,6 @@ export default function SessionsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed': return <Play className="h-4 w-4" />;
-      case 'processing': return <Clock className="h-4 w-4" />;
-      case 'pending': return <Clock className="h-4 w-4" />;
       case 'error': return <AlertCircle className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
     }
@@ -71,6 +73,7 @@ export default function SessionsPage() {
 
   const filteredSessions = sessions?.filter(session => {
     if (filter === 'all') return true;
+    if (filter === 'processing') return isInFlight(session.status);
     return session.status === filter;
   }) || [];
 
@@ -81,7 +84,7 @@ export default function SessionsPage() {
   const statusCounts = {
     all: sessions?.length || 0,
     completed: sessions?.filter(s => s.status === 'completed').length || 0,
-    processing: sessions?.filter(s => s.status === 'processing').length || 0,
+    processing: sessions?.filter(s => isInFlight(s.status)).length || 0,
     error: sessions?.filter(s => s.status === 'error').length || 0,
   };
 
@@ -164,7 +167,7 @@ export default function SessionsPage() {
                     <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(session.status)}`}>
                       <div className="flex items-center space-x-1">
                         {getStatusIcon(session.status)}
-                        <span className="capitalize">{session.status}</span>
+                        <span>{statusLabel(session.status)}</span>
                       </div>
                     </span>
                   </div>
@@ -228,10 +231,10 @@ export default function SessionsPage() {
                       )}
                     </>
                   )}
-                  {session.status === 'processing' && (
+                  {isInFlight(session.status) && (
                     <div className="flex items-center space-x-2 text-blue-600">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                      <span className="text-sm">Processing...</span>
+                      <span className="text-sm">{statusLabel(session.status)}...</span>
                     </div>
                   )}
                   {session.status === 'error' && (

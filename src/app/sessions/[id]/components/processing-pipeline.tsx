@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Clock } from 'lucide-react';
+import { Check, Clock, Play, X } from 'lucide-react';
 import type { SessionDetail, Transcription, Summary, DmTodoList } from '../types';
 
 interface ProcessingPipelineProps {
@@ -11,6 +11,8 @@ interface ProcessingPipelineProps {
   isInitialProcessing: boolean;
   onStartProcessing: () => void;
   onCancelTranscription: () => void;
+  isStarting?: boolean;
+  isCancelling?: boolean;
 }
 
 type StepStatus = 'pending' | 'active' | 'complete' | 'error';
@@ -29,6 +31,10 @@ export function ProcessingPipeline({
   summary,
   dmTodoList,
   isInitialProcessing,
+  onStartProcessing,
+  onCancelTranscription,
+  isStarting = false,
+  isCancelling = false,
 }: ProcessingPipelineProps) {
   const hasUpload = !!session.uploadId;
   const hasTranscription = transcriptions.length > 0;
@@ -194,6 +200,40 @@ export function ProcessingPipeline({
             <Clock size={12} />
             ~{estimatedMinutesRemaining} min remaining
           </span>
+        )}
+
+        {/* Stalled in 'uploaded': the enqueue sets an optimistic in-flight
+            status, so a session still 'uploaded' has no active job — offer a
+            manual start. */}
+        {session.status === 'uploaded' && hasUpload && (
+          <button
+            onClick={onStartProcessing}
+            disabled={isStarting}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-opacity hover:opacity-85 disabled:opacity-50"
+            style={{
+              background: 'var(--sp-primary)',
+              color: 'var(--sp-on-primary)',
+            }}
+          >
+            <Play size={12} strokeWidth={2.5} />
+            {isStarting ? 'Starting…' : 'Start processing'}
+          </button>
+        )}
+
+        {(session.status === 'transcribing' || session.status === 'summarizing') && (
+          <button
+            onClick={onCancelTranscription}
+            disabled={isCancelling}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-opacity hover:opacity-85 disabled:opacity-50"
+            style={{
+              background: 'transparent',
+              color: 'var(--sp-fg-3)',
+              border: '1px solid var(--sp-border)',
+            }}
+          >
+            <X size={12} strokeWidth={2.5} />
+            {isCancelling ? 'Cancelling…' : 'Cancel'}
+          </button>
         )}
       </div>
     </div>

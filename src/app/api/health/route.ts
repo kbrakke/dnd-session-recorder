@@ -46,6 +46,8 @@ export async function GET() {
       ...(missingColumns.length > 0 && { missingColumns }),
     });
   } catch (error) {
+    // Log the underlying error; never echo raw driver/connection errors on a
+    // public, unauthenticated endpoint.
     logger.error('Health check failed', error as Error);
 
     return NextResponse.json({
@@ -54,7 +56,6 @@ export async function GET() {
       environment: process.env.NODE_ENV,
       database: 'disconnected',
       schema: 'unknown',
-      error: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 503 });
   }
 }

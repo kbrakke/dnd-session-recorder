@@ -17,8 +17,15 @@ primary_region = "ewr"  # Change to your preferred region
   force_https = true
   auto_stop_machines = true
   auto_start_machines = true
-  min_machines_running = 1  # Keep production always running
+  # The pipeline worker runs in-process, so one machine stays up to drain the
+  # job queue even when no HTTP traffic keeps it awake.
+  min_machines_running = 1
   processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 40
 
 [[http_service.checks]]
   grace_period = "10s"
@@ -32,23 +39,4 @@ primary_region = "ewr"  # Change to your preferred region
   cpus = 1
   memory_mb = 1024  # More memory for production
 
-# No mounts needed - using managed PostgreSQL database
-
-[[services]]
-  protocol = "tcp"
-  internal_port = 3000
-  processes = ["app"]
-
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-    force_https = true
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-
-  [services.concurrency]
-    type = "connections"
-    hard_limit = 50
-    soft_limit = 40
+# No mounts needed - audio lives in Tigris object storage, DB is managed Postgres

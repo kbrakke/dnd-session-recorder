@@ -32,7 +32,7 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 ### Sessions (`sessions/`)
 - `route.ts` - `GET` list sessions (filterable by `campaignId`), `POST` create session
 - `create-with-upload/route.ts` - `POST` create session and link upload in one call
-- `[id]/route.ts` - `GET` session with includes, `PUT` update, `DELETE` delete
+- `[id]/route.ts` - `GET` session with includes, `DELETE` delete
 - `[id]/process/route.ts` - `POST` **orchestrator** that triggers the transcription->summary pipeline
 - `[id]/progress/route.ts` - `GET` processing progress (polled by frontend)
 - `[id]/transcriptions/route.ts` - `GET` transcription segments for a session

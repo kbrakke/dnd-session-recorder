@@ -55,31 +55,26 @@ export async function POST(request: NextRequest) {
       where: { email },
     });
 
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User already exists' },
-        { status: 400 }
-      );
-    }
-
-    // Hash password
+    // Always hash (even when the user exists) and always return the same
+    // response, so neither the status/body nor the response time reveals
+    // whether an email is registered (account enumeration).
     const hashedPassword = await hash(password, 12);
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        name,
-      },
-    });
-
-    // Remove password from response
-    const { password: _password, ...userWithoutPassword } = user;
+    if (existingUser) {
+      logger.info('Registration attempt for existing email', { email });
+    } else {
+      await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+        },
+      });
+    }
 
     return NextResponse.json(
-      { user: userWithoutPassword },
-      { 
+      { message: 'Registration successful' },
+      {
         status: 201,
         headers: {
           'X-RateLimit-Limit': rateLimitResult.limit.toString(),

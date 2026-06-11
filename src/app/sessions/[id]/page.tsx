@@ -141,6 +141,8 @@ function SessionDetailPage() {
         isInitialProcessing={isInitialProcessing}
         onStartProcessing={() => startProcessingMutation.mutate()}
         onCancelTranscription={() => cancelTranscriptionMutation.mutate()}
+        isStarting={startProcessingMutation.isPending}
+        isCancelling={cancelTranscriptionMutation.isPending}
       />
 
       {/* Upload Section */}

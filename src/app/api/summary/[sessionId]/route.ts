@@ -19,6 +19,7 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
+  let isFreshGeneration = false;
 
   try {
     const { error: authError, user } = await requireSessionOwner(sessionId);
@@ -52,7 +53,7 @@ export async function POST(
 
     // Fresh generation moves the session through the summarizing status;
     // force-regeneration of an existing summary leaves status untouched.
-    const isFreshGeneration = !existingSummary;
+    isFreshGeneration = !existingSummary;
     if (isFreshGeneration) {
       await db.updateSession(sessionId, { status: 'summarizing' });
     }
@@ -67,17 +68,22 @@ export async function POST(
   } catch (error) {
     logger.error('Summary generation error', error as Error, { sessionId });
 
+    // Don't leave a fresh generation stranded in 'summarizing' — surface the
+    // failure on the session so the UI shows the error banner with a retry.
+    // Force-regeneration never touched the status, so leave it alone there.
+    if (isFreshGeneration) {
+      try {
+        await db.setSessionError(sessionId, 'summary', error instanceof Error ? error.message : String(error));
+      } catch (updateError) {
+        logger.error('Failed to update session status', updateError as Error, { sessionId });
+      }
+    }
+
     if (isPermanentError(error)) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : 'Failed to generate summary' },
         { status: 400 }
       );
-    }
-
-    try {
-      await db.setSessionError(sessionId, 'summary', error instanceof Error ? error.message : String(error));
-    } catch (updateError) {
-      logger.error('Failed to update session status', updateError as Error, { sessionId });
     }
 
     return NextResponse.json({ error: 'Failed to generate summary' }, { status: 500 });

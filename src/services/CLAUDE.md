@@ -13,7 +13,7 @@ Singleton class (`db` export) that wraps Prisma Client with typed methods for al
 
 **Session operations:**
 - `createSession(data)`, `getSessions(userId, campaignId?)`, `getSessionById(id)`
-- `updateSession(id, data)`, `updateSessionStatus(id, status)`
+- `updateSession(id, data)`
 - `updateTranscriptionProgress(id, progress, step, chunks)` — granular progress tracking
 - `setSessionError(id, step, message)`, `clearSessionError(id)`
 - `startProcessing(id)` — sets `processingStartedAt` timestamp

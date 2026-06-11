@@ -142,18 +142,29 @@ export class DatabaseService {
       },
     });
   }
-  
-  
-  async updateSessionStatus(id: string, status: string): Promise<GamingSession> {
-    return prisma.gamingSession.update({
+
+  /**
+   * Progress-relevant fields only — no transcript/summary/upload payload.
+   * Used by the hot polling path so each poll stays a few hundred bytes.
+   */
+  async getSessionProgress(id: string) {
+    return prisma.gamingSession.findUnique({
       where: { id },
-      data: {
-        status,
-        updatedAt: new Date(),
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        duration: true,
+        transcriptionProgress: true,
+        totalChunks: true,
+        chunksCompleted: true,
+        currentStep: true,
+        errorStep: true,
+        errorMessage: true,
       },
     });
   }
-  
+
   async updateTranscriptionProgress(
     id: string,
     data: {

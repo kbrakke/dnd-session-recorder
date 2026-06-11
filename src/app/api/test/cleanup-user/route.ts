@@ -1,17 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
+/** Constant-time string comparison (length leak is fine; content isn't). */
+function safeKeyCompare(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /**
  * DELETE /api/test/cleanup-user
- * 
+ *
  * Test-only endpoint for cleaning up test users and their associated data.
  * Requires TEST_CLEANUP_KEY environment variable to be set and provided in X-Test-Key header.
- * 
- * This endpoint should only be enabled in staging/test environments.
+ *
+ * Fails closed outside dev/test: staging runs with NODE_ENV=production, so it
+ * must opt in explicitly with ALLOW_TEST_CLEANUP=true (exact string). Never
+ * set that variable on the production app.
  */
 export async function DELETE(request: NextRequest) {
   try {
+    // Environment gate first: in production builds the endpoint exists only
+    // when explicitly enabled, regardless of what keys the caller holds.
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_TEST_CLEANUP !== 'true') {
+      logger.warn('Test cleanup attempted in production');
+      return NextResponse.json(
+        { error: 'Test cleanup not allowed in production' },
+        { status: 403 }
+      );
+    }
+
     // Verify test cleanup key
     const testKey = request.headers.get('X-Test-Key');
     const expectedKey = process.env.TEST_CLEANUP_KEY;
@@ -24,20 +44,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    if (testKey !== expectedKey) {
+    if (!testKey || !safeKeyCompare(testKey, expectedKey)) {
       logger.warn('Invalid test cleanup key attempted');
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
-      );
-    }
-
-    // Only allow in non-production environments
-    if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_TEST_CLEANUP) {
-      logger.warn('Test cleanup attempted in production');
-      return NextResponse.json(
-        { error: 'Test cleanup not allowed in production' },
-        { status: 403 }
       );
     }
 

@@ -43,6 +43,27 @@ export interface SessionDetail extends GamingSession {
   };
 }
 
+/** Shape of GET /api/sessions/[id]/progress — the lightweight polling feed. */
+export interface SessionProgress {
+  status: SessionStatus;
+  duration: number | null;
+  transcriptionProgress: number;
+  totalChunks: number;
+  chunksCompleted: number;
+  currentStep: string | null;
+  errorStep: string | null;
+  errorMessage: string | null;
+  job: {
+    id: string;
+    status: string;
+    step: string | null;
+    attempts: number;
+    maxAttempts: number;
+    nextRunAt: string | null;
+    lastError: string | null;
+  } | null;
+}
+
 export interface Summary {
   id: number;
   summaryText: string;

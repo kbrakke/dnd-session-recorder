@@ -277,6 +277,31 @@ error on a field the test definitely filled.
 looks identical to a silent healthy run, for hours. Use `--reporter=line` and
 read the raw output file/stream instead.
 
+## Pre-production audit (2026-06-11) — findings FIXED same day, kept for context
+
+### The frontend did NOT poll `/api/sessions/[id]/progress` — despite both CLAUDE.md files saying it did
+The product UI polled `GET /api/sessions/[id]` every 1–2s, which (via `db.getSessionById`) includes the **full transcript** on every poll. **Fixed:** `use-session-data.ts` now polls only `/progress` (light `db.getSessionProgress` select) while in-flight, and invalidates the heavy queries when the progress fingerprint (status|step|chunksCompleted) changes. If you add new pipeline UI, drive it off the progress feed, not timers on heavy queries.
+
+### The sessions list/dashboard used a status vocabulary the backend never writes
+`sessions/page.tsx`, `Dashboard.tsx`, `StatusPill.tsx` checked `'processing'`/`'pending'` — not real statuses. **Fixed:** shared vocabulary now lives in `src/lib/session-status.ts` (`isInFlight()`, `statusLabel()`, `IN_FLIGHT_STATUSES`). Use it for any new status-aware UI; don't hand-roll status switch statements.
+
+### `ProcessingPipeline` silently dropped its action props
+`onStartProcessing`/`onCancelTranscription` were passed in but never rendered. **Fixed:** the strip now shows "Start processing" when status is `uploaded` (the process route sets an optimistic in-flight status on enqueue, so `uploaded` reliably means "no active job") and "Cancel" while transcribing/summarizing.
+
+### Other same-day fixes worth knowing about
+- `POST /api/summary/[sessionId]` no longer strands fresh generations in `summarizing` on permanent errors — it calls `setSessionError`, so the error banner + retry appear.
+- Dead `PATCH /api/sessions/[id]` (wrong status enum, zero callers) and `db.updateSessionStatus` were deleted.
+- `/api/auth/register` now ALWAYS returns 201 + `{ message }` (no `{ user }`, no "User already exists") and hashes even for existing emails — account-enumeration + timing fix. Test helpers were already tolerant (they accept 200/201).
+- `getRateLimitIdentifier` now prefers `Fly-Client-IP`, then the RIGHTMOST `x-forwarded-for` entry — never the client-controlled leftmost.
+- `/api/test/cleanup-user` requires `ALLOW_TEST_CLEANUP` to be EXACTLY `'true'` in production-mode envs (staging!) and compares the key with `timingSafeEqual`. If staging cleanup starts 403ing, check that secret's exact value.
+- Audio chunking is now ffmpeg stream-copy (`-c copy`) with concurrency capped at 4 — if a future format produces oversized chunks (VBR drift), the 18MB worker target vs Whisper's 25MB limit is the headroom to check.
+- FK indexes added via hand-written migration `20260611120000_add_fk_indexes` (verified on throwaway Postgres + `migrate diff` clean).
+- `fly.staging.toml`: shared-cpu-4x→1x, `min_machines_running=0`, debug logging and the `[[mounts]]` volume removed. The `dnd_data_staging` volume becomes ORPHANED on next staging deploy — destroy it (`fly volumes destroy`) to stop the charge. Both tomls: legacy `[[services]]` blocks folded into `[http_service.concurrency]`.
+- `dm-todo` generation uses `gpt-4o-mini` (summary stays on `gpt-4o`) — see `TEXT_MODEL` in `src/lib/ai.ts`.
+
+### Vitest ffmpeg mocks are defined per-test, not just at module level
+`audioProcessing.test.ts` has a module-level fluent-ffmpeg mock AND local `mockImplementation` instances inside individual tests. Adding a method to the chain (e.g. `outputOptions`) requires updating ALL of them, or the per-test mocks fail with "x is not a function".
+
 ## Dependency hygiene (2026-06-11)
 
 ### `npm audit fix --force` will DOWNGRADE majors to chase audit metadata

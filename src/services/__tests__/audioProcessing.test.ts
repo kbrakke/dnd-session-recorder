@@ -9,6 +9,7 @@ vi.mock('fluent-ffmpeg', () => {
   const ffmpegInstance = {
     setStartTime: vi.fn().mockReturnThis(),
     setDuration: vi.fn().mockReturnThis(),
+    outputOptions: vi.fn().mockReturnThis(),
     output: vi.fn().mockReturnThis(),
     on: vi.fn().mockImplementation(function (this: Record<string, unknown>, event: string, cb: () => void) {
       if (event === 'end') {
@@ -114,6 +115,7 @@ describe('audioProcessing', () => {
         const instance = {
           setStartTime: vi.fn().mockReturnThis(),
           setDuration: vi.fn().mockReturnThis(),
+          outputOptions: vi.fn().mockReturnThis(),
           output: vi.fn().mockImplementation(function (this: typeof instance, p: string) {
             outputPath = p;
             return this;
@@ -162,6 +164,7 @@ describe('audioProcessing', () => {
         return {
           setStartTime: vi.fn().mockReturnThis(),
           setDuration: vi.fn().mockReturnThis(),
+          outputOptions: vi.fn().mockReturnThis(),
           output: vi.fn().mockImplementation(function (this: Record<string, unknown>, p: string) {
             outputPath = p;
             return this;

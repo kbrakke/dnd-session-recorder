@@ -117,6 +117,8 @@ model GamingSession {
   pipelineJobs     PipelineJob[]
   transcriptChunks TranscriptChunk[]
 
+  @@index([userId])
+  @@index([campaignId])
   @@map("gaming_sessions")
 }
 
@@ -174,6 +176,7 @@ model Transcription {
   createdAt  DateTime       @default(now()) @map("created_at")
   session    GamingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  @@index([sessionId])
   @@map("transcriptions")
 }
 
@@ -224,5 +227,6 @@ model Upload {
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   gamingSessions   GamingSession[]
 
+  @@index([userId])
   @@map("uploads")
 }

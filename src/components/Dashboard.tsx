@@ -8,6 +8,7 @@ import Button from '@/components/ui/Button';
 import StatusPill from '@/components/ui/StatusPill';
 import LandingPage from '@/components/LandingPage';
 import { formatDate, formatDurationSeconds } from '@/lib/formatting';
+import { isInFlight, statusLabel } from '@/lib/session-status';
 
 interface Campaign {
   id: string;
@@ -155,10 +156,10 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2.5 flex-shrink-0">
-                    {session.status === 'processing' && (
+                    {isInFlight(session.status) && (
                       <span className="inline-flex items-center gap-1.5 font-body text-xs text-ink-900">
                         <span className="inline-block w-3 h-3 border-2 border-ink-900 border-t-transparent rounded-full animate-spin" />
-                        Processing…
+                        {statusLabel(session.status)}…
                       </span>
                     )}
                     <span className="font-body text-xs text-slate-500 whitespace-nowrap">

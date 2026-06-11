@@ -1,7 +1,16 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import type { SessionDetail, Summary, DmTodoList, Transcription, GamingSession } from '../types';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { isInFlight } from '@/lib/session-status';
+import type {
+  SessionDetail,
+  SessionProgress,
+  Summary,
+  DmTodoList,
+  Transcription,
+  GamingSession,
+} from '../types';
 
 interface UseSessionDataProps {
   sessionId: string;
@@ -10,14 +19,18 @@ interface UseSessionDataProps {
 /**
  * Custom hook for managing all session-related data fetching.
  *
- * Consolidates multiple queries for session, campaign, summary, todos, and transcriptions.
- * Automatically polls during processing states.
+ * While the pipeline is working, the only thing polled is the lightweight
+ * /progress endpoint (no transcript payload). The heavy queries (session with
+ * full transcript, summary, todos, transcriptions) refetch only when progress
+ * reports an actual transition — not on a timer.
  *
  * @param sessionId - The session ID to fetch data for
  * @returns Consolidated session data with loading states
  */
 export function useSessionData({ sessionId }: UseSessionDataProps) {
-  // Main session query with automatic polling during processing
+  const queryClient = useQueryClient();
+
+  // Main session query — no interval; refreshed via progress-driven invalidation
   const {
     data: session,
     isLoading: sessionLoading,
@@ -30,23 +43,45 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
       if (!response.ok) throw new Error('Failed to fetch session');
       return response.json();
     },
-    refetchInterval: (query) => {
-      const session = query.state.data;
-      if (!session) return false;
-
-      // Poll during processing
-      if (session.status === 'transcribing' || session.status === 'summarizing') {
-        return 2000; // Every 2 seconds
-      }
-      if (session.status === 'uploaded') return 1000;
-      if (session.status === 'error') return 5000;
-      return false; // Don't poll when completed
-    },
     refetchOnMount: true,
     staleTime: 0,
   });
 
-  // Campaign sessions query
+  // Lightweight progress poll, only while the pipeline is queued or running
+  const { data: progress } = useQuery<SessionProgress>({
+    queryKey: ['progress', sessionId],
+    queryFn: async () => {
+      const response = await fetch(`/api/sessions/${sessionId}/progress`);
+      if (!response.ok) throw new Error('Failed to fetch progress');
+      return response.json();
+    },
+    enabled: !!session && isInFlight(session.status),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status ?? session?.status;
+      if (!status || !isInFlight(status)) return false;
+      // 'uploaded' means no job is running yet — check lazily for the
+      // auto-trigger landing; actively working states poll faster.
+      return status === 'uploaded' ? 5000 : 2500;
+    },
+    staleTime: 0,
+  });
+
+  // When progress reports a transition (status, step, or chunk count), refresh
+  // the heavy queries once instead of polling them on a timer.
+  const lastTransition = useRef<string | null>(null);
+  useEffect(() => {
+    if (!progress) return;
+    const fingerprint = `${progress.status}|${progress.currentStep}|${progress.chunksCompleted}`;
+    if (lastTransition.current !== null && lastTransition.current !== fingerprint) {
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['transcriptions', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['summary', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['dmTodoList', sessionId] });
+    }
+    lastTransition.current = fingerprint;
+  }, [progress, queryClient, sessionId]);
+
+  // Campaign sessions query (sidebar) — no interval needed
   const { data: campaignSessions = [] } = useQuery<GamingSession[]>({
     queryKey: ['campaign-sessions', session?.campaign.id],
     queryFn: async () => {
@@ -55,10 +90,8 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
       return response.json();
     },
     enabled: !!session?.campaign.id,
-    refetchInterval: 10000,
   });
 
-  // Summary query with polling during summarization
   const { data: summary } = useQuery<Summary | null>({
     queryKey: ['summary', sessionId],
     queryFn: async () => {
@@ -70,14 +103,8 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
       return response.json();
     },
     enabled: !!sessionId,
-    refetchInterval: (query) => {
-      if (session?.status === 'summarizing') return 2000;
-      if (session?.status === 'transcribed' && !query.state.data) return 3000;
-      return false;
-    },
   });
 
-  // DM TODO query with polling during summarization
   const { data: dmTodoList } = useQuery<DmTodoList | null>({
     queryKey: ['dmTodoList', sessionId],
     queryFn: async () => {
@@ -89,14 +116,8 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
       return response.json();
     },
     enabled: !!sessionId,
-    refetchInterval: (query) => {
-      if (session?.status === 'summarizing') return 2000;
-      if (summary && !query.state.data) return 3000;
-      return false;
-    },
   });
 
-  // Transcriptions query with polling during transcription
   const { data: transcriptions = [] } = useQuery<Transcription[]>({
     queryKey: ['transcriptions', sessionId],
     queryFn: async () => {
@@ -108,19 +129,33 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
       return response.json();
     },
     enabled: !!sessionId,
-    refetchInterval: () => {
-      if (session?.status === 'transcribing') return 2000;
-      return false;
-    },
   });
 
+  // Overlay the freshest progress fields onto the (possibly stale) session so
+  // status/chunk-count UI moves with the lightweight poll.
+  const mergedSession: SessionDetail | null = session
+    ? progress
+      ? {
+          ...session,
+          status: progress.status,
+          transcriptionProgress: progress.transcriptionProgress,
+          totalChunks: progress.totalChunks,
+          chunksCompleted: progress.chunksCompleted,
+          currentStep: progress.currentStep,
+          errorStep: progress.errorStep,
+          errorMessage: progress.errorMessage,
+        }
+      : session
+    : null;
+
   return {
-    session: session || null,
+    session: mergedSession,
     campaign: session?.campaign || null,
     campaignSessions,
     summary: summary || null,
     dmTodoList: dmTodoList || null,
     transcriptions,
+    progress: progress || null,
     isLoading: sessionLoading,
     error: sessionError,
     refetch: refetchSession,

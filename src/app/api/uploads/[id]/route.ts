@@ -24,11 +24,11 @@ export async function GET(
       );
     }
 
-    // Check if user owns this upload
+    // Not-owned is masked as 404 so upload existence never leaks.
     if (upload.userId !== user.id) {
       return NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 }
+        { error: 'Upload not found' },
+        { status: 404 }
       );
     }
 
@@ -97,11 +97,11 @@ export async function DELETE(
       );
     }
 
-    // Check if user owns this upload
+    // Not-owned is masked as 404 so upload existence never leaks.
     if (upload.userId !== user.id) {
       return NextResponse.json(
-        { error: 'Forbidden - You do not own this upload' },
-        { status: 403 }
+        { error: 'Upload not found' },
+        { status: 404 }
       );
     }
 

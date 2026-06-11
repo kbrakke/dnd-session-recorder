@@ -90,10 +90,17 @@ export function getRateLimitIdentifier(request: Request, userId?: string): strin
     return `user:${userId}`;
   }
 
-  // Extract IP from headers (works with most reverse proxies)
+  // Fly's proxy sets Fly-Client-IP and clients cannot forge it. X-Forwarded-For
+  // is client-influenced: only the RIGHTMOST entry was appended by the trusted
+  // proxy; anything left of it is attacker-supplied and must not key the limit.
+  const flyClientIp = request.headers.get('fly-client-ip');
   const forwarded = request.headers.get('x-forwarded-for');
   const realIp = request.headers.get('x-real-ip');
-  const ip = forwarded?.split(',')[0] || realIp || 'unknown';
-  
+  const ip =
+    flyClientIp ||
+    forwarded?.split(',').at(-1)?.trim() ||
+    realIp ||
+    'unknown';
+
   return `ip:${ip}`;
 }

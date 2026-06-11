@@ -45,6 +45,11 @@ export function getAudioDuration(filePath: string): Promise<number> {
 
 /**
  * Create a single audio chunk using FFmpeg.
+ *
+ * Uses stream copy (`-c copy`) — no re-encode. Cuts land on packet
+ * boundaries, so chunk edges can shift by a frame (~tens of ms), which is
+ * irrelevant for transcription but turns minutes of pegged CPU per chunk
+ * into pure I/O.
  */
 function createChunk(
   inputPath: string,
@@ -56,11 +61,24 @@ function createChunk(
     ffmpeg(inputPath)
       .setStartTime(startTime)
       .setDuration(duration)
+      .outputOptions('-c', 'copy')
       .output(outputPath)
       .on('end', () => resolve())
       .on('error', (err) => reject(new Error(`FFmpeg error: ${err.message}`)))
       .run();
   });
+}
+
+/** Run async tasks with at most `limit` in flight at once. */
+async function runWithConcurrency(tasks: Array<() => Promise<void>>, limit: number): Promise<void> {
+  const queue = [...tasks];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    let task: (() => Promise<void>) | undefined;
+    while ((task = queue.shift())) {
+      await task();
+    }
+  });
+  await Promise.all(workers);
 }
 
 /**
@@ -111,19 +129,20 @@ export async function splitAudioBySize(
     chunkDuration: chunkDuration.toFixed(2),
   });
 
-  // Create all chunks in parallel (matching existing behavior)
+  // Bounded concurrency: a 300MB file yields ~17 chunks, and one ffmpeg
+  // process per chunk all at once saturates a shared vCPU and stacks RSS.
   const chunkInfos: { outputPath: string; index: number }[] = [];
-  const splitPromises: Promise<void>[] = [];
+  const splitTasks: Array<() => Promise<void>> = [];
 
   for (let i = 0; i < numChunks; i++) {
     const start = i * chunkDuration;
     const outputPath = path.join(outputDir, `${base}_chunk${i}${ext}`);
     chunkInfos.push({ outputPath, index: i });
 
-    splitPromises.push(createChunk(inputPath, outputPath, start, chunkDuration));
+    splitTasks.push(() => createChunk(inputPath, outputPath, start, chunkDuration));
   }
 
-  await Promise.all(splitPromises);
+  await runWithConcurrency(splitTasks, 4);
 
   // Gather chunk metadata
   const chunks: AudioChunk[] = chunkInfos.map(({ outputPath, index }) => {

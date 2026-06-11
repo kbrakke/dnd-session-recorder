@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestJob } from '@/services/pipeline/queue';
-import { requireSessionOwner } from '@/lib/route-utils';
+import { requireAuth } from '@/lib/auth-utils';
+import { notFound } from '@/lib/route-utils';
+import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
 
 // GET /api/sessions/[id]/progress - Get session progress
+//
+// This is the frontend's polling endpoint while the pipeline runs, so it uses
+// a lightweight ownership check (no transcript/summary include) instead of
+// requireSessionOwner, which loads the full session graph on every poll.
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const sessionId = (await params).id;
-    const { error, session } = await requireSessionOwner(sessionId);
+
+    const { error, user } = await requireAuth();
     if (error) return error;
+
+    const session = await db.getSessionProgress(sessionId);
+    if (!session || session.userId !== user.id) {
+      return notFound('Session not found');
+    }
 
     const job = await getLatestJob(sessionId);
 

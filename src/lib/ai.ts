@@ -54,8 +54,18 @@ export async function transcribeAudio(audio: Buffer): Promise<{ text: string }> 
 }
 
 /**
- * Generate narrative text (session summary or DM TODO list) via GPT-4o.
- * `kind` only affects the deterministic output returned in mock mode.
+ * Model per text kind: the narrative summary stays on full GPT-4o; the DM
+ * TODO checklist re-sends the same full transcript, so the mini model cuts
+ * that call's cost ~90% with negligible quality risk for a task list.
+ */
+const TEXT_MODEL: Record<AiTextKind, string> = {
+  summary: 'gpt-4o',
+  'dm-todo': 'gpt-4o-mini',
+};
+
+/**
+ * Generate narrative text (session summary or DM TODO list).
+ * `kind` selects the model and the deterministic output in mock mode.
  */
 export async function generateAiText(prompt: string, kind: AiTextKind): Promise<{ text: string }> {
   if (isAiMocked()) {
@@ -63,7 +73,7 @@ export async function generateAiText(prompt: string, kind: AiTextKind): Promise<
   }
 
   const result = await generateText({
-    model: openai('gpt-4o'),
+    model: openai(TEXT_MODEL[kind]),
     prompt,
   });
   return { text: result.text };
