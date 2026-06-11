@@ -277,6 +277,14 @@ error on a field the test definitely filled.
 looks identical to a silent healthy run, for hours. Use `--reporter=line` and
 read the raw output file/stream instead.
 
+## Dependency hygiene (2026-06-11)
+
+### `npm audit fix --force` will DOWNGRADE majors to chase audit metadata
+It "fixed" the uuid advisory by downgrading next-auth 4 → 3 and next 15 → **9.3.3**, ballooning 28 vulns to 100. Never use `--force`; plain `npm audit fix` only applies semver-compatible bumps and is safe.
+
+### Reverting package.json/lockfile does NOT revert node_modules
+After `git revert`/checkout of a bad dependency change, `node_modules` still holds the bad tree until `npm ci`. Detection: `npm outdated`'s **Current** column reads node_modules, while `npm audit` reads the lockfile — if Current shows versions outside the ranges in package.json, the tree is out of sync.
+
 ## User's working preferences
 
 - Wants this LESSONS.md maintained: every issue, deviation from plan, or useful discovery → log it here. Reference it at session start.
