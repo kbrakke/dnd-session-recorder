@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, Edit3, RefreshCw, Save } from 'lucide-react';
-import { marked } from 'marked';
+import { renderMarkdownToSafeHtml } from '@/lib/markdown';
 import type { DmTodoList } from '../types';
 
 interface DMTodoPanelProps {
@@ -338,7 +338,7 @@ export function DMTodoPanel({
               lineHeight: 1.65,
             }}
             dangerouslySetInnerHTML={{
-              __html: marked(todoList.content) as string,
+              __html: renderMarkdownToSafeHtml(todoList.content),
             }}
           />
         )}
