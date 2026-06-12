@@ -14,8 +14,8 @@ interface Campaign {
   id: string;
   name: string;
   description: string | null;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Session {
@@ -213,8 +213,8 @@ export default function Dashboard() {
                       <p className="font-body text-sm text-slate-600 mb-1 line-clamp-2">{campaign.description}</p>
                     )}
                     <div className="flex gap-3 font-body text-xs text-slate-400 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1"><Calendar size={12} />Created {formatDate(campaign.created_at)}</span>
-                      <span className="inline-flex items-center gap-1"><Clock size={12} />Updated {formatTimeAgo(campaign.updated_at)}</span>
+                      <span className="inline-flex items-center gap-1"><Calendar size={12} />Created {formatDate(campaign.createdAt)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={12} />Updated {formatTimeAgo(campaign.updatedAt)}</span>
                     </div>
                   </div>
                   <div className="font-body text-xs text-slate-500 whitespace-nowrap flex-shrink-0">
