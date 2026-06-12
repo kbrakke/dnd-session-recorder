@@ -21,8 +21,55 @@ export interface SplitOptions {
   outputDir?: string;
 }
 
+/** Parse an FFmpeg `timemark` ("HH:MM:SS.cs") into seconds. */
+function parseTimemark(timemark: string): number {
+  const match = /^(\d+):(\d{2}):(\d{2})(\.\d+)?$/.exec(timemark.trim());
+  if (!match) {
+    const asNumber = Number(timemark);
+    return Number.isFinite(asNumber) ? asNumber : NaN;
+  }
+  const [, hours, minutes, seconds, fraction] = match;
+  return (
+    Number(hours) * 3600 +
+    Number(minutes) * 60 +
+    Number(seconds) +
+    (fraction ? Number(fraction) : 0)
+  );
+}
+
 /**
- * Get audio file duration in seconds using FFmpeg.
+ * Measure duration by fully decoding the stream to a null sink. Streamed
+ * WebM/Ogg clips from the browser's `MediaRecorder` routinely omit a
+ * container-level duration (it's unknown while the recording is still being
+ * written), so `ffprobe` can't report one. Decoding lets FFmpeg count the
+ * actual decoded time.
+ */
+function measureDurationByDecoding(filePath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let lastTime = 0;
+    ffmpeg(filePath)
+      .outputOptions(['-f', 'null'])
+      .output(process.platform === 'win32' ? 'NUL' : '/dev/null')
+      .on('progress', (progress: { timemark?: string }) => {
+        if (progress?.timemark) {
+          const seconds = parseTimemark(progress.timemark);
+          if (Number.isFinite(seconds) && seconds > lastTime) lastTime = seconds;
+        }
+      })
+      .on('end', () => {
+        if (lastTime > 0) resolve(lastTime);
+        else reject(new Error('Could not determine audio duration'));
+      })
+      .on('error', (err: Error) =>
+        reject(new Error(`Failed to decode audio duration: ${err.message}`)),
+      )
+      .run();
+  });
+}
+
+/**
+ * Get audio file duration in seconds using FFmpeg. Falls back to decoding the
+ * stream when the container reports no duration (e.g. `MediaRecorder` WebM).
  */
 export function getAudioDuration(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -32,13 +79,13 @@ export function getAudioDuration(filePath: string): Promise<number> {
         return;
       }
 
-      const duration = metadata.format.duration;
-      if (!duration) {
-        reject(new Error('Could not determine audio duration'));
+      const duration = metadata.format?.duration;
+      if (duration && Number.isFinite(duration) && duration > 0) {
+        resolve(duration);
         return;
       }
 
-      resolve(duration);
+      measureDurationByDecoding(filePath).then(resolve, reject);
     });
   });
 }
