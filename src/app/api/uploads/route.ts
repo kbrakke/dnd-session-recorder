@@ -7,23 +7,10 @@ import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { saveAudio, buildAudioKey } from '@/services/storage';
 import { probeAudioDurationSeconds } from '@/services/audioProcessing';
+import { isAllowedMime } from '@/lib/uploadValidation';
 import { logger } from '@/lib/logger';
 
 const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '100000000'); // 100MB default
-
-const allowedMimeTypes = [
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/ogg',
-  'audio/m4a',
-  'audio/x-m4a',
-  'audio/mp4',
-  'audio/aac',
-  'audio/x-aac',
-  'audio/flac',
-  'audio/webm'
-];
 
 // POST /api/uploads - Upload audio file and create Upload record
 export async function POST(request: NextRequest) {
@@ -38,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No audio file provided' }, { status: 400 });
     }
 
-    if (!allowedMimeTypes.includes(file.type)) {
+    if (!isAllowedMime(file.type)) {
       return NextResponse.json(
         { error: 'Invalid file type. Only audio files are allowed.' },
         { status: 400 }
