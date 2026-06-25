@@ -3,15 +3,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, TrendingUp, Activity, Users, LogIn } from 'lucide-react';
+import { Calendar, Clock, BookOpen, Scroll, Archive, PenTool } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import StatusPill from '@/components/ui/StatusPill';
+import LandingPage from '@/components/LandingPage';
+import { formatDate, formatDurationSeconds } from '@/lib/formatting';
+import { isInFlight, statusLabel } from '@/lib/session-status';
 
 interface Campaign {
   id: string;
   name: string;
   description: string | null;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Session {
@@ -33,10 +37,8 @@ interface Session {
   status: string;
 }
 
-
-
 export default function Dashboard() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const isAuthenticated = status === 'authenticated';
 
   const { data: sessions, isLoading: sessionsLoading } = useQuery<Session[]>({
@@ -59,21 +61,6 @@ export default function Dashboard() {
     enabled: isAuthenticated,
   });
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return 'N/A';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-  };
-
   const formatTimeAgo = (dateString: string) => {
     const now = new Date();
     const date = new Date(dateString);
@@ -85,305 +72,183 @@ export default function Dashboard() {
     return formatDate(dateString);
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800 border-green-200';
-      case 'processing': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'error': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
   const recentSessions = sessions?.slice(0, 6) || [];
-  const totalSessions = sessions?.length || 0;
-  const totalCampaigns = campaigns?.length || 0;
-  const totalHours = sessions?.reduce((total, session) => total + (session.duration || 0), 0) || 0;
+
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
 
   return (
-    <div className="space-y-8">
-      {/* Hero Section */}
-      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl p-8 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold mb-2">
-              {isAuthenticated ? 'Welcome back, Dungeon Master!' : 'Welcome New Dungeon Master!'}
-            </h1>
-            <p className="text-blue-100 text-lg">
-              {isAuthenticated
-                ? 'Manage your D&D sessions with AI-powered transcription and summaries'
-                : 'Get started with AI-powered transcription and summaries for your D&D sessions'
-              }
-            </p>
-          </div>
+    <div className="flex flex-col gap-6">
+      {/* Quick Actions */}
+      <div className="bg-white rounded-ss-xl border border-slate-300 p-6 shadow-ss-card">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <ActionCard
+            href="/sessions/upload"
+            icon={<PenTool size={26} className="text-ink-900" strokeWidth={2} />}
+            iconBg="bg-ink-50"
+            iconBorder="border-ink-200"
+            title="Start New Session"
+            subtitle="Record and transcribe your D&D adventure"
+          />
+          <ActionCard
+            href="/campaigns"
+            icon={<BookOpen size={26} className="text-gold-600" strokeWidth={2} />}
+            iconBg="bg-parchment-50"
+            iconBorder="border-parchment-200"
+            title="Manage Campaigns"
+            subtitle="Organize your ongoing adventures"
+          />
+          <ActionCard
+            href="/sessions"
+            icon={<Archive size={26} className="text-emerald-800" strokeWidth={2} />}
+            iconBg="bg-emerald-50"
+            iconBorder="border-emerald-200"
+            title="View Sessions"
+            subtitle="Browse your recorded adventures"
+          />
         </div>
       </div>
 
-      {/* Stats Cards */}
-      {isAuthenticated && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all duration-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Total Sessions</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">
-                  {sessionsLoading ? '...' : totalSessions}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  <TrendingUp className="h-4 w-4 inline mr-1" />
-                  All time
-                </p>
-              </div>
-              <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-                <Mic className="h-7 w-7 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all duration-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Active Campaigns</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">
-                  {campaignsLoading ? '...' : totalCampaigns}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  <Users className="h-4 w-4 inline mr-1" />
-                  Active
-                </p>
-              </div>
-              <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
-                <BookOpen className="h-7 w-7 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all duration-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Total Hours</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">
-                  {sessionsLoading ? '...' : formatDuration(totalHours)}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  <Activity className="h-4 w-4 inline mr-1" />
-                  Recorded
-                </p>
-              </div>
-              <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center">
-                <Clock className="h-7 w-7 text-purple-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-all duration-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">AI Summaries</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">
-                  {sessionsLoading ? '...' : sessions?.filter(s => s.summary).length || 0}
-                </p>
-                <p className="text-sm text-green-600 mt-1">
-                  <Sparkles className="h-4 w-4 inline mr-1" />
-                  Generated
-                </p>
-              </div>
-              <div className="w-14 h-14 bg-orange-100 rounded-xl flex items-center justify-center">
-                <Sparkles className="h-7 w-7 text-orange-600" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recent Sessions Section */}
-      {isAuthenticated && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Recent Sessions</h2>
-              <p className="text-gray-600 mt-1">Your latest D&D adventures with AI-powered insights</p>
-            </div>
+      {/* Recent Sessions */}
+      <div className="flex flex-col gap-3.5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-[22px] font-semibold text-slate-900 m-0 whitespace-nowrap">Recent Sessions</h2>
+          <div className="flex-shrink-0">
             <Link href="/sessions">
-              <Button variant="outline" className="flex items-center space-x-2">
-                <Play className="h-4 w-4" />
-                <span>View All Sessions</span>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Archive size={14} /> View All
               </Button>
             </Link>
           </div>
+        </div>
 
-          {sessionsLoading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="text-gray-500 mt-2">Loading sessions...</p>
-            </div>
-          ) : recentSessions.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-              <Mic className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No sessions yet</h3>
-              <p className="text-gray-500 mb-6">Start recording your first D&D session to see it here!</p>
-              <Link href="/sessions/upload">
-                <Button className="flex items-center space-x-2">
-                  <Plus className="h-4 w-4" />
-                  <span>Record First Session</span>
-                </Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {recentSessions.map((session) => (
-                <Link key={session.id} href={`/sessions/${session.id}`}>
-                  <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-all duration-200 cursor-pointer">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-xl font-bold text-gray-900">{session.title}</h3>
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(session.status)}`}>
-                            {session.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
-                          <div className="flex items-center">
-                            <BookOpen className="h-4 w-4 mr-1 text-green-600" />
-                            <span>{session.campaign_name}</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Calendar className="h-4 w-4 mr-1 text-blue-600" />
-                            <span>{formatDate(session.sessionDate)}</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Clock className="h-4 w-4 mr-1 text-purple-600" />
-                            <span>{formatTimeAgo(session.createdAt)}</span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4 text-center">
-                          <div className="bg-blue-50 rounded-lg p-3">
-                            <div className="text-2xl font-bold text-blue-600">{session._count.transcriptions}</div>
-                            <div className="text-xs text-gray-500">Transcriptions</div>
-                          </div>
-                          <div className="bg-green-50 rounded-lg p-3">
-                            <div className="text-2xl font-bold text-green-600">{formatDuration(session.duration)}</div>
-                            <div className="text-xs text-gray-500">Duration</div>
-                          </div>
-                          <div className="bg-purple-50 rounded-lg p-3">
-                            <div className="text-2xl font-bold text-purple-600">{session.summary ? '✓' : '—'}</div>
-                            <div className="text-xs text-gray-500">Summary</div>
-                          </div>
-                        </div>
-                      </div>
+        {sessionsLoading ? (
+          <div className="text-center py-8">
+            <div className="inline-block w-5 h-5 border-2 border-ink-900 border-t-transparent rounded-full animate-spin" />
+            <p className="text-slate-500 mt-2 text-sm">Loading...</p>
+          </div>
+        ) : recentSessions.length === 0 ? (
+          <div className="bg-white border border-slate-300 rounded-ss-xl p-12 text-center shadow-ss-card">
+            <Scroll className="h-[42px] w-[42px] text-slate-400 mx-auto mb-3" />
+            <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No sessions yet</h3>
+            <p className="font-body text-sm text-slate-500 mb-4">Start recording your first D&D session to see it here</p>
+            <Link href="/sessions/upload">
+              <Button className="gap-2">
+                <PenTool size={14} /> Start Recording
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="bg-white rounded-ss-xl border border-slate-300 overflow-hidden shadow-ss-card">
+            {recentSessions.map((session, i) => (
+              <Link key={session.id} href={`/sessions/${session.id}`}>
+                <div className={`px-[18px] py-3.5 hover:bg-slate-50 transition-colors duration-150 flex items-center justify-between gap-4 cursor-pointer ${i < recentSessions.length - 1 ? 'border-b border-slate-100' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5 mb-1">
+                      <span className="font-body font-semibold text-[15px] text-slate-900 whitespace-nowrap">{session.title}</span>
+                      <StatusPill status={session.status} />
                     </div>
-                    <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                      <div className="flex items-center space-x-2">
-                        {session.status === 'completed' && (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                window.location.href = `/sessions/${session.id}/transcript`;
-                              }}
-                              className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md text-sm hover:bg-gray-200 transition-colors flex items-center space-x-1"
-                            >
-                              <FileText className="h-4 w-4" />
-                              <span>Transcript</span>
-                            </button>
-                            {session.summary && (
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  window.location.href = `/sessions/${session.id}/summary`;
-                                }}
-                                className="px-3 py-1 bg-gray-100 text-gray-700 rounded-md text-sm hover:bg-gray-200 transition-colors flex items-center space-x-1"
-                              >
-                                <Sparkles className="h-4 w-4" />
-                                <span>Summary</span>
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {session.status === 'processing' && (
-                          <div className="flex items-center space-x-2 text-blue-600">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                            <span className="text-sm">Processing...</span>
-                          </div>
-                        )}
-                        {session.status === 'error' && (
-                          <div className="flex items-center space-x-2 text-red-600">
-                            <span className="text-sm">Processing failed</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        Click to view details
-                      </div>
+                    <div className="flex gap-3.5 font-body text-[13px] text-slate-500 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1"><BookOpen size={12} />{session.campaign_name}</span>
+                      <span className="inline-flex items-center gap-1"><Calendar size={12} />{formatDate(session.sessionDate)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={12} />{formatDurationSeconds(session.duration)}</span>
                     </div>
                   </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Unauthenticated content */}
-      {!isAuthenticated && (
-        <div className="space-y-8">
-          {/* Features Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <Mic className="h-6 w-6 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">AI Transcription</h3>
-              <p className="text-gray-600">
-                Automatically convert your D&D session audio into accurate, searchable text transcripts.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <Sparkles className="h-6 w-6 text-purple-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Smart Summaries</h3>
-              <p className="text-gray-600">
-                Generate concise summaries of your sessions with key events and character interactions.
-              </p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 text-center">
-              <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <BookOpen className="h-6 w-6 text-green-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Campaign Management</h3>
-              <p className="text-gray-600">
-                Organize multiple campaigns and track your adventures with comprehensive session history.
-              </p>
-            </div>
+                  <div className="flex items-center gap-2.5 flex-shrink-0">
+                    {isInFlight(session.status) && (
+                      <span className="inline-flex items-center gap-1.5 font-body text-xs text-ink-900">
+                        <span className="inline-block w-3 h-3 border-2 border-ink-900 border-t-transparent rounded-full animate-spin" />
+                        {statusLabel(session.status)}…
+                      </span>
+                    )}
+                    <span className="font-body text-xs text-slate-500 whitespace-nowrap">
+                      {session._count.transcriptions} parts
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
           </div>
+        )}
+      </div>
 
-          {/* Call to Action */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Ready to enhance your D&D experience?</h3>
-            <p className="text-gray-600 mb-6 max-w-2xl mx-auto">
-              Join thousands of Dungeon Masters who use AI-powered tools to create better session records,
-              track campaign progress, and never miss important story moments.
-            </p>
-            <div className="flex items-center justify-center space-x-4">
-              <Link href="/auth/signup">
-                <Button className="flex items-center space-x-2">
-                  <Plus className="h-4 w-4" />
-                  <span>Get Started Free</span>
-                </Button>
-              </Link>
-              <Link href="/auth/signin">
-                <Button variant="outline" className="flex items-center space-x-2">
-                  <LogIn className="h-4 w-4" />
-                  <span>Sign In</span>
-                </Button>
-              </Link>
-            </div>
+      {/* Recent Campaigns */}
+      <div className="flex flex-col gap-3.5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-[22px] font-semibold text-slate-900 m-0 whitespace-nowrap">Recent Campaigns</h2>
+          <div className="flex-shrink-0">
+            <Link href="/campaigns">
+              <Button variant="outline" size="sm" className="gap-2">
+                <BookOpen size={14} /> View All
+              </Button>
+            </Link>
           </div>
         </div>
-      )}
+
+        {campaignsLoading ? (
+          <div className="text-center py-8">
+            <div className="inline-block w-5 h-5 border-2 border-ink-900 border-t-transparent rounded-full animate-spin" />
+            <p className="text-slate-500 mt-2 text-sm">Loading...</p>
+          </div>
+        ) : !campaigns || campaigns.length === 0 ? (
+          <div className="bg-white border border-slate-300 rounded-ss-xl p-12 text-center shadow-ss-card">
+            <BookOpen className="h-[42px] w-[42px] text-slate-400 mx-auto mb-3" />
+            <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No campaigns yet</h3>
+            <p className="font-body text-sm text-slate-500 mb-4">Create your first campaign to organize your D&D sessions</p>
+            <Link href="/campaigns">
+              <Button className="gap-2">
+                <BookOpen size={14} /> Create Campaign
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="bg-white rounded-ss-xl border border-slate-300 overflow-hidden shadow-ss-card">
+            {campaigns.slice(0, 5).map((campaign, i) => (
+              <Link key={campaign.id} href={`/campaigns/${campaign.id}`}>
+                <div className={`px-[18px] py-3.5 hover:bg-slate-50 transition-colors duration-150 flex items-center justify-between gap-4 cursor-pointer ${i < Math.min(campaigns.length, 5) - 1 ? 'border-b border-slate-100' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-body font-semibold text-[15px] text-slate-900 mb-1 whitespace-nowrap">{campaign.name}</div>
+                    {campaign.description && (
+                      <p className="font-body text-sm text-slate-600 mb-1 line-clamp-2">{campaign.description}</p>
+                    )}
+                    <div className="flex gap-3 font-body text-xs text-slate-400 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1"><Calendar size={12} />Created {formatDate(campaign.createdAt)}</span>
+                      <span className="inline-flex items-center gap-1"><Clock size={12} />Updated {formatTimeAgo(campaign.updatedAt)}</span>
+                    </div>
+                  </div>
+                  <div className="font-body text-xs text-slate-500 whitespace-nowrap flex-shrink-0">
+                    {sessions?.filter(s => s.campaignId === campaign.id).length || 0} sessions
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function ActionCard({ href, icon, iconBg, iconBorder, title, subtitle }: {
+  href: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  iconBorder: string;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <Link href={href} className="flex-1 min-w-[240px]">
+      <div className="bg-white rounded-ss-xl border border-slate-300 p-[18px] flex items-center gap-3.5 shadow-ss-card hover:shadow-ss-card-hover hover:border-slate-400 transition-all duration-150 cursor-pointer">
+        <div className={`w-[52px] h-[52px] rounded-ss-lg flex-shrink-0 ${iconBg} border ${iconBorder} flex items-center justify-center`}>
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="font-display font-semibold text-[19px] text-slate-900 leading-tight">{title}</div>
+          <div className="font-body text-[13px] text-slate-500 mt-1 leading-snug">{subtitle}</div>
+        </div>
+      </div>
+    </Link>
   );
 }

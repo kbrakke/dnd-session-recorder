@@ -1,31 +1,27 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 const createSessionSchema = z.object({
-  campaign_id: z.string('Campaign ID must be a positive integer'),
+  campaign_id: z.string().min(1, 'Campaign ID must be a positive integer'),
   title: z.string().min(1, 'Session title is required'),
-  session_date: z.string('Invalid session date format'),
+  session_date: z.string().min(1, 'Invalid session date format'),
   upload_id: z.string().optional(),
-  audio_file_path: z.string().optional(),
   duration: z.number().int().positive().optional(),
   status: z.string().optional(),
 });
 
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json([]);
-    }
+    const { error, user } = await requireAuth();
+    if (error) return error;
 
     const { searchParams } = new URL(request.url);
     const campaignId = searchParams.get('campaignId');
     
-    const sessions = await db.getSessions(session.user.id, campaignId || undefined);
+    const sessions = await db.getSessions(user.id, campaignId || undefined);
     
     // Transform data to match existing API format
     const transformedSessions = await Promise.all(sessions.map(async session => ({
@@ -37,7 +33,7 @@ export async function GET(request: Request) {
     
     return NextResponse.json(transformedSessions);
   } catch (error) {
-    console.error('Error fetching sessions:', error);
+    logger.error('Failed to fetch sessions', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch sessions' },
       { status: 500 }
@@ -47,48 +43,42 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+    const { error, user } = await requireAuth();
+    if (error) return error;
+
     const body = await request.json();
     const validatedData = createSessionSchema.parse(body);
-    
+
     // Verify campaign exists and belongs to user
     const campaign = await db.getCampaignById(validatedData.campaign_id);
-    if (!campaign || campaign.userId !== session.user.id) {
+    if (!campaign || campaign.userId !== user.id) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }
       );
     }
-    
+
     // If upload_id is provided, verify it exists and belongs to user
     if (validatedData.upload_id) {
       const upload = await db.getUploadById(validatedData.upload_id);
-      if (!upload || upload.userId !== session.user.id) {
+      if (!upload || upload.userId !== user.id) {
         return NextResponse.json(
           { error: 'Upload not found' },
           { status: 404 }
         );
       }
     }
-    
+
     const gamingSession = await db.createSession({
+      userId: user.id,
       campaignId: validatedData.campaign_id,
       title: validatedData.title,
       sessionDate: new Date(validatedData.session_date),
       uploadId: validatedData.upload_id,
-      audioFilePath: validatedData.audio_file_path,
       duration: validatedData.duration,
       status: validatedData.status,
     });
-    
+
     return NextResponse.json(gamingSession, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -97,11 +87,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    
-    console.error('Error creating session:', error);
-    return NextResponse.json(
-      { error: 'Failed to create session' },
-      { status: 500 }
-    );
+
+    logger.error('Failed to create session', error as Error);
+    return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
   }
 }

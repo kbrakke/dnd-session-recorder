@@ -2,8 +2,10 @@
 
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 const errorMessages = {
   'Configuration': 'There is a problem with the server configuration.',
@@ -21,14 +23,13 @@ const errorMessages = {
   'Default': 'An unexpected error occurred during authentication.',
 };
 
-export default function AuthErrorPage() {
+function AuthErrorForm() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error') || 'Default';
   
   const errorMessage = errorMessages[error as keyof typeof errorMessages] || errorMessages.Default;
 
-  // Log the error for debugging
-  console.error('Authentication error:', { error, errorMessage });
+  logger.error('Authentication error page displayed', new Error(`Auth error: ${error}`), { error, errorMessage });
 
   const getErrorTitle = (error: string) => {
     switch (error) {
@@ -154,5 +155,13 @@ export default function AuthErrorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AuthErrorForm />
+    </Suspense>
   );
 }

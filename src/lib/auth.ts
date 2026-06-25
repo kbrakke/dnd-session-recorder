@@ -1,18 +1,23 @@
-import { NextAuthOptions } from 'next-auth';
+import type { NextAuthOptions } from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { compare } from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { validateWhitelistAccess, isEmailWhitelisted, getWhitelistMessage } from '@/lib/whitelist';
+import { logger } from '@/lib/logger';
+
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adapter: PrismaAdapter(prisma) as any,
   providers: [
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? [
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true, // Allow linking accounts with same email
           }),
         ]
       : []),
@@ -24,6 +29,12 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        // Validate whitelist access for login
+        const whitelistValidation = validateWhitelistAccess(credentials.email);
+        if (!whitelistValidation.allowed) {
           return null;
         }
 
@@ -51,60 +62,102 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   session: {
-    strategy: 'database',
+    strategy: 'jwt',
   },
   pages: {
     signIn: '/auth/signin',
-    signUp: '/auth/signup',
     error: '/auth/error',
   },
   callbacks: {
-    async signIn({ user, account, profile, email, credentials }) {
+    async signIn({ user, account }) {
       try {
-        console.log('SignIn callback - User:', user);
-        console.log('SignIn callback - Account:', account);
-        console.log('SignIn callback - Profile:', profile);
-        
-        if (account?.provider === 'google') {
-          console.log('Google OAuth sign in attempt');
-          // Add any custom Google OAuth validation here
-          return true;
+        // Check whitelist for all sign-in attempts
+        if (!isEmailWhitelisted(user.email!)) {
+          logger.warn('Whitelist check failed for email', {
+            email: user.email,
+            message: getWhitelistMessage('login')
+          });
+          return false; // Deny sign-in
         }
-        
+
+        // For OAuth providers, PrismaAdapter handles user/account creation automatically
+        // We just need to verify the email is whitelisted
+        if (account?.provider === 'google') {
+          logger.debug('Google OAuth sign-in', { email: user.email });
+
+          // Check if user exists
+          const existingUser = await prisma.user.findUnique({
+            where: { email: user.email! },
+            include: { accounts: true },
+          });
+
+          if (existingUser) {
+            // User exists - check if this specific OAuth account is linked
+            const isAccountLinked = existingUser.accounts.some(
+              acc => acc.provider === account.provider && acc.providerAccountId === account.providerAccountId
+            );
+
+            if (!isAccountLinked) {
+              // User exists but this OAuth account is not linked
+              // Check if user has ANY Google account linked
+              const hasGoogleLinked = existingUser.accounts.some(acc => acc.provider === 'google');
+
+              if (hasGoogleLinked) {
+                // Different Google account - don't allow
+                logger.warn('User tried to link different Google account', { email: user.email });
+                return false;
+              }
+
+              // User exists with email/password only - allow linking
+              logger.info('Linking Google account to existing user', { email: user.email });
+            }
+          } else {
+            // New user - PrismaAdapter will create it
+            logger.info('Creating new user via Google OAuth', { email: user.email });
+          }
+        }
+
         return true;
       } catch (error) {
-        console.error('SignIn callback error:', error);
+        logger.error('SignIn callback error', error as Error);
         return false;
       }
     },
-    async session({ session, user }) {
+    async jwt({ token, user }) {
+      // Add user ID to token on first sign in
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    async session({ session, token }) {
       try {
-        // When using database sessions, user object is available
-        if (user) {
-          session.user.id = user.id;
+        // When using JWT sessions, token object is available
+        if (token) {
+          session.user.id = token.id as string;
         }
         return session;
       } catch (error) {
-        console.error('Session callback error:', error);
+        logger.error('Session callback error', error as Error);
         return session;
       }
     },
   },
   events: {
     async signIn({ user, account, profile, isNewUser }) {
-      console.log('SignIn event - Success:', { user, account, profile, isNewUser });
+      logger.trace('SignIn event - Success', { user, account, profile, isNewUser });
     },
     async signOut({ session, token }) {
-      console.log('SignOut event:', { session, token });
+      logger.trace('SignOut event', { session, token });
     },
     async createUser({ user }) {
-      console.log('CreateUser event:', user);
+      logger.info('CreateUser event', { user });
     },
     async linkAccount({ user, account, profile }) {
-      console.log('LinkAccount event:', { user, account, profile });
+      logger.info('LinkAccount event', { user, account, profile });
     },
     async session({ session, token }) {
-      console.log('Session event:', { session, token });
+      logger.trace('Session event', { session, token });
     },
   },
   debug: process.env.NODE_ENV === 'development',

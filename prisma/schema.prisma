@@ -2,12 +2,8 @@ generator client {
   provider = "prisma-client-js"
 }
 
-generator dbml {
-  provider = "prisma-dbml-generator"
-}
-
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"  // Use PostgreSQL for production builds
   url      = env("DATABASE_URL")
 }
 
@@ -20,11 +16,12 @@ model User {
   password      String?   // Keep for local auth
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
-  accounts  Account[]
-  sessions  Session[]
-  campaigns Campaign[]
-  uploads   Upload[]
+
+  accounts       Account[]
+  sessions       Session[] // NextAuth authentication sessions (login tokens)
+  campaigns      Campaign[]
+  uploads        Upload[]
+  gamingSessions GamingSession[] // D&D game sessions
 }
 
 model Account {
@@ -33,12 +30,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
+  refresh_token     String?   @db.Text
+  access_token      String?   @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?
+  id_token          String?   @db.Text
   session_state     String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -72,8 +69,8 @@ model VerificationToken {
 model Campaign {
   id           String           @id @default(cuid())
   name         String
-  description  String?
-  systemPrompt String?          @map("system_prompt")
+  description  String?          @db.Text
+  systemPrompt String?          @map("system_prompt") @db.Text
   userId       String           @map("user_id")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
@@ -87,23 +84,86 @@ model Campaign {
 
 model GamingSession {
   id             String          @id @default(cuid())
+  userId         String          @map("user_id") // Direct user reference for faster queries
   campaignId     String          @map("campaign_id")
   title          String
   sessionDate    DateTime        @map("session_date")
   uploadId       String?         @map("upload_id")
-  audioFilePath  String?         @map("audio_file_path") // Keep for backwards compatibility
   duration       Int?
   status         String          @default("draft") // draft, uploaded, transcribing, transcribed, summarizing, completed, error
+
+  // Detailed transcription progress tracking
+  transcriptionProgress   Int?            @default(0) @map("transcription_progress") // 0-100 percentage
+  totalChunks            Int?            @map("total_chunks")
+  chunksCompleted        Int?            @default(0) @map("chunks_completed")
+  currentStep            String?         @map("current_step") // chunking, transcribing, stitching
+
+  // Timeout tracking
+  processingStartedAt    DateTime?       @map("processing_started_at")
+  lastProgressAt         DateTime?       @map("last_progress_at")
+
   errorStep      String?         @map("error_step")
-  errorMessage   String?         @map("error_message")
+  errorMessage   String?         @map("error_message") @db.Text
+  lastError      DateTime?       @map("last_error")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
-  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  upload         Upload?         @relation(fields: [uploadId], references: [id], onDelete: SetNull)
-  summary        Summary?
-  transcriptions Transcription[]
 
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  upload           Upload?           @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  summary          Summary?
+  dmTodoList       DmTodoList?
+  transcriptions   Transcription[]
+  pipelineJobs     PipelineJob[]
+  transcriptChunks TranscriptChunk[]
+
+  @@index([userId])
+  @@index([campaignId])
   @@map("gaming_sessions")
+}
+
+// Durable work queue for the transcribe -> summarize -> dm-todo pipeline.
+// Jobs are claimed with FOR UPDATE SKIP LOCKED, leased via heartbeatAt, and
+// requeued with exponential backoff when a worker dies or a step fails.
+model PipelineJob {
+  id          String    @id @default(cuid())
+  sessionId   String    @map("session_id")
+  type        String    @default("process_session")
+  status      String    @default("pending") // pending, running, completed, failed, cancelled
+  currentStep String?   @map("current_step") // transcribe, summarize, dm_todo
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5) @map("max_attempts")
+  runAfter    DateTime  @default(now()) @map("run_after")
+  lockedBy    String?   @map("locked_by")
+  lockedAt    DateTime? @map("locked_at")
+  heartbeatAt DateTime? @map("heartbeat_at")
+  lastError   String?   @map("last_error") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  session GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@index([sessionId, status])
+  @@map("pipeline_jobs")
+}
+
+// Per-chunk transcription checkpoint. Chunk text survives worker crashes so a
+// resumed job never re-pays Whisper for chunks that already finished.
+model TranscriptChunk {
+  id          Int      @id @default(autoincrement())
+  sessionId   String   @map("session_id")
+  chunkIndex  Int      @map("chunk_index")
+  totalChunks Int      @map("total_chunks")
+  status      String   @default("pending") // pending, completed
+  text        String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  session GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, chunkIndex])
+  @@map("transcript_chunks")
 }
 
 model Transcription {
@@ -111,23 +171,24 @@ model Transcription {
   sessionId  String         @map("session_id")
   startTime  Float          @map("start_time")
   endTime    Float          @map("end_time")
-  text       String
+  text       String         @db.Text
   confidence Float?
   createdAt  DateTime       @default(now()) @map("created_at")
   session    GamingSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  @@index([sessionId])
   @@map("transcriptions")
 }
 
 model Summary {
   id                 Int           @id @default(autoincrement())
   sessionId          String        @unique @map("session_id")
-  summaryText        String        @map("summary_text")
-  keyEvents          String?       @map("key_events")
-  charactersInvolved String?       @map("characters_involved")
+  summaryText        String        @map("summary_text") @db.Text
+  keyEvents          String?       @map("key_events") @db.Text
+  charactersInvolved String?       @map("characters_involved") @db.Text
   isEdited           Boolean       @default(false) @map("is_edited")
   editedAt           DateTime?     @map("edited_at")
-  originalText       String?       @map("original_text")
+  originalText       String?       @map("original_text") @db.Text
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at")
   session            GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -135,22 +196,37 @@ model Summary {
   @@map("summaries")
 }
 
+model DmTodoList {
+  id          Int           @id @default(autoincrement())
+  sessionId   String        @unique @map("session_id")
+  content     String        @db.Text // Markdown formatted TODO list
+  isEdited    Boolean       @default(false) @map("is_edited")
+  editedAt    DateTime?     @map("edited_at")
+  originalText String?      @map("original_text") @db.Text
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at")
+  session     GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("dm_todo_lists")
+}
+
 model Upload {
   id               String          @id @default(cuid())
   userId           String          @map("user_id")
   filename         String
   originalName     String          @map("original_name")
-  path             String
+  // Backend-relative object key (Tigris/S3 or local UPLOAD_DIR-relative).
+  storageKey       String          @map("storage_key")
   size             Int
   mimetype         String
   duration         Int?
-  status           String          @default("uploaded") // uploaded, processing, chunked, transcribed, cleaned
-  chunkPaths       String?         @map("chunk_paths") // JSON array of chunk file paths
+  status           String          @default("uploaded") // uploaded, transcribed
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
-  
+
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   gamingSessions   GamingSession[]
-  
+
+  @@index([userId])
   @@map("uploads")
 }

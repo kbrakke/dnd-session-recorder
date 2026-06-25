@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, FileAudio, Calendar, BookOpen, Play, CheckCircle, Sparkles, Plus } from 'lucide-react';
+import { Upload, Calendar, BookOpen, Plus, FileAudio, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 interface Campaign {
   id: string;
@@ -23,18 +25,11 @@ interface Upload {
   createdAt: string;
 }
 
-interface UploadResponse {
-  message: string;
-  upload: Upload;
-}
-
 interface Session {
   id: string;
   title: string;
   campaignId: string;
   sessionDate: string;
-  uploadId?: string;
-  audioFilePath?: string;
   status: string;
 }
 
@@ -46,22 +41,65 @@ const formatFileSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-export default function SessionUploadPage() {
+interface FormState {
+  title: string;
+  campaignId: string;
+  sessionDate: string;
+}
+
+interface CampaignFormState {
+  name: string;
+  description: string;
+  systemPrompt: string;
+}
+
+interface UploadState {
+  selectedFile: File | null;
+  selectedUpload: Upload | null;
+  dragActive: boolean;
+  mode: 'new' | 'existing' | 'skip';
+}
+
+interface ModalState {
+  showCreateCampaign: boolean;
+  campaignForm: CampaignFormState;
+}
+
+function SessionUploadPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedUpload, setSelectedUpload] = useState<Upload | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [formData, setFormData] = useState({
+  const { status } = useSession();
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin');
+    }
+  }, [status, router]);
+
+  const [formState, setFormState] = useState<FormState>({
     title: '',
     campaignId: '',
     sessionDate: new Date().toISOString().split('T')[0],
   });
-  const [currentSession, setCurrentSession] = useState<Session | null>(null);
-  const [processingStep, setProcessingStep] = useState<'upload' | 'transcribe' | 'summarize' | 'complete' | null>(null);
-  const [uploadMode, setUploadMode] = useState<'new' | 'existing' | 'skip'>('new');
-  const [showCreateCampaignModal, setShowCreateCampaignModal] = useState(false);
-  const [campaignFormData, setCampaignFormData] = useState({ name: '', description: '', systemPrompt: '' });
+
+  const [uploadState, setUploadState] = useState<UploadState>({
+    selectedFile: null,
+    selectedUpload: null,
+    dragActive: false,
+    mode: 'new',
+  });
+
+  const [modalState, setModalState] = useState<ModalState>({
+    showCreateCampaign: false,
+    campaignForm: { name: '', description: '', systemPrompt: '' },
+  });
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Get uploadId and campaignId from query params if present
+  const preSelectedUploadId = searchParams.get('uploadId');
+  const preSelectedCampaignId = searchParams.get('campaignId');
 
   // Fetch campaigns
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery<Campaign[]>({
@@ -84,25 +122,32 @@ export default function SessionUploadPage() {
     },
   });
 
-  // File upload mutation
-  const uploadMutation = useMutation({
-    mutationFn: async (file: File): Promise<UploadResponse> => {
-      const formData = new FormData();
-      formData.append('audio', file);
-
-      const response = await fetch('/api/uploads', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+  // Pre-select upload if uploadId query param is present
+  useEffect(() => {
+    if (preSelectedUploadId && uploads.length > 0 && !uploadState.selectedUpload) {
+      const upload = uploads.find(u => u.id === preSelectedUploadId);
+      if (upload) {
+        setUploadState((prev) => ({
+          ...prev,
+          selectedUpload: upload,
+          mode: 'existing',
+        }));
       }
+    }
+  }, [preSelectedUploadId, uploads, uploadState.selectedUpload]);
 
-      return response.json();
-    },
-  });
+  // Pre-select campaign if campaignId query param is present
+  useEffect(() => {
+    if (preSelectedCampaignId && campaigns.length > 0 && !formState.campaignId) {
+      const campaign = campaigns.find(c => c.id === preSelectedCampaignId);
+      if (campaign) {
+        setFormState((prev) => ({
+          ...prev,
+          campaignId: preSelectedCampaignId,
+        }));
+      }
+    }
+  }, [preSelectedCampaignId, campaigns, formState.campaignId]);
 
   // Create session mutation
   const createSessionMutation = useMutation({
@@ -111,7 +156,6 @@ export default function SessionUploadPage() {
       campaign_id: string;
       session_date: string;
       upload_id?: string;
-      audio_file_path?: string;
       duration?: number;
     }): Promise<Session> => {
       const response = await fetch('/api/sessions', {
@@ -123,41 +167,6 @@ export default function SessionUploadPage() {
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to create session');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Transcription mutation
-  const transcribeMutation = useMutation({
-    mutationFn: async ({ sessionId, upload }: { sessionId: string; upload: Upload }) => {
-      const response = await fetch(`/api/transcription/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioFilePath: upload.filename }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Transcription failed');
-      }
-
-      return response.json();
-    },
-  });
-
-  // Summary mutation
-  const summarizeMutation = useMutation({
-    mutationFn: async (sessionId: string) => {
-      const response = await fetch(`/api/summary/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Summary generation failed');
       }
 
       return response.json();
@@ -180,17 +189,19 @@ export default function SessionUploadPage() {
     },
     onSuccess: (newCampaign) => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
-      setShowCreateCampaignModal(false);
-      setCampaignFormData({ name: '', description: '', systemPrompt: '' });
+      setModalState({
+        showCreateCampaign: false,
+        campaignForm: { name: '', description: '', systemPrompt: '' },
+      });
       // Automatically select the newly created campaign
-      setFormData({ ...formData, campaignId: newCampaign.id });
+      setFormState((prev) => ({ ...prev, campaignId: newCampaign.id }));
     },
   });
 
   // Handle file selection
   const handleFileSelect = (file: File) => {
     if (file.type.startsWith('audio/')) {
-      setSelectedFile(file);
+      setUploadState((prev) => ({ ...prev, selectedFile: file }));
     } else {
       alert('Please select an audio file');
     }
@@ -199,12 +210,14 @@ export default function SessionUploadPage() {
   // Handle campaign creation
   const handleCreateCampaign = (e: React.FormEvent) => {
     e.preventDefault();
-    createCampaignMutation.mutate(campaignFormData);
+    createCampaignMutation.mutate(modalState.campaignForm);
   };
 
   const openCreateCampaignModal = () => {
-    setCampaignFormData({ name: '', description: '', systemPrompt: '' });
-    setShowCreateCampaignModal(true);
+    setModalState({
+      showCreateCampaign: true,
+      campaignForm: { name: '', description: '', systemPrompt: '' },
+    });
   };
 
   // Handle drag and drop
@@ -212,16 +225,16 @@ export default function SessionUploadPage() {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
+      setUploadState((prev) => ({ ...prev, dragActive: true }));
     } else if (e.type === 'dragleave') {
-      setDragActive(false);
+      setUploadState((prev) => ({ ...prev, dragActive: false }));
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragActive(false);
+    setUploadState((prev) => ({ ...prev, dragActive: false }));
 
     const files = e.dataTransfer.files;
     if (files && files[0]) {
@@ -233,152 +246,110 @@ export default function SessionUploadPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.title || !formData.campaignId || !formData.sessionDate) {
+    if (!formState.title || !formState.campaignId || !formState.sessionDate) {
       alert('Please fill in all required fields');
       return;
     }
 
-    const hasUpload = uploadMode === 'skip' ? null : (uploadMode === 'new' ? selectedFile : selectedUpload);
+    if (isSubmitting) {
+      return; // Prevent double submission
+    }
+
+    setIsSubmitting(true);
 
     try {
-      let upload: Upload | null = null;
+      // Use atomic session creation endpoint with file upload
+      if (uploadState.mode === 'new' && uploadState.selectedFile) {
+        // Atomic creation: upload file + create session in one request
+        const formDataToSend = new FormData();
+        formDataToSend.append('title', formState.title);
+        formDataToSend.append('campaign_id', formState.campaignId);
+        formDataToSend.append('session_date', new Date(formState.sessionDate).toISOString());
+        formDataToSend.append('audio', uploadState.selectedFile);
 
-      if (hasUpload) {
-        if (uploadMode === 'new' && selectedFile) {
-          // Step 1: Upload file
-          setProcessingStep('upload');
-          const uploadResult = await uploadMutation.mutateAsync(selectedFile);
-          upload = uploadResult.upload;
-        } else if (selectedUpload) {
-          upload = selectedUpload;
-        }
-      }
-
-      // Step 2: Create session
-      const sessionData = {
-        title: formData.title,
-        campaign_id: formData.campaignId,
-        session_date: new Date(formData.sessionDate).toISOString(),
-        ...(upload && { upload_id: upload.id, duration: upload.duration }),
-      };
-
-      const session = await createSessionMutation.mutateAsync(sessionData);
-      setCurrentSession(session);
-
-      // Only proceed with transcription and summarization if we have an upload
-      if (upload) {
-        // Step 3: Generate transcription
-        setProcessingStep('transcribe');
-        await transcribeMutation.mutateAsync({
-          sessionId: session.id,
-          upload: upload,
+        const response = await fetch('/api/sessions/create-with-upload', {
+          method: 'POST',
+          body: formDataToSend,
         });
 
-        // Step 4: Generate summary
-        setProcessingStep('summarize');
-        await summarizeMutation.mutateAsync(session.id);
+        const result = await response.json();
 
-        // Step 5: Complete
-        setProcessingStep('complete');
+        if (!response.ok && response.status !== 207) {
+          // If we got a session ID despite the error, navigate to it
+          if (result.sessionId) {
+            alert(result.message || 'Session created but encountered an error');
+            router.push(`/sessions/${result.sessionId}`);
+            return;
+          }
+          throw new Error(result.error || 'Failed to create session');
+        }
+
+        // Success - navigate to session page to watch processing
+        // Pass initial state via URL to enable optimistic UI rendering
+        logger.info('Session created successfully', { sessionId: result.session.id });
+        router.push(`/sessions/${result.session.id}?initialState=processing`);
+
+      } else if (uploadState.mode === 'existing' && uploadState.selectedUpload) {
+        // Link existing upload to new session
+        const session = await createSessionMutation.mutateAsync({
+          title: formState.title,
+          campaign_id: formState.campaignId,
+          session_date: new Date(formState.sessionDate).toISOString(),
+        });
+
+        // Link the existing upload
+        const linkResponse = await fetch(`/api/sessions/${session.id}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            upload_id: uploadState.selectedUpload.id,
+            duration: uploadState.selectedUpload.duration
+          }),
+        });
+
+        if (!linkResponse.ok) {
+          alert('Session created but failed to link upload. You can link it from the session page.');
+        } else {
+          // Trigger processing
+          fetch(`/api/sessions/${session.id}/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(err => logger.error('Failed to trigger processing', err instanceof Error ? err : new Error(String(err)), { sessionId: session.id }));
+        }
+
+        router.push(`/sessions/${session.id}?initialState=processing`);
+
       } else {
-        // Session created without audio - redirect to session page
-        router.push(`/sessions/${session.id}`);
+        // No upload - just create session
+        const session = await createSessionMutation.mutateAsync({
+          title: formState.title,
+          campaign_id: formState.campaignId,
+          session_date: new Date(formState.sessionDate).toISOString(),
+        });
+
+        router.push(`/sessions/${session.id}?initialState=processing`);
       }
 
     } catch (error) {
-      console.error('Session processing error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error('Session creation failed', error instanceof Error ? error : new Error(String(error)));
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        // Try to extract details from error message if it's a JSON parse error
+        try {
+          const match = error.message.match(/\{.*\}/);
+          if (match) {
+            const details = JSON.parse(match[0]);
+            if (details.details) errorMessage += `\n\nDetails: ${details.details}`;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+      alert(`Failed to create session: ${errorMessage}`);
+      setIsSubmitting(false);
     }
   };
-
-  // Render processing status
-  const renderProcessingStatus = () => {
-    if (!processingStep) return null;
-
-    const steps = [
-      { key: 'upload', label: 'Uploading audio file', icon: Upload },
-      { key: 'transcribe', label: 'Generating transcription', icon: FileAudio },
-      { key: 'summarize', label: 'Creating AI summary', icon: Sparkles },
-      { key: 'complete', label: 'Session ready!', icon: CheckCircle },
-    ];
-
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Processing Session</h3>
-        <div className="space-y-4">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isActive = step.key === processingStep;
-            const isCompleted = steps.findIndex(s => s.key === processingStep) > index;
-
-            return (
-              <div key={step.key} className={`flex items-center space-x-3 p-3 rounded-lg ${isActive ? 'bg-blue-50 border border-blue-200' :
-                isCompleted ? 'bg-green-50 border border-green-200' :
-                  'bg-gray-50 border border-gray-200'
-                }`}>
-                <Icon className={`h-5 w-5 ${isActive ? 'text-blue-600' :
-                  isCompleted ? 'text-green-600' :
-                    'text-gray-400'
-                  }`} />
-                <span className={`font-medium ${isActive ? 'text-blue-900' :
-                  isCompleted ? 'text-green-900' :
-                    'text-gray-500'
-                  }`}>
-                  {step.label}
-                </span>
-                {isActive && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 ml-auto"></div>
-                )}
-                {isCompleted && (
-                  <CheckCircle className="h-4 w-4 text-green-600 ml-auto" />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {processingStep === 'complete' && currentSession && (
-          <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
-            <div className="flex items-center space-x-2 mb-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              <span className="font-medium text-green-900">Session Created Successfully!</span>
-            </div>
-            <p className="text-green-700 text-sm mb-3">
-              Your D&D session has been processed and is ready to view.
-            </p>
-            <div className="flex space-x-3">
-              <Button
-                size="sm"
-                onClick={() => router.push(`/sessions/${currentSession.id}`)}
-                className="flex items-center space-x-2"
-              >
-                <Play className="h-4 w-4" />
-                <span>View Session</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push('/sessions')}
-              >
-                All Sessions
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  if (processingStep) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Processing Session</h1>
-        </div>
-        {renderProcessingStatus()}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -398,8 +369,8 @@ export default function SessionUploadPage() {
               </label>
               <input
                 type="text"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                value={formState.title}
+                onChange={(e) => setFormState((prev) => ({ ...prev, title: e.target.value }))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter session title"
                 required
@@ -413,12 +384,12 @@ export default function SessionUploadPage() {
               <div className="relative">
                 <BookOpen className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 <select
-                  value={formData.campaignId}
+                  value={formState.campaignId}
                   onChange={(e) => {
                     if (e.target.value === 'create-new') {
                       openCreateCampaignModal();
                     } else {
-                      setFormData({ ...formData, campaignId: e.target.value });
+                      setFormState((prev) => ({ ...prev, campaignId: e.target.value }));
                     }
                   }}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -455,8 +426,8 @@ export default function SessionUploadPage() {
                 <Calendar className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 <input
                   type="date"
-                  value={formData.sessionDate}
-                  onChange={(e) => setFormData({ ...formData, sessionDate: e.target.value })}
+                  value={formState.sessionDate}
+                  onChange={(e) => setFormState((prev) => ({ ...prev, sessionDate: e.target.value }))}
                   className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
@@ -475,8 +446,8 @@ export default function SessionUploadPage() {
             <div className="grid grid-cols-3 gap-3">
               <button
                 type="button"
-                onClick={() => setUploadMode('new')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'new'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'new' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'new'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -485,8 +456,8 @@ export default function SessionUploadPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setUploadMode('existing')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'existing'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'existing' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'existing'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -495,8 +466,8 @@ export default function SessionUploadPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setUploadMode('skip')}
-                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadMode === 'skip'
+                onClick={() => setUploadState((prev) => ({ ...prev, mode: 'skip' }))}
+                className={`px-4 py-2 rounded-lg border-2 text-center transition-colors ${uploadState.mode === 'skip'
                     ? 'border-green-500 bg-green-50 text-green-700'
                     : 'border-gray-300 text-gray-700 hover:border-gray-400'
                   }`}
@@ -506,7 +477,7 @@ export default function SessionUploadPage() {
             </div>
           </div>
 
-          {uploadMode === 'skip' ? (
+          {uploadState.mode === 'skip' ? (
             <div className="text-center py-12 bg-green-50 rounded-lg border-2 border-green-200">
               <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-green-900 mb-2">Audio Upload Skipped</h3>
@@ -514,11 +485,11 @@ export default function SessionUploadPage() {
                 You can add audio to this session later from the session details page.
               </p>
             </div>
-          ) : uploadMode === 'new' ? (
+          ) : uploadState.mode === 'new' ? (
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${uploadState.dragActive
                 ? 'border-blue-400 bg-blue-50'
-                : selectedFile
+                : uploadState.selectedFile
                   ? 'border-green-400 bg-green-50'
                   : 'border-gray-300 hover:border-gray-400'
                 }`}
@@ -527,20 +498,20 @@ export default function SessionUploadPage() {
               onDragOver={handleDrag}
               onDrop={handleDrop}
             >
-              {selectedFile ? (
+              {uploadState.selectedFile ? (
                 <div className="space-y-3">
                   <FileAudio className="h-12 w-12 text-green-600 mx-auto" />
                   <div>
-                    <p className="text-lg font-medium text-gray-900">{selectedFile.name}</p>
+                    <p className="text-lg font-medium text-gray-900">{uploadState.selectedFile.name}</p>
                     <p className="text-sm text-gray-500">
-                      {formatFileSize(selectedFile.size)} • {selectedFile.type}
+                      {formatFileSize(uploadState.selectedFile.size)} • {uploadState.selectedFile.type}
                     </p>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedFile(null)}
+                    onClick={() => setUploadState((prev) => ({ ...prev, selectedFile: null }))}
                   >
                     Remove File
                   </Button>
@@ -586,11 +557,11 @@ export default function SessionUploadPage() {
                   {uploads.map((upload) => (
                     <div
                       key={upload.id}
-                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${selectedUpload?.id === upload.id
+                      className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${uploadState.selectedUpload?.id === upload.id
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-gray-300 hover:border-gray-400'
                         }`}
-                      onClick={() => setSelectedUpload(upload)}
+                      onClick={() => setUploadState((prev) => ({ ...prev, selectedUpload: upload }))}
                     >
                       <div className="flex items-center space-x-3">
                         <FileAudio className="h-8 w-8 text-gray-600" />
@@ -625,21 +596,22 @@ export default function SessionUploadPage() {
           <Button
             type="submit"
             disabled={
-              !formData.title ||
-              !formData.campaignId ||
-              !formData.sessionDate ||
-              campaignsLoading
+              !formState.title ||
+              !formState.campaignId ||
+              !formState.sessionDate ||
+              campaignsLoading ||
+              isSubmitting
             }
             className="flex items-center space-x-2"
           >
             <Upload className="h-4 w-4" />
-            <span>Create Session</span>
+            <span>{isSubmitting ? 'Creating...' : 'Create Session'}</span>
           </Button>
         </div>
       </form>
 
       {/* Create Campaign Modal */}
-      {showCreateCampaignModal && (
+      {modalState.showCreateCampaign && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Create Campaign</h2>
@@ -650,8 +622,11 @@ export default function SessionUploadPage() {
                 </label>
                 <input
                   type="text"
-                  value={campaignFormData.name}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, name: e.target.value })}
+                  value={modalState.campaignForm.name}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, name: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   placeholder="Enter campaign name"
                   required
@@ -662,8 +637,11 @@ export default function SessionUploadPage() {
                   Description (Optional)
                 </label>
                 <textarea
-                  value={campaignFormData.description}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, description: e.target.value })}
+                  value={modalState.campaignForm.description}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, description: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={3}
                   placeholder="Enter campaign description"
@@ -674,8 +652,11 @@ export default function SessionUploadPage() {
                   System Prompt (Optional)
                 </label>
                 <textarea
-                  value={campaignFormData.systemPrompt}
-                  onChange={(e) => setCampaignFormData({ ...campaignFormData, systemPrompt: e.target.value })}
+                  value={modalState.campaignForm.systemPrompt}
+                  onChange={(e) => setModalState((prev) => ({
+                    ...prev,
+                    campaignForm: { ...prev.campaignForm, systemPrompt: e.target.value },
+                  }))}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   rows={4}
                   placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries"
@@ -695,7 +676,7 @@ export default function SessionUploadPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setShowCreateCampaignModal(false)}
+                  onClick={() => setModalState((prev) => ({ ...prev, showCreateCampaign: false }))}
                   className="flex-1"
                 >
                   Cancel
@@ -706,5 +687,17 @@ export default function SessionUploadPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SessionUploadPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <SessionUploadPageContent />
+    </Suspense>
   );
 }

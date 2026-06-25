@@ -1,22 +1,63 @@
 version: '3.8'
 
 services:
-  dnd-recorder:
+  # PostgreSQL Database for Development
+  postgres:
+    image: postgres:16-alpine
+    container_name: dnd-recorder-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dnd_recorder
+      POSTGRES_USER: dnd_user
+      POSTGRES_PASSWORD: dnd_password
+      POSTGRES_HOST_AUTH_METHOD: trust # For development only
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dnd_user -d dnd_recorder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # PgAdmin for Database Management (Optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: dnd-recorder-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dnd-recorder.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools # Optional service, run with: docker-compose --profile tools up
+
+  # Full Application Stack (for testing Docker builds)
+  app:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
-      # Database
-      - DATABASE_URL=file:./prisma/data/dev.db
+      # Database - now uses PostgreSQL
+      - DATABASE_URL=postgresql://dnd_user:dnd_password@postgres:5432/dnd_recorder
       
       # OpenAI Configuration (Required)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       
       # NextAuth Configuration (Required)
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-secret-32-characters-minimum}
       
       # Google OAuth Configuration (Optional)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
@@ -31,9 +72,11 @@ services:
       # Node Environment
       - NODE_ENV=production
     volumes:
-      # Persist database and uploads
-      - ./data/database:/app/prisma/data
+      # Persist uploads only (database is now in PostgreSQL)
       - ./data/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
@@ -41,9 +84,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    profiles:
+      - full # Full stack, run with: docker-compose --profile full up
 
 volumes:
-  database:
+  postgres_data:
     driver: local
-  uploads:
+  pgadmin_data:
     driver: local
+
+networks:
+  default:
+    name: dnd-recorder-network

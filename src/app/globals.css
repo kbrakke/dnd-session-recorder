@@ -1,29 +1,213 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Source Sans 3', 'Source Sans Pro', system-ui, sans-serif;
   }
-  
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-slate-50 text-slate-900;
+    background-image:
+      radial-gradient(circle at 20% 80%, rgba(148, 163, 184, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(100, 116, 139, 0.02) 0%, transparent 50%);
   }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Crimson Text', serif;
+    font-weight: 600;
+  }
+}
+
+@keyframes ss-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ss-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ============================================================
+   Session page theme tokens (set via data-theme attribute)
+   ============================================================ */
+
+[data-theme="daylight"] {
+  --sp-bg-canvas: #f6f7fb;
+  --sp-bg-canvas-grad:
+    radial-gradient(circle at 20% 80%, rgba(148,163,184,0.04) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(100,116,139,0.03) 0%, transparent 50%);
+  --sp-bg-surface: #ffffff;
+  --sp-bg-sunken: #f1f5f9;
+  --sp-bg-active: #eff6ff;
+
+  --sp-border: #e2e8f0;
+  --sp-border-strong: #cbd5e1;
+  --sp-divider: #f1f5f9;
+
+  --sp-fg-1: #0f172a;
+  --sp-fg-2: #334155;
+  --sp-fg-3: #64748b;
+  --sp-fg-4: #94a3b8;
+
+  --sp-primary: #1e3a8a;
+  --sp-primary-deep: #172554;
+  --sp-primary-tint: #eff6ff;
+  --sp-primary-border: #172554;
+  --sp-on-primary: #ffffff;
+
+  --sp-manuscript-bg: #fbf8f1;
+  --sp-manuscript-ink: #1e293b;
+  --sp-manuscript-border: #ece1c1;
+  --sp-manuscript-rule: rgba(200,155,60,0.25);
+  --sp-gold: #a37d2a;
+
+  --sp-success-bg: #065f46; --sp-success-fg: #ecfdf5; --sp-success-bd: #047857;
+  --sp-info-bg: #1e3a8a; --sp-info-fg: #eff6ff; --sp-info-bd: #1e40af;
+  --sp-warn-bg: #854d0e; --sp-warn-fg: #fef9c3; --sp-warn-bd: #a16207;
+  --sp-error-bg: #7f1d1d; --sp-error-fg: #fee2e2; --sp-error-bd: #991b1b;
+  --sp-error-fg-soft: #b91c1c;
+
+  --sp-shadow-card: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 0 0 rgba(15,23,42,0.04), 0 1px 2px 0 rgba(15,23,42,0.05);
+  --sp-shadow-card-h: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 0 0 rgba(15,23,42,0.04), 0 2px 4px 0 rgba(15,23,42,0.08);
+  --sp-shadow-btn: inset 0 1px 0 rgba(255,255,255,0.14), 0 1px 0 0 rgba(15,23,42,0.05);
+
+  --sp-nav-bg: #ffffff;
+  --sp-nav-border: #cbd5e1;
+  color-scheme: light;
+}
+
+[data-theme="midnight"] {
+  --sp-bg-canvas: #0a0f1d;
+  --sp-bg-canvas-grad:
+    radial-gradient(circle at 18% 78%, rgba(30,58,138,0.10) 0%, transparent 55%),
+    radial-gradient(circle at 82% 22%, rgba(56,89,160,0.06) 0%, transparent 50%);
+  --sp-bg-surface: #111a2e;
+  --sp-bg-sunken: #0d1426;
+  --sp-bg-active: rgba(96,165,250,0.10);
+
+  --sp-border: #1e2942;
+  --sp-border-strong: #2a385a;
+  --sp-divider: #182135;
+
+  --sp-fg-1: #f1f5f9;
+  --sp-fg-2: #cbd5e1;
+  --sp-fg-3: #94a3b8;
+  --sp-fg-4: #64748b;
+
+  --sp-primary: #60a5fa;
+  --sp-primary-deep: #93c5fd;
+  --sp-primary-tint: rgba(96,165,250,0.12);
+  --sp-primary-border: #3b82f6;
+  --sp-on-primary: #0a0f1d;
+
+  --sp-manuscript-bg: #1a1d2e;
+  --sp-manuscript-ink: #ede5cd;
+  --sp-manuscript-border: #3a3252;
+  --sp-manuscript-rule: rgba(200,155,60,0.30);
+  --sp-gold: #d4b15a;
+
+  --sp-success-bg: #064e3b; --sp-success-fg: #a7f3d0; --sp-success-bd: #0f6b53;
+  --sp-info-bg: #1e3a8a; --sp-info-fg: #bfdbfe; --sp-info-bd: #2952b0;
+  --sp-warn-bg: #6b3b06; --sp-warn-fg: #fde68a; --sp-warn-bd: #8a5310;
+  --sp-error-bg: #5a1414; --sp-error-fg: #fecaca; --sp-error-bd: #7f1d1d;
+  --sp-error-fg-soft: #fca5a5;
+
+  --sp-shadow-card: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 0 0 rgba(0,0,0,0.5), 0 1px 2px 0 rgba(0,0,0,0.4);
+  --sp-shadow-card-h: inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 0 0 rgba(0,0,0,0.5), 0 4px 10px -2px rgba(0,0,0,0.6);
+  --sp-shadow-btn: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 0 0 rgba(0,0,0,0.4);
+
+  --sp-nav-bg: #0d1426;
+  --sp-nav-border: #1e2942;
+  color-scheme: dark;
+}
+
+[data-theme="tome"] {
+  --sp-bg-canvas: #ece1c1;
+  --sp-bg-canvas-grad:
+    radial-gradient(circle at 20% 80%, rgba(132,83,28,0.06) 0%, transparent 55%),
+    radial-gradient(circle at 80% 20%, rgba(200,155,60,0.08) 0%, transparent 50%);
+  --sp-bg-surface: #fbf6e6;
+  --sp-bg-sunken: #f3e9c8;
+  --sp-bg-active: #f5e2b4;
+
+  --sp-border: #d3bc88;
+  --sp-border-strong: #b89b5b;
+  --sp-divider: #e1ce98;
+
+  --sp-fg-1: #2a1d08;
+  --sp-fg-2: #4e3a17;
+  --sp-fg-3: #735734;
+  --sp-fg-4: #9a7c52;
+
+  --sp-primary: #6b2410;
+  --sp-primary-deep: #4a1808;
+  --sp-primary-tint: #f1d9b2;
+  --sp-primary-border: #4a1808;
+  --sp-on-primary: #fbf6e6;
+
+  --sp-manuscript-bg: #fdf8e7;
+  --sp-manuscript-ink: #2a1d08;
+  --sp-manuscript-border: #c89b3c;
+  --sp-manuscript-rule: rgba(107,36,16,0.25);
+  --sp-gold: #8a6512;
+
+  --sp-success-bg: #3f5d27; --sp-success-fg: #f3ecc8; --sp-success-bd: #4f7234;
+  --sp-info-bg: #6b2410; --sp-info-fg: #fdf8e7; --sp-info-bd: #8a3618;
+  --sp-warn-bg: #8a6512; --sp-warn-fg: #fdf8e7; --sp-warn-bd: #a0791d;
+  --sp-error-bg: #781c1c; --sp-error-fg: #f6e4cc; --sp-error-bd: #931d1d;
+  --sp-error-fg-soft: #781c1c;
+
+  --sp-shadow-card: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 0 0 rgba(83,55,15,0.08), 0 1px 2px 0 rgba(83,55,15,0.08);
+  --sp-shadow-card-h: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 0 0 rgba(83,55,15,0.08), 0 2px 6px 0 rgba(83,55,15,0.12);
+  --sp-shadow-btn: inset 0 1px 0 rgba(255,255,255,0.2), 0 1px 0 0 rgba(83,55,15,0.10);
+
+  --sp-nav-bg: #fbf6e6;
+  --sp-nav-border: #c0a96b;
+  color-scheme: light;
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-ink-900 hover:bg-ink-950 text-white font-semibold py-2 px-4 rounded-ss-lg transition-all duration-150 border border-ink-950 shadow-ss-btn;
   }
-  
+
   .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold py-2 px-4 rounded-ss-lg transition-all duration-150 border border-slate-400 shadow-ss-btn-light;
   }
-  
+
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+    @apply bg-white rounded-ss-xl border border-slate-300 p-6 shadow-ss-card;
   }
-  
+
+  .card-hover {
+    @apply hover:shadow-ss-card-hover;
+  }
+
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    @apply w-full px-3 py-2 border border-slate-400 rounded-ss-lg focus:outline-none focus:ring-[3px] focus:ring-ink-900/[0.18] focus:border-ink-900 bg-white text-slate-900 transition-all duration-150;
+  }
+
+  .action-card {
+    @apply bg-white p-4 rounded-ss-xl border border-slate-300 shadow-ss-card hover:shadow-ss-card-hover transition-all duration-150 flex items-center space-x-3;
+  }
+
+  .stat-overview {
+    @apply bg-white rounded-ss-xl border border-slate-300 p-4 shadow-ss-card;
+  }
+
+  .session-list {
+    @apply bg-white rounded-ss-xl border border-slate-300 overflow-hidden shadow-ss-card;
+  }
+
+  .session-item {
+    @apply p-4 hover:bg-slate-50 transition-colors duration-150;
+  }
+
+  .empty-state {
+    @apply bg-white rounded-ss-xl border border-slate-300 p-8 text-center shadow-ss-card;
   }
 }

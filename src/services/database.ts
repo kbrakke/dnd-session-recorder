@@ -9,11 +9,11 @@ export interface CreateCampaignData {
 }
 
 export interface CreateSessionData {
+  userId: string;
   campaignId: string;
   title: string;
   sessionDate: Date;
   uploadId?: string;
-  audioFilePath?: string;
   duration?: number;
   status?: string;
 }
@@ -22,21 +22,21 @@ export interface CreateUploadData {
   userId: string;
   filename: string;
   originalName: string;
-  path: string;
+  storageKey: string;
   size: number;
   mimetype: string;
   duration?: number;
 }
 
 export interface SessionWithIncludes extends GamingSession {
-  campaign: { name: string };
+  campaign: { id: string; name: string };
   transcriptions: Transcription[];
   summary: Summary | null;
   upload: Upload | null;
 }
 
 export interface SessionListItem extends GamingSession {
-  campaign: { name: string };
+  campaign: { id: string; name: string };
   _count: {
     transcriptions: number;
   };
@@ -95,11 +95,11 @@ export class DatabaseService {
   async createSession(data: CreateSessionData): Promise<GamingSession> {
     return prisma.gamingSession.create({
       data: {
+        userId: data.userId,
         campaignId: data.campaignId,
         title: data.title,
         sessionDate: data.sessionDate,
         uploadId: data.uploadId,
-        audioFilePath: data.audioFilePath,
         duration: data.duration,
         status: data.status || (data.uploadId ? 'uploaded' : 'draft'),
       },
@@ -109,12 +109,12 @@ export class DatabaseService {
   async getSessions(userId?: string, campaignId?: string): Promise<SessionListItem[]> {
     return prisma.gamingSession.findMany({
       where: {
-        ...(userId && { campaign: { userId } }),
+        ...(userId && { userId }),
         ...(campaignId && { campaignId }),
       },
       include: {
         campaign: {
-          select: { name: true },
+          select: { id: true, name: true },
         },
         _count: {
           select: { transcriptions: true },
@@ -132,7 +132,7 @@ export class DatabaseService {
       where: { id },
       include: {
         campaign: {
-          select: { name: true },
+          select: { id: true, name: true },
         },
         transcriptions: {
           orderBy: { startTime: 'asc' },
@@ -142,13 +142,43 @@ export class DatabaseService {
       },
     });
   }
-  
-  
-  async updateSessionStatus(id: string, status: string): Promise<GamingSession> {
+
+  /**
+   * Progress-relevant fields only — no transcript/summary/upload payload.
+   * Used by the hot polling path so each poll stays a few hundred bytes.
+   */
+  async getSessionProgress(id: string) {
+    return prisma.gamingSession.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        duration: true,
+        transcriptionProgress: true,
+        totalChunks: true,
+        chunksCompleted: true,
+        currentStep: true,
+        errorStep: true,
+        errorMessage: true,
+      },
+    });
+  }
+
+  async updateTranscriptionProgress(
+    id: string,
+    data: {
+      currentStep?: string;
+      totalChunks?: number;
+      chunksCompleted?: number;
+      transcriptionProgress?: number;
+    }
+  ): Promise<GamingSession> {
     return prisma.gamingSession.update({
       where: { id },
       data: {
-        status,
+        ...data,
+        lastProgressAt: new Date(),
         updatedAt: new Date(),
       },
     });
@@ -160,6 +190,7 @@ export class DatabaseService {
       data: {
         errorStep: step,
         errorMessage: message,
+        lastError: new Date(),
         status: 'error',
         updatedAt: new Date(),
       },
@@ -172,6 +203,65 @@ export class DatabaseService {
       data: {
         errorStep: null,
         errorMessage: null,
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async startProcessing(id: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id },
+      data: {
+        processingStartedAt: new Date(),
+        lastProgressAt: new Date(),
+        errorStep: null,
+        errorMessage: null,
+        lastError: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  async checkProcessingTimeout(id: string, timeoutMinutes: number = 30): Promise<{
+    isTimedOut: boolean;
+    minutesElapsed: number;
+  }> {
+    const session = await prisma.gamingSession.findUnique({
+      where: { id },
+      select: {
+        processingStartedAt: true,
+        lastProgressAt: true,
+        status: true,
+      },
+    });
+
+    if (!session || !session.processingStartedAt) {
+      return { isTimedOut: false, minutesElapsed: 0 };
+    }
+
+    const now = new Date();
+    const startTime = session.processingStartedAt;
+    const minutesElapsed = (now.getTime() - startTime.getTime()) / (1000 * 60);
+    const isTimedOut = minutesElapsed >= timeoutMinutes;
+
+    return { isTimedOut, minutesElapsed: Math.floor(minutesElapsed) };
+  }
+
+  async cancelTranscription(id: string): Promise<GamingSession> {
+    return prisma.gamingSession.update({
+      where: { id },
+      data: {
+        status: 'uploaded',
+        currentStep: null,
+        totalChunks: null,
+        chunksCompleted: 0,
+        transcriptionProgress: 0,
+        processingStartedAt: null,
+        lastProgressAt: null,
+        errorStep: null,
+        errorMessage: null,
+        lastError: null,
         updatedAt: new Date(),
       },
     });
@@ -182,7 +272,6 @@ export class DatabaseService {
     errorStep?: string | null;
     errorMessage?: string | null;
     duration?: number;
-    audioFilePath?: string;
     uploadId?: string | null;
   }): Promise<GamingSession> {
     return prisma.gamingSession.update({
@@ -195,59 +284,23 @@ export class DatabaseService {
   }
   
   // Transcription operations
-  async saveTranscriptions(sessionId: string, segments: { start: number; end: number; text: string; avg_logprob?: number }[]): Promise<void> {
+  async saveTranscription(sessionId: string, text: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
-      // Delete existing transcriptions for this session
-      await tx.transcription.deleteMany({
-        where: { sessionId },
-      });
-      
-      // Insert new transcriptions
-      await tx.transcription.createMany({
-        data: segments.map((segment) => ({
-          sessionId,
-          startTime: segment.start,
-          endTime: segment.end,
-          text: segment.text,
-          confidence: segment.avg_logprob || 0,
-        })),
+      await tx.transcription.deleteMany({ where: { sessionId } });
+      // The pipeline stitches all chunks into one record; timestamps are unused.
+      await tx.transcription.create({
+        data: { sessionId, startTime: 0, endTime: 0, text, confidence: null },
       });
     });
   }
 
-  async saveTranscription(sessionId: string, text: string): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      // Delete existing transcriptions for this session
-      await tx.transcription.deleteMany({
-        where: { sessionId },
-      });
-      
-      // Insert single transcription record with dummy timestamps
-      await tx.transcription.create({
-        data: {
-          sessionId,
-          startTime: 0,
-          endTime: 0,
-          text,
-          confidence: null,
-        },
-      });
-    });
-  }
-  
   async getTranscriptions(sessionId: string): Promise<Transcription[]> {
     return prisma.transcription.findMany({
       where: { sessionId },
       orderBy: { startTime: 'asc' },
     });
   }
-  
-  async getTranscriptionCount(sessionId: string): Promise<number> {
-    return prisma.transcription.count({
-      where: { sessionId },
-    });
-  }
-  
+
   // Summary operations
   async saveSummary(sessionId: string, summaryText: string): Promise<Summary> {
     return prisma.summary.upsert({
@@ -289,6 +342,47 @@ export class DatabaseService {
     });
   }
 
+  // DM TODO List operations
+  async saveDmTodoList(sessionId: string, content: string) {
+    return prisma.dmTodoList.upsert({
+      where: { sessionId },
+      update: {
+        content,
+      },
+      create: {
+        sessionId,
+        content,
+      },
+    });
+  }
+
+  async updateDmTodoList(sessionId: string, content: string) {
+    // First get the current todo list to preserve original text
+    const currentTodoList = await prisma.dmTodoList.findUnique({
+      where: { sessionId },
+    });
+
+    if (!currentTodoList) {
+      throw new Error('DM TODO list not found');
+    }
+
+    return prisma.dmTodoList.update({
+      where: { sessionId },
+      data: {
+        content,
+        isEdited: true,
+        editedAt: new Date(),
+        originalText: currentTodoList.originalText || currentTodoList.content,
+      },
+    });
+  }
+
+  async getDmTodoList(sessionId: string) {
+    return prisma.dmTodoList.findUnique({
+      where: { sessionId },
+    });
+  }
+
   // Upload operations
   async createUpload(data: CreateUploadData): Promise<Upload> {
     return prisma.upload.create({
@@ -296,7 +390,7 @@ export class DatabaseService {
         userId: data.userId,
         filename: data.filename,
         originalName: data.originalName,
-        path: data.path,
+        storageKey: data.storageKey,
         size: data.size,
         mimetype: data.mimetype,
         duration: data.duration,
@@ -305,10 +399,26 @@ export class DatabaseService {
     });
   }
 
-  async getUploads(userId: string): Promise<Upload[]> {
+  async getUploads(userId: string, includeSessions = false) {
     return prisma.upload.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      ...(includeSessions && {
+        include: {
+          gamingSessions: {
+            select: {
+              id: true,
+              title: true,
+              sessionDate: true,
+              campaign: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
     });
   }
 
@@ -318,14 +428,10 @@ export class DatabaseService {
     });
   }
 
-  async updateUploadStatus(id: string, status: string, chunkPaths?: string[]): Promise<Upload> {
+  async updateUploadStatus(id: string, status: string): Promise<Upload> {
     return prisma.upload.update({
       where: { id },
-      data: {
-        status,
-        chunkPaths: chunkPaths ? JSON.stringify(chunkPaths) : undefined,
-        updatedAt: new Date(),
-      },
+      data: { status, updatedAt: new Date() },
     });
   }
 
@@ -411,6 +517,20 @@ export class DatabaseService {
       completedSessions,
       totalCampaigns,
     };
+  }
+
+  // User operations (for test cleanup)
+  async getUserByEmail(email: string) {
+    return prisma.user.findUnique({
+      where: { email },
+    });
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    // Prisma will cascade delete all related records (campaigns, sessions, uploads, etc.)
+    await prisma.user.delete({
+      where: { id: userId },
+    });
   }
 }
 

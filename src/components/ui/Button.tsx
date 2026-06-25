@@ -2,7 +2,7 @@ import { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   children: ReactNode;
   className?: string;
@@ -15,20 +15,22 @@ export default function Button({
   className,
   ...props
 }: ButtonProps) {
-  const baseClasses = 'font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2';
-  
+  const baseClasses = 'font-semibold rounded-ss-lg transition-all duration-150 focus:outline-none focus:ring-[3px] focus:ring-ink-900/[0.18] inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed';
+
   const variants = {
-    primary: 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500',
-    secondary: 'bg-gray-200 hover:bg-gray-300 text-gray-800 focus:ring-gray-500',
-    outline: 'border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 focus:ring-blue-500',
+    primary: 'bg-ink-900 hover:bg-ink-950 text-white border border-ink-950 shadow-ss-btn',
+    secondary: 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-400 shadow-ss-btn-light',
+    outline: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-400',
+    ghost: 'bg-transparent hover:bg-ink-50 text-ink-900 border border-transparent',
+    danger: 'bg-red-800 hover:bg-red-900 text-white border border-red-900 shadow-ss-btn',
   };
-  
+
   const sizes = {
-    sm: 'px-3 py-1.5 text-sm',
+    sm: 'px-3 py-1.5 text-xs',
     md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-3 text-base',
+    lg: 'px-[22px] py-[11px] text-base',
   };
-  
+
   return (
     <button
       className={cn(

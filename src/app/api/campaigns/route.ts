@@ -1,27 +1,26 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
+import { logger } from '@/lib/logger';
 
 const createCampaignSchema = z.object({
-  name: z.string().min(1, 'Campaign name is required'),
-  description: z.string().optional(),
-  systemPrompt: z.string().optional(),
+  name: z.string().min(1, 'Campaign name is required').max(100),
+  description: z.string().max(500).optional(),
+  // Bounded: this text is injected verbatim into every GPT-4o prompt for the
+  // campaign, so its length directly drives token cost.
+  systemPrompt: z.string().max(2000).optional(),
 });
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const { error, user } = await requireAuth();
+    if (error) return error;
     
-    if (!session?.user?.id) {
-      return NextResponse.json([]);
-    }
-    
-    const campaigns = await db.getCampaigns(session.user.id);
+    const campaigns = await db.getCampaigns(user.id);
     return NextResponse.json(campaigns);
   } catch (error) {
-    console.error('Error fetching campaigns:', error);
+    logger.error('Failed to fetch campaigns', error as Error);
     return NextResponse.json(
       { error: 'Failed to fetch campaigns' },
       { status: 500 }
@@ -31,25 +30,19 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-    
+    const { error, user } = await requireAuth();
+    if (error) return error;
+
     const body = await request.json();
     const validatedData = createCampaignSchema.parse(body);
-    
+
     const campaign = await db.createCampaign({
       name: validatedData.name,
       description: validatedData.description,
       systemPrompt: validatedData.systemPrompt,
-      userId: session.user.id,
+      userId: user.id,
     });
-    
+
     return NextResponse.json(campaign, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -58,8 +51,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    
-    console.error('Error creating campaign:', error);
+
+    logger.error('Failed to create campaign', error as Error);
     return NextResponse.json(
       { error: 'Failed to create campaign' },
       { status: 500 }

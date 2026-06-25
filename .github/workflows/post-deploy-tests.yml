@@ -1,0 +1,103 @@
+name: Post-Deploy Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      deploy_url:
+        description: 'Deployment URL (optional, uses default for environment if not provided)'
+        required: false
+        type: string
+
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: string
+      deploy_url:
+        description: 'Deployment URL'
+        required: false
+        type: string
+
+jobs:
+  post-deploy-tests:
+    name: Run Post-Deploy Tests
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+      
+      - name: Set Deploy URL
+        id: set-url
+        run: |
+          if [ -n "${{ inputs.deploy_url }}" ]; then
+            echo "DEPLOY_URL=${{ inputs.deploy_url }}" >> $GITHUB_ENV
+          elif [ "${{ inputs.environment }}" = "staging" ]; then
+            echo "DEPLOY_URL=${{ secrets.STAGING_URL }}" >> $GITHUB_ENV
+          elif [ "${{ inputs.environment }}" = "production" ]; then
+            echo "DEPLOY_URL=${{ secrets.PRODUCTION_URL }}" >> $GITHUB_ENV
+          else
+            echo "Error: No deploy URL provided or found in secrets"
+            exit 1
+          fi
+      
+      - name: Run Post-Deploy Tests
+        run: npm run test:post-deploy
+        env:
+          CI: true
+          DEPLOY_URL: ${{ env.DEPLOY_URL }}
+          TEST_CLEANUP_KEY: ${{ secrets.TEST_CLEANUP_KEY }}
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: post-deploy-test-results-${{ inputs.environment }}
+          path: test-results-staging/
+          retention-days: 30
+
+      - name: Upload Test Videos
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: post-deploy-test-videos-${{ inputs.environment }}
+          path: test-results-staging/**/*.webm
+          retention-days: 7
+      
+      - name: Notify on Failure
+        if: failure()
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const environment = '${{ inputs.environment }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number || context.payload.pull_request?.number,
+              body: `⚠️ Post-deploy tests failed on ${environment} environment.\n\n[View test results](${runUrl})`
+            }).catch(() => {
+              // Ignore error if no issue/PR context
+              console.log('No issue/PR context for comment');
+            });

@@ -1,208 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/services/database';
-import { fileCleanup } from '@/services/fileCleanup';
-import { experimental_transcribe as transcribe } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import fs from 'fs';
-import path from 'path';
-import ffmpeg from 'fluent-ffmpeg';
+import { prisma } from '@/lib/prisma';
+import { isAiMocked } from '@/lib/ai';
+import { isTestAccount } from '@/lib/whitelist';
+import { enqueueProcessSession, cancelActiveJobs } from '@/services/pipeline/queue';
+import { audioExists } from '@/services/storage';
+import { requireSessionOwner, enforceRateLimit } from '@/lib/route-utils';
+import { aiTranscriptionRateLimiter } from '@/lib/rate-limiter';
+import { logger } from '@/lib/logger';
 
-// Helper to split audio into 24MB chunks
-async function splitAudioBySize(inputPath: string, chunkSizeMB = 24): Promise<string[]> {
-  const stats = fs.statSync(inputPath);
-  const totalSize = stats.size;
-  const chunkSize = chunkSizeMB * 1024 * 1024;
-  const numChunks = Math.ceil(totalSize / chunkSize);
-  const ext = path.extname(inputPath);
-  const base = path.basename(inputPath, ext);
-  const dir = path.dirname(inputPath);
-  const chunkPaths: string[] = [];
-
-  if (numChunks === 1) {
-    console.log(`[Audio Split] File is under ${chunkSizeMB}MB, no split needed.`);
-    return [inputPath];
-  }
-
-  // Get duration of the audio
-  const getDuration = () => new Promise<number>((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, metadata) => {
-      if (err) return reject(err);
-      resolve(metadata.format.duration || 0);
-    });
-  });
-  
-  const duration = await getDuration();
-  const chunkDuration = duration / numChunks;
-
-  console.log(`[Audio Split] Splitting ${inputPath} into ${numChunks} chunks of ~${chunkSizeMB}MB each (~${chunkDuration.toFixed(2)}s per chunk)`);
-
-  const splitPromises: Promise<void>[] = [];
-  for (let i = 0; i < numChunks; i++) {
-    const start = i * chunkDuration;
-    const output = path.join(dir, `${base}_chunk${i}${ext}`);
-    chunkPaths.push(output);
-    
-    splitPromises.push(new Promise<void>((resolve, reject) => {
-      ffmpeg(inputPath)
-        .setStartTime(start)
-        .setDuration(chunkDuration)
-        .output(output)
-        .on('end', () => {
-          console.log(`[Audio Split] Created chunk: ${output}`);
-          resolve();
-        })
-        .on('error', (err) => {
-          console.error(`[Audio Split] Error creating chunk ${output}:`, err);
-          reject(err);
-        })
-        .run();
-    }));
-  }
-  
-  await Promise.all(splitPromises);
-  return chunkPaths;
-}
-
-// Helper to update session status
-async function updateSessionStatus(sessionId: string, status: string, errorStep?: string, errorMessage?: string): Promise<void> {
-  try {
-    await db.updateSession(sessionId, {
-      status,
-      errorStep: errorStep || null,
-      errorMessage: errorMessage || null,
-    });
-  } catch (error) {
-    console.error('Error updating session status:', error);
-    throw error;
-  }
-}
-
-// POST /api/transcription/[sessionId] - Transcribe audio
+// POST /api/transcription/[sessionId] - Queue transcription for a session.
+//
+// Transcription itself runs in the durable pipeline worker (per-chunk
+// checkpoints, retries, crash recovery) — never inside an HTTP request.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
-  try {
-    const body = await request.json();
-    const { audioFilePath } = body;
 
-    // Check if session exists
-    const session = await db.getSessionById(sessionId);
-    if (!session) {
+  try {
+    const { error: authError, user, session } = await requireSessionOwner(sessionId);
+    if (authError) return authError;
+
+    const limited = enforceRateLimit(request, user.id, aiTranscriptionRateLimiter);
+    if (limited) return limited;
+
+    // COST PROTECTION: Block test accounts from real AI calls (skipped when mocked).
+    if (isTestAccount(user.email!) && !isAiMocked()) {
       return NextResponse.json(
-        { error: 'Session not found' },
-        { status: 404 }
+        {
+          error: 'Test accounts cannot use AI transcription services. Please use a real email address to access this feature.',
+          isTestAccount: true,
+        },
+        { status: 403 }
       );
     }
 
-    let fullPath: string;
-    
-    // If audioFilePath is provided, use it (backwards compatibility)
-    if (audioFilePath) {
-      fullPath = path.resolve(audioFilePath);
-    } 
-    // Otherwise, get the file path from the linked upload
-    else if (session.upload) {
-      fullPath = path.resolve(session.upload.path);
-    } 
-    // Fallback to session's audioFilePath if it exists
-    else if (session.audioFilePath) {
-      fullPath = path.resolve(session.audioFilePath);
-    } 
-    else {
+    const existingTranscriptions = await db.getTranscriptions(sessionId);
+    if (existingTranscriptions.length > 0) {
+      if (session.status !== 'transcribed' && session.status !== 'completed') {
+        await db.updateSession(sessionId, { status: 'transcribed' });
+      }
+      return NextResponse.json({
+        message: 'Transcription already exists',
+        transcriptionLength: existingTranscriptions[0].text.length,
+        skipped: true,
+      });
+    }
+
+    if (!session.upload) {
       return NextResponse.json(
-        { error: 'No audio file found for this session' },
+        { error: 'No audio file found for this session. Please upload an audio file first.' },
         { status: 400 }
       );
     }
 
-    if (!fs.existsSync(fullPath)) {
+    if (!(await audioExists(session.upload))) {
+      logger.warn('Audio not found in storage', { sessionId, storageKey: session.upload.storageKey });
       return NextResponse.json(
-        { error: `Audio file not found at path: ${fullPath}` },
+        { error: 'Audio is missing from storage. Please re-upload the file.' },
         { status: 404 }
       );
     }
 
-    console.log(`[Transcription] Starting transcription for session ${sessionId}`);
-    await updateSessionStatus(sessionId, 'transcribing');
+    const { job } = await enqueueProcessSession(sessionId);
+    await db.clearSessionError(sessionId);
+    await db.updateSession(sessionId, { status: 'transcribing' });
 
-    // Split audio into 24MB chunks
-    const chunkPaths = await splitAudioBySize(fullPath, 18);
-    console.log(`[Transcription] Audio split into ${chunkPaths.length} chunk(s)`);
+    logger.info('Transcription queued', { sessionId, jobId: job.id });
 
-    const allText: string[] = [];
-    
-    for (let i = 0; i < chunkPaths.length; i++) {
-      const chunkPath = chunkPaths[i];
-      console.log(`[Transcription] Transcribing chunk ${i + 1}/${chunkPaths.length}: ${chunkPath}`);
-      
-      // Read the file buffer for AI SDK
-      const fileBuffer = fs.readFileSync(chunkPath);
-      
-      const transcription = await transcribe({
-        model: openai.transcription('whisper-1'),
-        audio: fileBuffer,
-      });
-
-      if (!transcription.text) {
-        throw new Error(`No transcription text received for chunk ${i + 1}`);
-      }
-
-      allText.push(transcription.text);
-      console.log(`[Transcription] Chunk ${i + 1} transcribed.`);
-    }
-
-    // Clean up chunk files (except original)
-    chunkPaths.forEach(p => {
-      if (p !== fullPath && fs.existsSync(p)) {
-        fs.unlinkSync(p);
-      }
-    });
-    console.log(`[Transcription] All chunks transcribed and cleaned up.`);
-
-    // Combine all text chunks into a single transcription
-    const fullText = allText.join(' ');
-
-    // Save transcription to database
-    await db.saveTranscription(sessionId, fullText);
-    console.log(`[Transcription] Transcription saved.`);
-
-    // Update session status to transcribed
-    await updateSessionStatus(sessionId, 'transcribed');
-    
-    // Update upload status to transcribed if session has an upload
-    if (session.uploadId) {
-      await db.updateUploadStatus(session.uploadId, 'transcribed', chunkPaths);
-    }
-
-    // Clean up files after transcription is complete
-    try {
-      await fileCleanup.cleanupSessionFiles(sessionId);
-    } catch (cleanupError) {
-      console.warn(`[Transcription] File cleanup failed for session ${sessionId}:`, cleanupError);
-      // Don't fail the transcription if cleanup fails
-    }
-
-    console.log(`[Transcription] Transcription completed for session ${sessionId}`);
-
-    return NextResponse.json({
-      message: 'Transcription completed successfully',
-      transcriptionLength: fullText.length
-    });
-
+    return NextResponse.json({ message: 'Transcription queued', jobId: job.id, queued: true }, { status: 202 });
   } catch (error) {
-    console.error('[Transcription Error]:', error);
-    await updateSessionStatus(
-      sessionId, 
-      'error', 
-      'transcription', 
-      error instanceof Error ? error.message : String(error)
-    );
-    
+    logger.error('Failed to queue transcription', error as Error, { sessionId });
     return NextResponse.json(
-      { error: 'Failed to transcribe audio' },
+      { error: 'Failed to queue transcription', canRetry: true },
       { status: 500 }
     );
   }
@@ -210,21 +82,50 @@ export async function POST(
 
 // GET /api/transcription/[sessionId] - Get transcriptions for a session
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await params;
-  
+
   try {
-    const transcriptions = await db.getTranscriptions(sessionId);
-    
-    return NextResponse.json(transcriptions);
+    const { error } = await requireSessionOwner(sessionId);
+    if (error) return error;
+
+    return NextResponse.json(await db.getTranscriptions(sessionId));
   } catch (error) {
-    console.error('Error fetching transcriptions:', error);
-    
-    return NextResponse.json(
-      { error: 'Failed to fetch transcriptions' },
-      { status: 500 }
-    );
+    logger.error('Failed to fetch transcriptions', error as Error);
+    return NextResponse.json({ error: 'Failed to fetch transcriptions' }, { status: 500 });
+  }
+}
+
+// DELETE /api/transcription/[sessionId] - Cancel transcription
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
+  const { sessionId } = await params;
+
+  try {
+    const { error } = await requireSessionOwner(sessionId);
+    if (error) return error;
+
+    const { isTimedOut, minutesElapsed } = await db.checkProcessingTimeout(sessionId, 30);
+
+    // Cancel the active pipeline job (the worker aborts at its next chunk
+    // boundary), drop chunk checkpoints, and reset the session state.
+    const cancelledJobs = await cancelActiveJobs(sessionId);
+    await prisma.transcriptChunk.deleteMany({ where: { sessionId } });
+    await db.cancelTranscription(sessionId);
+
+    logger.info('Transcription cancelled', { sessionId, cancelledJobs, minutesElapsed, wasTimedOut: isTimedOut });
+
+    return NextResponse.json({
+      message: 'Transcription cancelled successfully',
+      wasTimedOut: isTimedOut,
+      minutesElapsed,
+    });
+  } catch (error) {
+    logger.error('Failed to cancel transcription', error as Error);
+    return NextResponse.json({ error: 'Failed to cancel transcription' }, { status: 500 });
   }
 }

@@ -4,8 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Play, Edit3, Save, X, FileText, Sparkles } from 'lucide-react';
+import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Play, Edit3, Save, X, FileText, Sparkles, Trash2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { logger } from '@/lib/logger';
 
 interface Campaign {
   id: string;
@@ -29,13 +30,20 @@ interface Session {
   summary: { id: number } | null;
 }
 
+interface EditingState {
+  isEditing: boolean;
+  text: string;
+}
+
 export default function CampaignDetailsPage() {
   const params = useParams();
   const campaignId = params.id as string;
   const queryClient = useQueryClient();
   
-  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [editedPrompt, setEditedPrompt] = useState('');
+  const [editingState, setEditingState] = useState<EditingState>({
+    isEditing: false,
+    text: '',
+  });
 
   const { data: campaign, isLoading: campaignLoading } = useQuery<Campaign>({
     queryKey: ['campaign', campaignId],
@@ -62,10 +70,10 @@ export default function CampaignDetailsPage() {
       const response = await fetch(`/api/campaigns/${campaignId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           name: campaign?.name,
           description: campaign?.description,
-          systemPrompt 
+          systemPrompt
         }),
       });
 
@@ -78,8 +86,26 @@ export default function CampaignDetailsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['campaign', campaignId] });
-      setIsEditingPrompt(false);
-      setEditedPrompt('');
+      setEditingState({ isEditing: false, text: '' });
+    },
+  });
+
+  // Delete session mutation
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete session');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign-sessions', campaignId] });
     },
   });
 
@@ -114,17 +140,34 @@ export default function CampaignDetailsPage() {
   };
 
   const handleEditPrompt = () => {
-    setEditedPrompt(campaign?.systemPrompt || '');
-    setIsEditingPrompt(true);
+    setEditingState({
+      isEditing: true,
+      text: campaign?.systemPrompt || '',
+    });
   };
 
   const handleSavePrompt = () => {
-    updatePromptMutation.mutate(editedPrompt);
+    updatePromptMutation.mutate(editingState.text);
   };
 
   const handleCancelEdit = () => {
-    setIsEditingPrompt(false);
-    setEditedPrompt('');
+    setEditingState({ isEditing: false, text: '' });
+  };
+
+  const handleDeleteSession = async (sessionId: string, sessionTitle: string, e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent navigation to session detail
+    e.stopPropagation();
+
+    if (!window.confirm(`Are you sure you want to delete "${sessionTitle}"? This will also delete all associated transcriptions and summaries. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteSessionMutation.mutateAsync(sessionId);
+    } catch (error) {
+      logger.error('Failed to delete session', error instanceof Error ? error : new Error(String(error)), { sessionId });
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to delete session'}`);
+    }
   };
 
   // Sort sessions by date
@@ -184,7 +227,7 @@ export default function CampaignDetailsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Session Timeline</h2>
-              <Link href="/sessions/upload">
+              <Link href={`/sessions/upload?campaignId=${campaignId}`}>
                 <Button size="sm" className="flex items-center space-x-2">
                   <Play className="h-4 w-4" />
                   <span>New Session</span>
@@ -201,15 +244,15 @@ export default function CampaignDetailsPage() {
               <div className="text-center py-8">
                 <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-500 mb-4">No sessions yet for this campaign</p>
-                <Link href="/sessions/upload">
+                <Link href={`/sessions/upload?campaignId=${campaignId}`}>
                   <Button>Create First Session</Button>
                 </Link>
               </div>
             ) : (
               <div className="space-y-4">
                 {sortedSessions.map((session) => (
-                  <Link key={session.id} href={`/sessions/${session.id}`}>
-                    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+                  <div key={session.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow group">
+                    <Link href={`/sessions/${session.id}`} className="cursor-pointer">
                       <div className="flex items-center justify-between">
                         <div className="flex-1">
                           <div className="flex items-center space-x-3 mb-2">
@@ -241,12 +284,22 @@ export default function CampaignDetailsPage() {
                             )}
                           </div>
                         </div>
-                        <div className="text-gray-400">
-                          <ArrowLeft className="h-5 w-5 rotate-180" />
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={(e) => handleDeleteSession(session.id, session.title, e)}
+                            disabled={deleteSessionMutation.isPending}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 disabled:opacity-50"
+                            title="Delete session"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <div className="text-gray-400">
+                            <ArrowLeft className="h-5 w-5 rotate-180" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </Link>
+                    </Link>
+                  </div>
                 ))}
               </div>
             )}
@@ -258,7 +311,7 @@ export default function CampaignDetailsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 sticky top-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Campaign Context</h2>
-              {!isEditingPrompt && (
+              {!editingState.isEditing && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -271,11 +324,11 @@ export default function CampaignDetailsPage() {
               )}
             </div>
 
-            {isEditingPrompt ? (
+            {editingState.isEditing ? (
               <div className="space-y-4">
                 <textarea
-                  value={editedPrompt}
-                  onChange={(e) => setEditedPrompt(e.target.value)}
+                  value={editingState.text}
+                  onChange={(e) => setEditingState((prev) => ({ ...prev, text: e.target.value }))}
                   className="w-full h-64 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   placeholder="Enter campaign context (characters, setting, story details) to enhance AI summaries..."
                 />
