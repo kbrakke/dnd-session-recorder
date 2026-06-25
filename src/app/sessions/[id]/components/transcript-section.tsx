@@ -135,7 +135,7 @@ export function TranscriptSection({
         />
         <input
           type="text"
-          placeholder="Search transcript\u2026"
+          placeholder={'Search transcript\u2026'}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="font-body"
