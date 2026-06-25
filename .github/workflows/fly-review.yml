@@ -24,24 +24,69 @@ jobs:
       name: review
       # The script in the `deploy` sets the URL output for each review app.
       url: ${{ steps.deploy.outputs.url }}
-    
+
+    env:
+      APP_NAME: pr-${{ github.event.number }}-dnd-rec
+      DB_NAME: pr-${{ github.event.number }}-dnd-rec-db
+
     steps:
       - name: Get code
         uses: actions/checkout@v6
 
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Each review app gets its own throwaway Postgres — no shared/external DB.
+      - name: Provision & attach ephemeral Postgres
+        if: github.event.action != 'closed'
+        run: |
+          set -euo pipefail
+          # Create the review app shell first so the DB can attach DATABASE_URL to it.
+          flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || true
+          # Create a dedicated throwaway Postgres for this PR if it doesn't exist yet.
+          if ! flyctl status --app "$DB_NAME" >/dev/null 2>&1; then
+            echo "Creating ephemeral Postgres $DB_NAME..."
+            flyctl postgres create \
+              --name "$DB_NAME" \
+              --org "$FLY_ORG" \
+              --region "$FLY_REGION" \
+              --vm-size shared-cpu-1x \
+              --volume-size 1 \
+              --initial-cluster-size 1
+          fi
+          # Attach (idempotent): injects DATABASE_URL into the review app.
+          # Tolerate re-runs where the DB is already attached.
+          if ! flyctl postgres attach "$DB_NAME" --app "$APP_NAME" --yes 2>&1 | tee /tmp/attach.log; then
+            grep -qiE "already attached|already exists" /tmp/attach.log
+          fi
+
       - name: Deploy PR app to Fly.io
         id: deploy
+        if: github.event.action != 'closed'
         uses: superfly/fly-pr-review-apps@1.2.1
         with:
-          name: pr-${{ github.event.number }}-dnd-rec
+          name: ${{ env.APP_NAME }}
           config: fly.review.toml
+          # No external connectors: placeholder OpenAI key; AI is mocked via
+          # MOCK_AI_SERVICES in fly.review.toml. DATABASE_URL comes from attach.
           secrets: |
             NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            NEXT_PUBLIC_ENVIRONMENT=review
+            OPENAI_API_KEY=sk-review-placeholder-no-external-calls
           vmsize: shared-cpu-1x
-          memory: 512
+          memory: 1024
           cpu: 1
+
+      # On PR close: tear down the review app, then its throwaway Postgres.
+      - name: Destroy review app on PR close
+        if: github.event.action == 'closed'
+        uses: superfly/fly-pr-review-apps@1.2.1
+        with:
+          name: ${{ env.APP_NAME }}
+          config: fly.review.toml
+
+      - name: Destroy ephemeral Postgres on PR close
+        if: github.event.action == 'closed'
+        run: flyctl apps destroy "$DB_NAME" --yes 2>/dev/null || true
 
   test_review_app:
     runs-on: ubuntu-latest

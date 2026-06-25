@@ -9,6 +9,10 @@
   PORT = "3000"
   HOSTNAME = "0.0.0.0"
   NEXT_PUBLIC_ENVIRONMENT = "review"
+  # Self-contained review app: seed default demo data on boot and mock all AI
+  # so no external services (OpenAI, object storage) are ever contacted.
+  SEED_DATABASE = "true"
+  MOCK_AI_SERVICES = "true"
 
 [http_service]
   internal_port = 3000
@@ -30,8 +34,9 @@
   cpus = 1
   memory_mb = 512  # Smaller for review apps
 
-# Review apps don't need persistent storage for most testing
-# They will use the shared Postgres database
+# Each review app gets its own ephemeral Fly Postgres (pr-<N>-dnd-rec-db),
+# provisioned and attached by .github/workflows/fly-review.yml and destroyed
+# when the PR closes. DATABASE_URL is injected by `flyctl postgres attach`.
 
 [[services]]
   protocol = "tcp"
