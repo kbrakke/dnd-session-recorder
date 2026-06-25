@@ -54,11 +54,12 @@ if echo "$DATABASE_URL" | grep -qE "^postgres(ql)?://"; then
   # Off by default; production/staging never set SEED_DATABASE.
   if [ "$SEED_DATABASE" = "true" ]; then
     log "Seeding default data (SEED_DATABASE=true)..."
+    # Non-fatal: a seed failure should leave the review app UP (and debuggable),
+    # not crashloop it. The seed is idempotent, so a later boot can still fill in.
     if npx tsx prisma/seed.ts; then
       log "Database seed: OK"
     else
-      error "Database seed failed"
-      exit 1
+      error "Database seed failed — starting app anyway (review data may be missing)"
     fi
   fi
 else

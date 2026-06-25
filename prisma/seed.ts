@@ -12,7 +12,6 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -22,8 +21,13 @@ const DEMO_PASSWORD = 'demodemo123';
 const CAMPAIGN_NAME = 'The Sunless Citadel';
 const SESSION_ID = 'seed-session-001';
 
+// Precomputed bcryptjs hash of DEMO_PASSWORD (cost 10). Embedded so the seed
+// has no runtime deps beyond @prisma/client — the Next.js standalone image does
+// not reliably bundle bcryptjs for an out-of-band script like this one.
+const DEMO_PASSWORD_HASH = '$2b$10$124CNloSTEqvK4mBS8ijfuC8jGDSJzmSoqEz2sGU5wHAN4k0bu0JG';
+
 async function main(): Promise<void> {
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const passwordHash = DEMO_PASSWORD_HASH;
 
   const user = await prisma.user.upsert({
     where: { email: DEMO_EMAIL },
