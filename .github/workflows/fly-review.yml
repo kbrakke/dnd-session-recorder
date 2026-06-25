@@ -65,10 +65,13 @@ jobs:
               --volume-size 1 \
               --initial-cluster-size 1
           fi
-          # Attach (idempotent): injects DATABASE_URL into the review app.
-          # Tolerate re-runs where the DB is already attached.
-          if ! flyctl postgres attach "$DB_NAME" --app "$APP_NAME" --yes 2>&1 | tee /tmp/attach.log; then
-            grep -qiE "already attached|already exists" /tmp/attach.log
+          # Attach injects DATABASE_URL into the review app. Idempotent: skip if
+          # the app already has DATABASE_URL (a prior run attached it) — otherwise
+          # re-attach errors ("already contains a secret named DATABASE_URL").
+          if flyctl secrets list --app "$APP_NAME" 2>/dev/null | grep -qw DATABASE_URL; then
+            echo "DATABASE_URL already set on $APP_NAME; skipping attach."
+          else
+            flyctl postgres attach "$DB_NAME" --app "$APP_NAME" --yes
           fi
 
       # The review-app action updates existing machines in place; a machine left
