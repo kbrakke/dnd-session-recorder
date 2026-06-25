@@ -16,15 +16,21 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // Fixed ids make every run idempotent (upsert by id / natural key).
-const DEMO_EMAIL = 'demo@example.com'; // @example.com is blocked from AI calls
-const DEMO_PASSWORD = 'demodemo123';
 const CAMPAIGN_NAME = 'The Sunless Citadel';
 const SESSION_ID = 'seed-session-001';
 
+// Demo credentials. These grant access to NOTHING but this review app's seeded
+// demo data: the DB is a per-PR throwaway and the review NEXTAUTH_SECRET is
+// unique, so these credentials can never authenticate against staging/prod.
+// All three are env-overridable, so a deployer can inject non-committed values
+// (e.g. as Fly secrets) if even the embedded hash is unwanted.
+const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@example.com'; // @example.com is blocked from AI calls
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'demodemo123';
 // Precomputed bcryptjs hash of DEMO_PASSWORD (cost 10). Embedded so the seed
 // has no runtime deps beyond @prisma/client — the Next.js standalone image does
 // not reliably bundle bcryptjs for an out-of-band script like this one.
-const DEMO_PASSWORD_HASH = '$2b$10$124CNloSTEqvK4mBS8ijfuC8jGDSJzmSoqEz2sGU5wHAN4k0bu0JG';
+const DEMO_PASSWORD_HASH =
+  process.env.DEMO_PASSWORD_HASH ?? '$2b$10$124CNloSTEqvK4mBS8ijfuC8jGDSJzmSoqEz2sGU5wHAN4k0bu0JG';
 
 async function main(): Promise<void> {
   const passwordHash = DEMO_PASSWORD_HASH;
@@ -33,7 +39,6 @@ async function main(): Promise<void> {
     where: { email: DEMO_EMAIL },
     update: {},
     create: {
-      id: 'seed-user-demo',
       email: DEMO_EMAIL,
       name: 'Demo DM',
       password: passwordHash,

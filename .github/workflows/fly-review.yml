@@ -41,6 +41,11 @@ jobs:
         if: github.event.action != 'closed'
         run: |
           set -euo pipefail
+          # Per-PR auth secret: review sessions must NEVER be a valid signature
+          # on staging/prod. With JWT sessions, sharing NEXTAUTH_SECRET would let
+          # a token minted in a review app authenticate against another env, so
+          # each review app gets its own random secret (isolated from all others).
+          echo "REVIEW_NEXTAUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
           # Create the review app shell first so the DB can attach DATABASE_URL to it.
           flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || true
           # Create a dedicated throwaway Postgres for this PR if it doesn't exist yet.
@@ -60,6 +65,18 @@ jobs:
             grep -qiE "already attached|already exists" /tmp/attach.log
           fi
 
+      # The review-app action updates existing machines in place; a machine left
+      # crashlooping/stopped by an earlier deploy makes its `secrets import` fail
+      # (HTTP 408). Destroy any existing machines so the action always creates a
+      # fresh one. App-level secrets (incl. DATABASE_URL from attach) are kept.
+      - name: Clear stale machines (force fresh deploy)
+        if: github.event.action != 'closed'
+        run: |
+          machines=$(flyctl machine list --app "$APP_NAME" --json 2>/dev/null || echo '[]')
+          echo "$machines" | jq -r '.[].id' | while read -r id; do
+            [ -n "$id" ] && flyctl machine destroy "$id" --app "$APP_NAME" --force || true
+          done
+
       - name: Deploy PR app to Fly.io
         id: deploy
         if: github.event.action != 'closed'
@@ -67,10 +84,14 @@ jobs:
         with:
           name: ${{ env.APP_NAME }}
           config: fly.review.toml
-          # No external connectors: placeholder OpenAI key; AI is mocked via
-          # MOCK_AI_SERVICES in fly.review.toml. DATABASE_URL comes from attach.
+          # Fully isolated — no shared/external connectors:
+          #   NEXTAUTH_SECRET: unique per PR (cannot authenticate other envs)
+          #   OPENAI_API_KEY:  placeholder; AI is mocked (MOCK_AI_SERVICES)
+          #   DATABASE_URL:    the per-PR throwaway Postgres (from attach)
+          # No AWS/Tigris, Google OAuth, or staging/prod secrets are passed, so
+          # storage falls back to the local in-container UPLOAD_DIR.
           secrets: |
-            NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING }}
+            NEXTAUTH_SECRET=${{ env.REVIEW_NEXTAUTH_SECRET }}
             OPENAI_API_KEY=sk-review-placeholder-no-external-calls
           vmsize: shared-cpu-1x
           memory: 1024
