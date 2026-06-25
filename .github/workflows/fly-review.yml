@@ -10,6 +10,12 @@ env:
   FLY_ORG: personal
   NODE_VERSION: '22'
 
+# pull-requests: write is required for the post-deploy step to comment on the PR
+# (the default token is read-only, which 403s the comment).
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   review_app:
     runs-on: ubuntu-latest
@@ -135,13 +141,18 @@ jobs:
         run: |
           echo "Waiting for review app to be ready..."
           for i in {1..30}; do
-            if curl -f -s ${{ needs.review_app.outputs.url }}/api/health; then
+            # --max-time stops a dead/cold app from hanging the whole job.
+            if curl -fsS --max-time 10 "${{ needs.review_app.outputs.url }}/api/health"; then
               echo "✅ App is ready!"
-              break
+              exit 0
             fi
             echo "⏳ Waiting... (attempt $i/30)"
             sleep 10
           done
+          # Fail fast with a clear signal instead of running tests against a
+          # down app (which surfaces as confusing register/TLS timeouts).
+          echo "::error::Review app never became healthy — check the Fly deploy/boot logs"
+          exit 1
 
       - name: Run post-deploy tests
         run: npm run test:post-deploy
