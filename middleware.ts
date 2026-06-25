@@ -19,6 +19,13 @@ export default withAuth(
           return true;
         }
 
+        // Allow the Stripe webhook — requests come from Stripe's servers
+        // (no session cookie) and are authenticated by signature
+        // verification against STRIPE_WEBHOOK_SECRET inside the route
+        if (req.nextUrl.pathname === '/api/billing/webhook') {
+          return true;
+        }
+
         // Allow the test cleanup endpoint — it enforces its own auth
         // (X-Test-Key must match TEST_CLEANUP_KEY, 503s when unconfigured)
         // and test teardown contexts have no session cookie

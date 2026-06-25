@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, BookOpen, HardDrive, ChevronDown } from 'lucide-react';
+import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, BookOpen, HardDrive, ChevronDown, CreditCard } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 
@@ -128,6 +128,14 @@ export default function Navbar() {
                       >
                         <HardDrive className="h-4 w-4" />
                         <span>My Uploads</span>
+                      </Link>
+                      <Link
+                        href="/billing"
+                        className="w-full px-3.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors duration-150"
+                        onClick={() => setShowProfileDropdown(false)}
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        <span>Billing</span>
                       </Link>
                       <Link
                         href="/settings"

@@ -29,6 +29,9 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 ### `npm audit fix --force` will DOWNGRADE majors to chase audit metadata
 It has twice proposed next 15 → **9.3.3** and next-auth 4 → 3 (the first run ballooned 28 vulns to 100). Never use `--force`; plain `npm audit fix` only applies semver-compatible bumps. Most transitive advisories here are fixed with `package.json` `"overrides"`, not upgrades.
 
+### `prisma migrate dev` cannot run non-interactively — not even with a fake TTY
+It hard-fails in non-interactive shells, and `script -q /dev/null` gets past that only to hit the y/N confirmation, which ignores piped stdin (answers "no"). Working path: generate the SQL with `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script`, save it as a hand-written migration (guards + default constraint names per `prisma/CLAUDE.md`), apply with `migrate deploy`, verify with `migrate diff --exit-code`.
+
 ### Doubly-nested npm overrides FLAP — keep overrides at most one level deep
 `"next-auth": {"@auth/core": {"cookie": …}}` applied at lockfile-regen time, then a later plain `npm install` silently re-resolved the deep entry back to the vulnerable version. Use a global or one-level override instead. If an override-protected vuln "comes back", suspect this before suspecting new advisories.
 
