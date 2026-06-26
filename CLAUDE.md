@@ -72,6 +72,8 @@ See `.env.example` for all variables. Critical ones:
 - `UPLOAD_DIR` - Audio file storage path (local fallback, default: `./uploads`)
 - `BUCKET_NAME` / `AWS_ENDPOINT_URL_S3` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - Tigris object storage for audio (set by `fly storage create`); local disk used when unset
 - `STAGING_WHITELIST` - Comma-separated emails for staging access control
+- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` - Stripe billing (use a restricted `rk_` key; billing endpoints 503 when unset)
+- `STRIPE_PRICE_ID` - Optional pinned subscription price (else found/created by product metadata; see `scripts/stripe-setup.ts`)
 
 ## Authentication
 
@@ -119,6 +121,7 @@ if (!session?.user?.id) {
 These endpoints explicitly skip authentication:
 - `/api/auth/*` - NextAuth session management (signin, signup, etc.)
 - `/api/health` - Health check for monitoring
+- `/api/billing/webhook` - Stripe webhook; authenticated by signature verification (`STRIPE_WEBHOOK_SECRET`), not by session
 - Any future public APIs must be documented here and excluded in middleware
 
 ### Resource Ownership Pattern

@@ -36,6 +36,7 @@ Next.js App Router uses file-system routing:
 | `/campaigns` | `campaigns/page.tsx` | Campaign list with CRUD |
 | `/campaigns/[id]` | `campaigns/[id]/page.tsx` | Campaign detail with session timeline |
 | `/uploads` | `uploads/page.tsx` | Upload management |
+| `/billing` | `billing/page.tsx` | Subscription status + Stripe Checkout entry (success/cancel return URL) |
 | `/settings` | `settings/page.tsx` | User settings |
 | `/about` | `about/page.tsx` | About page |
 

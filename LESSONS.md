@@ -29,6 +29,9 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 ### `npm audit fix --force` will DOWNGRADE majors to chase audit metadata
 It has twice proposed next 15 → **9.3.3** and next-auth 4 → 3 (the first run ballooned 28 vulns to 100). Never use `--force`; plain `npm audit fix` only applies semver-compatible bumps. Most transitive advisories here are fixed with `package.json` `"overrides"`, not upgrades.
 
+### `prisma migrate dev` cannot run non-interactively — not even with a fake TTY
+It hard-fails in non-interactive shells, and `script -q /dev/null` gets past that only to hit the y/N confirmation, which ignores piped stdin (answers "no"). Working path: generate the SQL with `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script`, save it as a hand-written migration (guards + default constraint names per `prisma/CLAUDE.md`), apply with `migrate deploy`, verify with `migrate diff --exit-code`.
+
 ### Doubly-nested npm overrides FLAP — keep overrides at most one level deep
 `"next-auth": {"@auth/core": {"cookie": …}}` applied at lockfile-regen time, then a later plain `npm install` silently re-resolved the deep entry back to the vulnerable version. Use a global or one-level override instead. If an override-protected vuln "comes back", suspect this before suspecting new advisories.
 
@@ -90,6 +93,9 @@ Jobs stuck `pending` looked like a queue bug but were a drifted podman VM clock 
 
 ### Next.js standalone doesn't bundle deps for out-of-band scripts
 `prisma/seed.ts` run via `npx tsx` in the standalone runner threw `Cannot find module 'bcryptjs'`: standalone only traces deps imported by the BUILT server code, not by side scripts. `@prisma/client` resolved (copied + traced) but `bcryptjs` didn't. Keep seed/boot scripts to `@prisma/client` only and embed precomputed values (e.g. a bcrypt hash) instead of importing crypto libs. Make boot-time seeding non-fatal so a seed hiccup degrades to "app up, empty" rather than crashlooping the machine.
+
+### CodeQL "default setup" and the advanced workflow are mutually exclusive
+Enabling CodeQL **default setup** (repo Settings → Code security → Code scanning) while the repo also runs the **advanced** `github/codeql-action/analyze` workflow (ours lives in `pull-request.yml`, documented in `.github/CLAUDE.md`) makes the advanced job's SARIF upload fail: `CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled`. The analysis itself succeeds — only the upload 422s. Fix: disable default setup (`gh api -X PATCH repos/<owner>/<repo>/code-scanning/default-setup -f state=not-configured`), then re-run the failed job (`gh run rerun <id> --failed`). The repo's design is the advanced workflow; don't toggle on default setup.
 
 ### CodeQL `js/clear-text-logging` flags logging an env-sourced password
 The seed logged the demo password for reviewer convenience; because it was env-overridable (`process.env.DEMO_PASSWORD`), CodeQL (high) flagged it as logging a secret and failed the PR. Don't log password values even in seeds — log a non-sensitive literal hint only.

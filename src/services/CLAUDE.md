@@ -59,6 +59,15 @@ loop. See `docs/PIPELINE_DURABILITY.md` for design and failure-mode analysis.
 - **All time-sensitive queue writes must use raw SQL `NOW()`**, never Prisma's `@default(now())`/`new Date()` (app clock). The claim query compares `run_after <= NOW()` (DB clock); mixing clock sources made jobs unclaimable when a podman VM clock drifted 13 min. Symptom: jobs stuck `pending` with `run_after` "in the future" relative to `SELECT NOW()`.
 - The process route sets an **optimistic status** (`transcribing`/`summarizing`) on successful enqueue — so a session sitting in `uploaded` reliably means "no active job", which the UI uses to show a Start button.
 
+### `billing.ts` — Stripe Billing
+Subscription billing via Stripe Checkout with **Managed Payments** (preview: Stripe is merchant of record and handles tax). The Stripe client lives in `src/lib/stripe.ts`; product-create and checkout-session calls send the `2026-02-25.preview` version header per request (`STRIPE_PREVIEW_API_VERSION`).
+- `ensureSubscriptionPrice()` — resolves the $10/mo price: `STRIPE_PRICE_ID` env, else finds/creates the product tagged `app=dnd-session-recorder` (also creatable ahead of time via `scripts/stripe-setup.ts`)
+- `getOrCreateStripeCustomer(userId)` — persists `User.stripeCustomerId` on first use
+- `createSubscriptionCheckoutSession(userId, baseUrl)` — subscription-mode Checkout Session, `managed_payments[enabled]=true`, `client_reference_id`/`subscription_data.metadata.userId` carry the user id to webhooks
+- `handleStripeEvent(event)` / `syncSubscription(sub)` — webhook dispatch; upserts the `subscriptions` mirror row by `stripeSubscriptionId` (idempotent on replay). Stripe is the source of truth; the DB row is a cache for fast auth-time checks
+- `getUserSubscription(userId)` / `isSubscriptionActive(sub)` — status reads (`active`/`trialing` count as active)
+- Billing period is **item-level** (`subscription.items.data[0].current_period_end`) on current API versions, not on the subscription object
+
 ### `storage.ts` — Audio Storage Abstraction
 Two backends selected by env: Tigris/S3 object storage (`BUCKET_NAME` + `AWS_ENDPOINT_URL_S3`, set by `fly storage create`) or local `UPLOAD_DIR` (dev default). Every upload row carries a non-null `storageKey` (backend-relative); `localPathForKey` resolves it for the local backend.
 - `saveAudio(key, buffer, contentType)` / `deleteAudio(upload)` / `audioExists(upload)`

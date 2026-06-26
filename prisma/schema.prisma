@@ -8,20 +8,22 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?   // Keep for local auth
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  name             String?
+  email            String?   @unique
+  emailVerified    DateTime?
+  image            String?
+  password         String?   // Keep for local auth
+  stripeCustomerId String?   @unique @map("stripe_customer_id")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   accounts       Account[]
   sessions       Session[] // NextAuth authentication sessions (login tokens)
   campaigns      Campaign[]
   uploads        Upload[]
   gamingSessions GamingSession[] // D&D game sessions
+  subscriptions  Subscription[]
 }
 
 model Account {
@@ -208,6 +210,27 @@ model DmTodoList {
   session     GamingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("dm_todo_lists")
+}
+
+// Mirror of the user's Stripe subscription, kept current by the Stripe
+// webhook (/api/billing/webhook). Stripe is the source of truth; rows are
+// upserted by stripeSubscriptionId so webhook replays stay idempotent.
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @map("user_id")
+  stripeSubscriptionId String    @unique @map("stripe_subscription_id")
+  stripeCustomerId     String    @map("stripe_customer_id")
+  stripePriceId        String?   @map("stripe_price_id")
+  status               String    // Stripe subscription status: active, trialing, past_due, canceled, incomplete, ...
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  cancelAtPeriodEnd    Boolean   @default(false) @map("cancel_at_period_end")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
 }
 
 model Upload {
