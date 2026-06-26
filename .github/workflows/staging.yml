@@ -1,62 +1,64 @@
 name: Staging Deployment
 
+# Continuous staging: every push to `main` runs the comprehensive suite, deploys
+# to the staging environment, and runs the post-deploy suite against it. Staging
+# is an environment, not a branch — there is no `staging` branch.
+#
+# The nightly `schedule` runs the comprehensive suite ONLY (no deploy) as a drift
+# check. Production is shipped separately and manually via production.yml.
 on:
   push:
-    branches: [staging]
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 env:
   NODE_VERSION: '22'
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  STAGING_URL: https://dnd-recorder-staging.fly.dev
 
 permissions:
   contents: read
 
 jobs:
-  # Security and Code Quality Checks
-  security:
-    name: Security & Code Quality
+  changes:
+    name: Check Changes
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+      tests: ${{ steps.filter.outputs.tests }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Check for file changes
+        uses: dorny/paths-filter@v4
+        id: filter
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          filters: |
+            src:
+              - 'src/**'
+              - 'app/**'
+              - 'components/**'
+              - 'lib/**'
+              - 'prisma/**'
+              - 'public/**'
+              - '*.config.*'
+              - '*.json'
+              - '*.ts'
+              - '*.tsx'
+            tests:
+              - 'tests/**'
+              - 'playwright.config.*'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: TypeScript type check
-        run: npx tsc --noEmit
-
-      - name: Audit dependencies
-        run: npm audit --audit-level moderate
-
-  # Build and Test
-  test:
-    name: Build & Test
+  # Comprehensive workflow tests (testcontainers + mocked AI) — the heavier suite
+  # that does NOT run on the PR fast gate.
+  workflow-tests:
+    name: Comprehensive Tests
     runs-on: ubuntu-latest
-    needs: security
-    
-    services:
-      # We'll use SQLite for testing, but this shows how to add other services
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    needs: changes
+    if: needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true' || github.event_name != 'push'
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -72,116 +74,44 @@ jobs:
 
       - name: Setup test environment
         run: |
-          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}" >> .env.local
+          echo "NEXTAUTH_SECRET=test-secret-for-ci-workflows-32characters" >> .env.local
           echo "NEXTAUTH_URL=http://localhost:3000" >> .env.local
-          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}" >> .env.local
+          echo "OPENAI_API_KEY=sk-test-key-placeholder" >> .env.local
           echo "NEXT_TELEMETRY_DISABLED=1" >> .env.local
-          echo "NEXT_PUBLIC_ENVIRONMENT=staging" >> .env.local
-          # DATABASE_URL will be set by testcontainers
+          # DATABASE_URL is provided by testcontainers
 
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Clean build cache
-        run: rm -rf .next
-
-      - name: Build application
-        run: npm run build
-        env:
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
-          NEXTAUTH_URL: https://dnd-recorder-staging.fly.dev
-          DATABASE_URL: file:./prisma/data/build.db
-          NODE_ENV: production
-          NEXT_TELEMETRY_DISABLED: 1
-          NEXT_PUBLIC_ENVIRONMENT: staging
-
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Run CI Tests
-        run: npm run test:ci
+      - name: Run comprehensive workflow tests
+        run: npm run test:workflows
         env:
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET_STAGING || 'fallback-secret-for-ci-builds-32chars' }}
-          NEXTAUTH_URL: http://localhost:3000
-          # DATABASE_URL: set by testcontainers
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key-placeholder' }}
-          NODE_ENV: development
-          NEXT_PUBLIC_ENVIRONMENT: staging
+          CI: true
+          NEXTAUTH_SECRET: test-secret-for-ci-workflows-32characters
+          MOCK_AI_SERVICES: true
+          # DATABASE_URL set by testcontainers
 
-      - name: Upload Playwright report
+      - name: Upload test results
         uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: playwright-report-staging
-          path: playwright-report/
-          retention-days: 30
+          name: workflow-test-results-${{ github.run_id }}
+          path: |
+            playwright-report-workflows/
+            test-results/
+          retention-days: 14
 
-  # Docker Build and Security Scan
-  docker:
-    name: Docker Build & Scan
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' # Only on push to staging
-    permissions:
-      contents: read
-      packages: write
-      security-events: write # Required for uploading SARIF results
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always() # Upload results even if scan finds vulnerabilities
-        with:
-          sarif_file: 'trivy-results.sarif'
-
-  # Deploy to Staging
+  # Deploy main to the staging environment (push events only — the nightly
+  # schedule must not redeploy).
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [security, test, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    needs: [changes, workflow-tests]
+    if: github.event_name == 'push' && (needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true')
     environment: staging
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -194,46 +124,31 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
-      - name: Health Check
+      - name: Wait for staging to be healthy
         run: |
-          echo "Waiting for deployment to be healthy..."
-          sleep 30
-          curl -f https://dnd-recorder-staging.fly.dev/api/health || exit 1
+          set -euo pipefail
+          echo "Waiting for staging health..."
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 10 "${STAGING_URL}/api/health"; then ok=1; break; fi
+            echo "health attempt $i/30 — waiting 10s..."
+            sleep 10
+          done
+          if [ "${ok}" != "1" ]; then
+            echo "::error::Staging health never came up"; exit 1
+          fi
+          curl -fsS --max-time 10 "${STAGING_URL}/" > /dev/null || exit 1
+          curl -fsS --max-time 10 "${STAGING_URL}/auth/signin" > /dev/null || exit 1
+          echo "✅ Staging healthy"
 
-      - name: Run Smoke Tests
-        run: |
-          echo "Running post-deployment smoke tests..."
-          curl -f https://dnd-recorder-staging.fly.dev/ || exit 1
-          curl -f https://dnd-recorder-staging.fly.dev/auth/signin || exit 1
-
-  # Post-Deploy Tests
+  # Post-deploy suite against the deployed staging environment (stage 3:
+  # only what can't be tested locally — real Fly env, real JWT, whitelist).
   staging-tests:
-    name: Run Staging Tests
+    name: Staging Post-Deploy Tests
     needs: deploy-staging
+    if: needs.deploy-staging.result == 'success'
     uses: ./.github/workflows/post-deploy-tests.yml
     with:
       environment: staging
       deploy_url: https://dnd-recorder-staging.fly.dev
     secrets: inherit
-
-  # Notification
-  notify:
-    name: Notify Deployment Status
-    runs-on: ubuntu-latest
-    needs: [deploy-staging, staging-tests]
-    if: always()
-    
-    steps:
-      - name: Notify Success
-        if: needs.deploy-staging.result == 'success'
-        run: |
-          echo "✅ Staging deployment successful!"
-          echo "🚀 App URL: https://dnd-recorder-staging.fly.dev"
-          # Add Slack/Discord webhook here if desired
-          
-      - name: Notify Failure
-        if: needs.deploy-staging.result == 'failure'
-        run: |
-          echo "❌ Staging deployment failed!"
-          # Add failure notification here
-          exit 1

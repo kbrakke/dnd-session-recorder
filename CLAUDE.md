@@ -181,6 +181,11 @@ Durable, queue-based (see `docs/PIPELINE_DURABILITY.md` for the full design):
 
 Multi-stage Dockerfile produces a standalone Next.js image on Node 22 Alpine with FFmpeg. Deployed to Fly.io with `fly.toml` (production), `fly.staging.toml` (staging), `fly.review.toml` (PR reviews). Release command runs `prisma migrate deploy`.
 
+**Promotion is trunk-based** — `main` is the only long-lived branch (no `staging`/`production` branches):
+- **PR → `main`:** `pull-request.yml` fast gate (`CI Status`) + ephemeral review app. PR titles must be Conventional Commits (squash-merge makes the title the commit on `main`).
+- **Push to `main` → staging:** `staging.yml` runs the comprehensive suite, deploys staging, runs the post-deploy suite. Staging is always current `main`.
+- **Production → manual release:** run `production.yml` (`workflow_dispatch`, `patch/minor/major`). It generates release notes with git-cliff (`cliff.toml`), tags `vX.Y.Z`, publishes a GitHub Release (the public changelog), and blue-green deploys prod. See `.github/CLAUDE.md` for the full flow.
+
 ## Testing
 
 Playwright E2E tests organized by environment:

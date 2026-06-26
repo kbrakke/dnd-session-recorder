@@ -60,6 +60,35 @@ jobs:
               - 'LICENSE*'
               - '.gitignore'
 
+  # Enforce a Conventional Commit PR title. Squash-merge uses the PR title as the
+  # commit subject on `main`, which is git-cliff's input for release notes.
+  pr-title:
+    name: PR Title (Conventional)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            chore
+            ci
+            test
+            build
+            style
+            revert
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: >-
+            The subject "{subject}" must start with a lowercase letter
+            (e.g. "fix: handle empty upload", not "Fix: ...").
+
   # Security and Code Quality Checks
   lint-and-type-check:
     name: Lint & Type Check
@@ -383,11 +412,17 @@ jobs:
   ci-status:
     name: CI Status
     runs-on: ubuntu-latest
-    needs: [changes, lint-and-type-check, security-audit, secret-scan, unit-tests, build, test, docs-check]
+    needs: [changes, pr-title, lint-and-type-check, security-audit, secret-scan, unit-tests, build, test, docs-check]
     if: always()
     steps:
       - name: Check CI Status
         run: |
+          # PR title gate applies to every PR (including docs-only) — it feeds release notes.
+          if [ "${{ needs.pr-title.result }}" == "failure" ]; then
+            echo "::error::PR title is not a valid Conventional Commit"
+            exit 1
+          fi
+
           # For docs-only changes (no src, tests, or deps changes)
           if [ "${{ needs.changes.outputs.docs-only }}" == "true" ] && \
              [ "${{ needs.changes.outputs.src }}" != "true" ] && \
