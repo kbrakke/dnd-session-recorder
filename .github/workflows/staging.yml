@@ -51,6 +51,24 @@ jobs:
               - 'tests/**'
               - 'playwright.config.*'
 
+  # Dependency audit — same gate as the PR (moderate). Staging redeploys on every
+  # push to main, so this re-checks against advisories disclosed since the PR
+  # merged. npm audit reads package-lock.json; no install needed.
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Audit dependencies
+        run: npm audit --audit-level moderate
+
   # Comprehensive workflow tests (testcontainers + mocked AI) — the heavier suite
   # that does NOT run on the PR fast gate.
   workflow-tests:
@@ -109,7 +127,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [changes, workflow-tests]
+    needs: [changes, workflow-tests, security-audit]
     if: github.event_name == 'push' && (needs.changes.outputs.src == 'true' || needs.changes.outputs.tests == 'true')
     environment: staging
     steps:
