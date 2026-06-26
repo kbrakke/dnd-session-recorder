@@ -6,9 +6,15 @@ on:
 
 env:
   FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-  FLY_REGION: bos
+  FLY_REGION: ord
   FLY_ORG: personal
   NODE_VERSION: '22'
+
+# pull-requests: write is required for the post-deploy step to comment on the PR
+# (the default token is read-only, which 403s the comment).
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   review_app:
@@ -24,24 +30,93 @@ jobs:
       name: review
       # The script in the `deploy` sets the URL output for each review app.
       url: ${{ steps.deploy.outputs.url }}
-    
+
+    env:
+      APP_NAME: pr-${{ github.event.number }}-dnd-rec
+      DB_NAME: pr-${{ github.event.number }}-dnd-rec-db
+
     steps:
       - name: Get code
         uses: actions/checkout@v6
 
+      - name: Setup Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Each review app gets its own throwaway Postgres — no shared/external DB.
+      - name: Provision & attach ephemeral Postgres
+        if: github.event.action != 'closed'
+        run: |
+          set -euo pipefail
+          # Per-PR auth secret: review sessions must NEVER be a valid signature
+          # on staging/prod. With JWT sessions, sharing NEXTAUTH_SECRET would let
+          # a token minted in a review app authenticate against another env, so
+          # each review app gets its own random secret (isolated from all others).
+          echo "REVIEW_NEXTAUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          # Create the review app shell first so the DB can attach DATABASE_URL to it.
+          flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>/dev/null || true
+          # Create a dedicated throwaway Postgres for this PR if it doesn't exist yet.
+          if ! flyctl status --app "$DB_NAME" >/dev/null 2>&1; then
+            echo "Creating ephemeral Postgres $DB_NAME..."
+            flyctl postgres create \
+              --name "$DB_NAME" \
+              --org "$FLY_ORG" \
+              --region "$FLY_REGION" \
+              --vm-size shared-cpu-1x \
+              --volume-size 1 \
+              --initial-cluster-size 1
+          fi
+          # Attach injects DATABASE_URL into the review app. Idempotent: skip if
+          # the app already has DATABASE_URL (a prior run attached it) — otherwise
+          # re-attach errors ("already contains a secret named DATABASE_URL").
+          if flyctl secrets list --app "$APP_NAME" 2>/dev/null | grep -qw DATABASE_URL; then
+            echo "DATABASE_URL already set on $APP_NAME; skipping attach."
+          else
+            flyctl postgres attach "$DB_NAME" --app "$APP_NAME" --yes
+          fi
+
+      # The review-app action updates existing machines in place; a machine left
+      # crashlooping/stopped by an earlier deploy makes its `secrets import` fail
+      # (HTTP 408). Destroy any existing machines so the action always creates a
+      # fresh one. App-level secrets (incl. DATABASE_URL from attach) are kept.
+      - name: Clear stale machines (force fresh deploy)
+        if: github.event.action != 'closed'
+        run: |
+          machines=$(flyctl machine list --app "$APP_NAME" --json 2>/dev/null || echo '[]')
+          echo "$machines" | jq -r '.[].id' | while read -r id; do
+            [ -n "$id" ] && flyctl machine destroy "$id" --app "$APP_NAME" --force || true
+          done
+
       - name: Deploy PR app to Fly.io
         id: deploy
+        if: github.event.action != 'closed'
         uses: superfly/fly-pr-review-apps@1.2.1
         with:
-          name: pr-${{ github.event.number }}-dnd-rec
+          name: ${{ env.APP_NAME }}
           config: fly.review.toml
+          # Fully isolated — no shared/external connectors:
+          #   NEXTAUTH_SECRET: unique per PR (cannot authenticate other envs)
+          #   OPENAI_API_KEY:  placeholder; AI is mocked (MOCK_AI_SERVICES)
+          #   DATABASE_URL:    the per-PR throwaway Postgres (from attach)
+          # No AWS/Tigris, Google OAuth, or staging/prod secrets are passed, so
+          # storage falls back to the local in-container UPLOAD_DIR.
           secrets: |
-            NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET_STAGING }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            NEXT_PUBLIC_ENVIRONMENT=review
+            NEXTAUTH_SECRET=${{ env.REVIEW_NEXTAUTH_SECRET }}
+            OPENAI_API_KEY=sk-review-placeholder-no-external-calls
           vmsize: shared-cpu-1x
-          memory: 512
+          memory: 1024
           cpu: 1
+
+      # On PR close: tear down the review app, then its throwaway Postgres.
+      - name: Destroy review app on PR close
+        if: github.event.action == 'closed'
+        uses: superfly/fly-pr-review-apps@1.2.1
+        with:
+          name: ${{ env.APP_NAME }}
+          config: fly.review.toml
+
+      - name: Destroy ephemeral Postgres on PR close
+        if: github.event.action == 'closed'
+        run: flyctl apps destroy "$DB_NAME" --yes 2>/dev/null || true
 
   test_review_app:
     runs-on: ubuntu-latest
@@ -69,13 +144,18 @@ jobs:
         run: |
           echo "Waiting for review app to be ready..."
           for i in {1..30}; do
-            if curl -f -s ${{ needs.review_app.outputs.url }}/api/health; then
+            # --max-time stops a dead/cold app from hanging the whole job.
+            if curl -fsS --max-time 10 "${{ needs.review_app.outputs.url }}/api/health"; then
               echo "✅ App is ready!"
-              break
+              exit 0
             fi
             echo "⏳ Waiting... (attempt $i/30)"
             sleep 10
           done
+          # Fail fast with a clear signal instead of running tests against a
+          # down app (which surfaces as confusing register/TLS timeouts).
+          echo "::error::Review app never became healthy — check the Fly deploy/boot logs"
+          exit 1
 
       - name: Run post-deploy tests
         run: npm run test:post-deploy

@@ -20,8 +20,9 @@ fi
 
 log "DATABASE_URL: configured"
 
-# Parse database type
-if echo "$DATABASE_URL" | grep -q "postgresql://"; then
+# Parse database type — accept both postgresql:// and postgres:// (Fly's
+# `postgres attach` injects the latter; Prisma accepts both).
+if echo "$DATABASE_URL" | grep -qE "^postgres(ql)?://"; then
   DB_TYPE="postgresql"
   log "Database type: PostgreSQL"
 
@@ -48,9 +49,22 @@ if echo "$DATABASE_URL" | grep -q "postgresql://"; then
     error "Database initialization failed"
     exit 1
   fi
+
+  # Seed default data for self-contained environments (review apps).
+  # Off by default; production/staging never set SEED_DATABASE.
+  if [ "$SEED_DATABASE" = "true" ]; then
+    log "Seeding default data (SEED_DATABASE=true)..."
+    # Non-fatal: a seed failure should leave the review app UP (and debuggable),
+    # not crashloop it. The seed is idempotent, so a later boot can still fill in.
+    if npx tsx prisma/seed.ts; then
+      log "Database seed: OK"
+    else
+      error "Database seed failed — starting app anyway (review data may be missing)"
+    fi
+  fi
 else
   error "Only PostgreSQL databases are supported in production"
-  error "DATABASE_URL must start with postgresql://"
+  error "DATABASE_URL must start with postgresql:// or postgres://"
   exit 1
 fi
 
