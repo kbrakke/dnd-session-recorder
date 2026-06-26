@@ -22,13 +22,13 @@ const SESSION_ID = 'seed-session-001';
 // Demo credentials. These grant access to NOTHING but this review app's seeded
 // demo data: the DB is a per-PR throwaway and the review NEXTAUTH_SECRET is
 // unique, so these credentials can never authenticate against staging/prod.
-// All three are env-overridable, so a deployer can inject non-committed values
+// Both are env-overridable, so a deployer can inject non-committed values
 // (e.g. as Fly secrets) if even the embedded hash is unwanted.
 const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@example.com'; // @example.com is blocked from AI calls
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'demodemo123';
-// Precomputed bcryptjs hash of DEMO_PASSWORD (cost 10). Embedded so the seed
-// has no runtime deps beyond @prisma/client — the Next.js standalone image does
-// not reliably bundle bcryptjs for an out-of-band script like this one.
+// Precomputed bcryptjs hash of the default demo password "demodemo123" (cost
+// 10). Embedded so the seed has no runtime deps beyond @prisma/client — the
+// Next.js standalone image does not reliably bundle bcryptjs for an out-of-band
+// script. Override via DEMO_PASSWORD_HASH to use non-committed credentials.
 const DEMO_PASSWORD_HASH =
   process.env.DEMO_PASSWORD_HASH ?? '$2b$10$124CNloSTEqvK4mBS8ijfuC8jGDSJzmSoqEz2sGU5wHAN4k0bu0JG';
 
@@ -129,7 +129,10 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`[seed] Demo data ready. Sign in with ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
+  // Never log a password value (CodeQL js/clear-text-logging): only hint the
+  // well-known default, and only when the embedded default hash is in use.
+  const hint = process.env.DEMO_PASSWORD_HASH ? '' : ' (default password: demodemo123)';
+  console.log(`[seed] Demo data ready. Sign in as ${DEMO_EMAIL}${hint}`);
 }
 
 main()
