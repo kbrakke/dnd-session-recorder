@@ -21,7 +21,7 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - The `dnd_data_staging` Fly volume becomes ORPHANED on the next staging deploy (its `[[mounts]]` was removed 2026-06-11) — `fly volumes destroy` it to stop the charge.
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
-- After PR #25 merges, apply branch protection on `main`: require the `CI Status` check, PR-before-merge, squash-only merge, linear history. Deferred until merge so the required check name exists on `main` first.
+- Branch rulesets are live (`protect-main`/`protect-staging`/`protect-production`) with **repository-admin** bypass, and the repo is squash-only. `main` = PR + `CI Status` + linear + no force-push; `staging`/`production` = `update`-restricted (only bypass actors push) + no force-push/deletion. When the #19/#21 promotion workflows are built, add their pusher (github-actions[bot] or a GitHub App) as a bypass actor on staging/production — admin bypass only covers admin-authenticated pushes, so a default `GITHUB_TOKEN` push would be blocked by the `update` rule.
 
 ## Tooling gotchas
 
