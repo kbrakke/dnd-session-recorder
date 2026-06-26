@@ -26,21 +26,25 @@ has been continuously validating — so the contract is "only release when stagi
 ### `pull-request.yml` — PR fast gate
 Triggered on PRs to `main`. Jobs: change detection, **pr-title** (Conventional Commit check on
 the PR title — squash-merge makes it the commit subject on `main`, which feeds git-cliff), lint &
-type check, security audit, secret scan, unit tests (Vitest), build, integration tests (Playwright +
-testcontainers). `ci-status` is the single required check (the `CI Status` context in `protect-main`).
-The pr-title gate is enforced even on docs-only PRs. Skips code jobs for docs-only changes.
+type check, **security audit** (`npm audit --audit-level moderate`, blocking), **secret scan**
+(trufflehog), **CodeQL** (JS/TS static analysis, report-only — not in `ci-status`), unit tests
+(Vitest), build, integration tests (Playwright + testcontainers). `ci-status` is the single required
+check (the `CI Status` context in `protect-main`). The pr-title gate is enforced even on docs-only
+PRs. Skips code jobs for docs-only changes.
 
 ### `staging.yml` — Continuous staging
 Triggered on **push to `main`** (also a nightly `schedule`, and `workflow_dispatch`):
-1. `workflow-tests` — comprehensive Playwright suite (`test:workflows`, testcontainers + mocked AI, 3 browsers)
-2. `deploy-staging` — `flyctl deploy --config fly.staging.toml`, capped health gate (push events only)
-3. `staging-tests` — calls `post-deploy-tests.yml` against deployed staging (`environment: staging`)
+1. `security-audit` — `npm audit --audit-level moderate` (re-checks against advisories disclosed since PR merge); gates `deploy-staging`
+2. `workflow-tests` — comprehensive Playwright suite (`test:workflows`, testcontainers + mocked AI, 3 browsers)
+3. `deploy-staging` — `flyctl deploy --config fly.staging.toml`, capped health gate (push events only)
+4. `staging-tests` — calls `post-deploy-tests.yml` against deployed staging (`environment: staging`)
 
 The nightly schedule runs `workflow-tests` only (no deploy) as a drift check. Docs-only merges skip both.
 
 ### `production.yml` — Manual release & deploy
 **`workflow_dispatch` only**, with a `patch/minor/major` input. One job (`environment: Production`),
-in order: compute next version from the latest `v*` tag → git-cliff release notes → build+Trivy scan →
+in order: **`npm audit --audit-level high`** (blocks the release before build) → compute next version
+from the latest `v*` tag → git-cliff release notes → build+Trivy scan →
 Fly blue-green deploy → `prisma migrate deploy` → health/smoke → **then** create the tag + publish the
 GitHub Release (so a release never exists for something that didn't ship). Single job by design: a tag
 created with `GITHUB_TOKEN` does NOT trigger `on: push: tags`, so tag + deploy must share one run.
@@ -52,7 +56,9 @@ staging default) — one suite serves staging pushes, review apps, and productio
 
 ### `fly-review.yml` — Review App Deployments
 Creates temporary Fly.io review environments per PR (`environment: review`). Lets you test PR changes in an
-isolated deployed environment.
+isolated deployed environment. A `npm audit --audit-level moderate` step gates the deploy — the review app
+is a deployed environment, so it gets the same audit bar as PR/staging (this was the gap that let stale
+packages reach staging).
 
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections
@@ -61,7 +67,8 @@ are skipped). The public changelog is the GitHub Releases page (repo is public).
 
 ## Gate levels & env contract
 
-- **npm audit:** `pull-request.yml` fails on `--audit-level moderate` (the dependency gate runs at the PR, not on deploy). `production.yml` runs a Trivy image scan (report-only → Security tab). Low-severity findings never block — don't take risky major bumps just to silence lows.
+- **Audit gate contract (consistent across every CI entry point):** `npm audit` runs on **PR, staging, review apps** at `--audit-level moderate` (blocking) and on **production** at `--audit-level high` (blocking). **Low-severity findings never block anywhere** — don't take risky major bumps just to silence lows (see LESSONS.md: `npm audit fix --force` downgrades majors). Rationale for the prod=high split: PR/staging/review catch moderates early and cheaply (no deploy at risk); the manual prod release blocks only on high+ so a freshly-disclosed moderate can't wedge an urgent ship. The audit reads `package-lock.json`, so these steps don't need `npm ci`.
+- **Scanners (consistent set):** `npm audit` everywhere (above); **trufflehog** secret scan on PRs (`--only-verified`, blocking); **CodeQL** JS/TS static analysis on PRs (report-only, surfaces in the Security tab, not in `ci-status`); **Trivy** image scan on the production image build (report-only → SARIF → Security tab, `CRITICAL,HIGH`).
 - **GitHub Environments are case-sensitive.** The deploy jobs reference `Production` (capital) and `staging` (lowercase) to match the existing environments; a casing typo silently spawns a *new* empty environment. `FLY_API_TOKEN` is a repo-level secret, so deploys don't depend on env-scoped secrets.
 - **Staging-suite secrets:** workflows must pass `TEST_CLEANUP_KEY` (GitHub secret) or test-user cleanup silently no-ops, leaving users in the staging DB. The staging Fly app itself needs `TEST_CLEANUP_KEY` + `ALLOW_TEST_CLEANUP=true` (exact string — staging runs `NODE_ENV=production`).
 - `NODE_VERSION: '22'` is set per-workflow env (matches the Dockerfile); watch for stray hardcoded `node-version:` values in individual steps.

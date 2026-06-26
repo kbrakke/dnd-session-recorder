@@ -43,6 +43,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # --- Dependency audit gate (fail before we build/ship) ---
+      # Prod blocks on HIGH+ only (PR + staging gate at moderate); lows never
+      # block. npm audit reads package-lock.json, so no install is needed.
+      - name: Setup Node.js (for audit)
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Audit dependencies
+        run: npm audit --audit-level high
+
       # --- Version & release notes (computed before we ship; published after) ---
       - name: Compute next version
         id: version

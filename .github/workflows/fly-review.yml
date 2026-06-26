@@ -39,6 +39,20 @@ jobs:
       - name: Get code
         uses: actions/checkout@v6
 
+      # Gate the review-app deploy on a dependency audit — vulnerable/stale
+      # packages must not reach a deployed environment (this is the gap that let
+      # stale packages slip into staging). Same level as the PR + staging gate
+      # (moderate). npm audit reads package-lock.json, so no install is needed.
+      - name: Setup Node.js (for audit)
+        if: github.event.action != 'closed'
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Audit dependencies
+        if: github.event.action != 'closed'
+        run: npm audit --audit-level moderate
+
       - name: Setup Fly CLI
         uses: superfly/flyctl-actions/setup-flyctl@master
 
