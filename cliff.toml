@@ -1,0 +1,52 @@
+# git-cliff configuration — generates release notes from conventional commits.
+# Used by .github/workflows/production.yml when cutting a production release.
+# Public changelog lives on the GitHub Releases page (repo is public).
+
+[changelog]
+# Rendered for each release. `header` is stripped in CI (--strip header) so the
+# GitHub Release body starts straight at the grouped sections.
+header = """
+# Changelog\n
+"""
+body = """
+{% if version %}\
+## {{ version }}{% if timestamp %} — {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}\
+- {{ commit.message | upper_first }}\
+{% if commit.remote.username %} (@{{ commit.remote.username }}){% endif %}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# Map conventional-commit prefixes to public-facing sections.
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactor" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^revert", group = "Reverts" },
+  # Noise we don't surface in public release notes.
+  { message = "^chore", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^test", skip = true },
+  { message = "^build", skip = true },
+  { message = "^style", skip = true },
+  { body = ".*security", group = "Security" },
+]
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9]*"
+topo_order = false
+sort_commits = "newest"

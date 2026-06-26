@@ -21,7 +21,8 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - The `dnd_data_staging` Fly volume becomes ORPHANED on the next staging deploy (its `[[mounts]]` was removed 2026-06-11) — `fly volumes destroy` it to stop the charge.
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
-- After PR #25 merges, apply branch protection on `main`: require the `CI Status` check, PR-before-merge, squash-only merge, linear history. Deferred until merge so the required check name exists on `main` first.
+- The promotion model is now trunk-based (2026-06-26): `main` is the only long-lived branch. The `staging`/`production` branches and their `protect-staging`/`protect-production` rulesets were **deleted** — staging deploys continuously off `main` (`staging.yml`), production ships via a manual `workflow_dispatch` git-cliff release (`production.yml`). Only `protect-main` remains (PR + `CI Status` + linear + no force-push, squash-only, repository-admin bypass).
+- Production has no required-reviewer rule on its GitHub Environment — the `workflow_dispatch` "Run workflow" button is the manual gate. Add required reviewers to the `Production` environment if a second-person approval is ever wanted.
 
 ## Tooling gotchas
 
@@ -60,6 +61,9 @@ Review apps reused `NEXTAUTH_SECRET_STAGING`. With JWT sessions, a token minted 
 
 ### `fly-review.yml` needs `permissions: pull-requests: write`, and the readiness gate must fail
 The default workflow token is read-only, so the github-script PR-comment step 403s ("Resource not accessible by integration"). Separately, the "wait for app ready" loop had no `curl --max-time` and ran tests even when health never passed — a down app hung the job ~22 min until timeout, surfacing as confusing `register`/TLS errors. Cap the curl, exit on health, and `exit 1` if it never comes up.
+
+### A workflow-created tag won't trigger `on: push: tags`
+GitHub suppresses workflow events from actions authenticated with the default `GITHUB_TOKEN` (recursion guard). So a release job that creates a tag with `GITHUB_TOKEN` will NOT fire a separate `on: push: tags` deploy workflow. `production.yml` therefore does tag creation + GitHub Release + prod deploy in **one** job/run. If you ever split them, the tagger needs a PAT or GitHub App token, not `GITHUB_TOKEN`.
 
 ## Code & test gotchas
 

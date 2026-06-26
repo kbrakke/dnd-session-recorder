@@ -2,47 +2,67 @@
 
 GitHub configuration including CI/CD workflows.
 
+## Release model (trunk-based, single long-lived branch)
+
+`main` is the only long-lived branch. There are **no** `staging`/`production` branches —
+staging is a deploy target off `main`, production is shipped via a manual git-cliff release.
+
+```
+feature ──PR──▶ main      pull-request.yml ("CI Status" gate) + fly-review.yml
+   │ squash-merge (PR title = conventional commit, enforced by the pr-title job)
+   ▼
+push to main ──▶ staging.yml: comprehensive tests ▶ deploy staging ▶ post-deploy suite
+   │
+   │  ⟵ run production.yml manually (Actions ▸ Run workflow ▸ patch/minor/major), once staging is green
+   ▼
+   git-cliff notes ▶ tag vX.Y.Z ▶ publish GitHub Release ▶ deploy prod ▶ migrate ▶ smoke
+```
+
+The tag is the record of what's in prod. Prod always deploys current `main`, which staging
+has been continuously validating — so the contract is "only release when staging is green".
+
 ## Workflows (`.github/workflows/`)
 
-### `pull-request.yml` — PR Checks
-Triggered on pull requests. Runs:
-1. **Change detection** — determines which file types changed (skip unnecessary jobs)
-2. **Lint & type check** — ESLint, TypeScript compiler, Prettier
-3. **Security audit** — `npm audit` on dependency changes
-4. **Playwright tests** — CI tests with testcontainers (PostgreSQL in Docker)
-5. **Build check** — verifies `npm run build` succeeds
-6. **PR comment** — posts status summary on the PR
+### `pull-request.yml` — PR fast gate
+Triggered on PRs to `main`. Jobs: change detection, **pr-title** (Conventional Commit check on
+the PR title — squash-merge makes it the commit subject on `main`, which feeds git-cliff), lint &
+type check, security audit, secret scan, unit tests (Vitest), build, integration tests (Playwright +
+testcontainers). `ci-status` is the single required check (the `CI Status` context in `protect-main`).
+The pr-title gate is enforced even on docs-only PRs. Skips code jobs for docs-only changes.
 
-Skips jobs for docs-only changes.
+### `staging.yml` — Continuous staging
+Triggered on **push to `main`** (also a nightly `schedule`, and `workflow_dispatch`):
+1. `workflow-tests` — comprehensive Playwright suite (`test:workflows`, testcontainers + mocked AI, 3 browsers)
+2. `deploy-staging` — `flyctl deploy --config fly.staging.toml`, capped health gate (push events only)
+3. `staging-tests` — calls `post-deploy-tests.yml` against deployed staging (`environment: staging`)
 
-### `staging.yml` — Staging Deployment
-Triggered on push to `staging` branch:
-1. Security checks
-2. Build and test
-3. Docker build with Trivy vulnerability scan
-4. Deploy to Fly.io staging (`fly.staging.toml`)
-5. Smoke tests against deployed staging URL
-6. Deployment notification
+The nightly schedule runs `workflow-tests` only (no deploy) as a drift check. Docs-only merges skip both.
 
-### `production.yml` — Production Deployment
-Triggered on push to `main`/`master` (or manual dispatch):
-1. Build and test
-2. Deploy to Fly.io production (`fly.toml`)
-3. Release command runs `prisma migrate deploy`
-4. Post-deploy verification tests
+### `production.yml` — Manual release & deploy
+**`workflow_dispatch` only**, with a `patch/minor/major` input. One job (`environment: Production`),
+in order: compute next version from the latest `v*` tag → git-cliff release notes → build+Trivy scan →
+Fly blue-green deploy → `prisma migrate deploy` → health/smoke → **then** create the tag + publish the
+GitHub Release (so a release never exists for something that didn't ship). Single job by design: a tag
+created with `GITHUB_TOKEN` does NOT trigger `on: push: tags`, so tag + deploy must share one run.
 
 ### `post-deploy-tests.yml` — Post-Deployment Verification
-Runs after production deployment to verify the live environment works correctly. Tests auth flows and basic functionality. `npm run test:post-deploy` is an alias of the staging suite (`playwright.config.staging.ts`, target picked via `STAGING_URL` > `DEPLOY_URL` > staging default) — one suite serves staging pushes, review apps, and production.
-
-### `post-merge.yml` — Pre-Production Check
-Push to `main` only. A push to `staging` is deployed solely by `staging.yml` — post-merge must NOT also deploy staging (it used to, causing racing concurrent deploys).
+Reusable workflow (called by `staging.yml`; also `workflow_dispatch` for production). `npm run test:post-deploy`
+is an alias of the staging suite (`playwright.config.staging.ts`, target picked via `STAGING_URL` > `DEPLOY_URL` >
+staging default) — one suite serves staging pushes, review apps, and production.
 
 ### `fly-review.yml` — Review App Deployments
-Creates temporary Fly.io review environments for pull requests. Allows testing PR changes in an isolated deployed environment.
+Creates temporary Fly.io review environments per PR (`environment: review`). Lets you test PR changes in an
+isolated deployed environment.
+
+### Release notes (`cliff.toml`)
+git-cliff config at the repo root maps Conventional Commit prefixes to public release sections
+(`feat`→Features, `fix`→Bug Fixes, `perf`, `refactor`, `docs`, `revert`; `chore`/`ci`/`test`/`build`/`style`
+are skipped). The public changelog is the GitHub Releases page (repo is public).
 
 ## Gate levels & env contract
 
-- **npm audit:** `pull-request.yml` + `staging.yml` fail on `--audit-level moderate`; `production.yml` on `high`. Low-severity findings never block — don't take risky major bumps just to silence lows.
+- **npm audit:** `pull-request.yml` fails on `--audit-level moderate` (the dependency gate runs at the PR, not on deploy). `production.yml` runs a Trivy image scan (report-only → Security tab). Low-severity findings never block — don't take risky major bumps just to silence lows.
+- **GitHub Environments are case-sensitive.** The deploy jobs reference `Production` (capital) and `staging` (lowercase) to match the existing environments; a casing typo silently spawns a *new* empty environment. `FLY_API_TOKEN` is a repo-level secret, so deploys don't depend on env-scoped secrets.
 - **Staging-suite secrets:** workflows must pass `TEST_CLEANUP_KEY` (GitHub secret) or test-user cleanup silently no-ops, leaving users in the staging DB. The staging Fly app itself needs `TEST_CLEANUP_KEY` + `ALLOW_TEST_CLEANUP=true` (exact string — staging runs `NODE_ENV=production`).
 - `NODE_VERSION: '22'` is set per-workflow env (matches the Dockerfile); watch for stray hardcoded `node-version:` values in individual steps.
 
