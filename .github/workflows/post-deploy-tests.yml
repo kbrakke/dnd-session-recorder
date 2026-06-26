@@ -26,6 +26,14 @@ on:
         required: false
         type: string
 
+# Restrict the default GITHUB_TOKEN to read-only. This reusable workflow only
+# checks out the repo and runs tests against an already-deployed environment.
+# The failure-notify step's createComment is best-effort (.catch) and has no
+# PR/issue context in its callers (push-to-main staging, prod workflow_dispatch),
+# so it degrades to a no-op log rather than needing write scope.
+permissions:
+  contents: read
+
 jobs:
   post-deploy-tests:
     name: Run Post-Deploy Tests
