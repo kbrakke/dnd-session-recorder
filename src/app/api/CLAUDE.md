@@ -55,6 +55,11 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 ### User (`user/`)
 - `accounts/route.ts` - `GET` linked OAuth accounts
 
+### Billing (`billing/`)
+- `checkout/route.ts` - `POST` create a Stripe Checkout Session (subscription mode, Managed Payments); returns `{ url }` to redirect to. Sensitive-action rate limited.
+- `subscription/route.ts` - `GET` the user's subscription status from the `subscriptions` mirror table
+- `webhook/route.ts` - `POST` Stripe webhook (PUBLIC in middleware — authenticated by signature verification against `STRIPE_WEBHOOK_SECRET`, never by session). Handles `checkout.session.completed` + `customer.subscription.updated/deleted`; returns 500 on handler failure so Stripe retries (handlers are idempotent upserts). All Stripe logic lives in `src/services/billing.ts`. Endpoints 503 when `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are unset.
+
 ### Utility
 - `health/route.ts` - `GET` health check (public, no auth). Never echo raw DB/driver error messages in its response — log them instead.
 - `test/cleanup-user/route.ts` - `DELETE` test cleanup utility. Fails closed: in production-mode envs it requires `ALLOW_TEST_CLEANUP` to be EXACTLY `'true'` (staging runs `NODE_ENV=production`, so staging must set it; production never should). Key compared with `crypto.timingSafeEqual`.

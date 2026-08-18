@@ -21,6 +21,7 @@ Defines the data model for PostgreSQL. Uses `cuid()` for primary keys on most mo
 | `Summary` | AI-generated session summary | summaryText, keyEvents, isEdited, originalText |
 | `DmTodoList` | AI-generated DM notes | content (markdown), isEdited, originalText |
 | `Upload` | Audio file metadata | filename, storageKey, size, mimetype, duration |
+| `Subscription` | Mirror of the user's Stripe subscription (webhook-maintained; Stripe is source of truth) | stripeSubscriptionId (unique), status, currentPeriodEnd, cancelAtPeriodEnd |
 | `PipelineJob` | Durable work queue for processing pipeline | status, currentStep, attempts, runAfter (backoff), lockedBy/heartbeatAt (lease) |
 | `TranscriptChunk` | Per-chunk Whisper checkpoint (deleted after stitch) | chunkIndex, totalChunks, status, text |
 

@@ -18,6 +18,8 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 
 ## Pending action items
 
+- `~/.npm/_cacache` contains 8 root-owned files (old `sudo npm` bug) — `npm install` after a cache-relevant change fails EACCES. Permanent fix (needs the user): `sudo chown -R 501:20 ~/.npm`. Workaround used 2026-08-18: `npm install --cache <scratchpad>/npm-cache`.
+
 - The `dnd_data_staging` Fly volume becomes ORPHANED on the next staging deploy (its `[[mounts]]` was removed 2026-06-11) — `fly volumes destroy` it to stop the charge.
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
@@ -28,6 +30,18 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 
 ### `npm audit fix --force` will DOWNGRADE majors to chase audit metadata
 It has twice proposed next 15 → **9.3.3** and next-auth 4 → 3 (the first run ballooned 28 vulns to 100). Never use `--force`; plain `npm audit fix` only applies semver-compatible bumps. Most transitive advisories here are fixed with `package.json` `"overrides"`, not upgrades.
+
+### next-auth v4 pins a vulnerable `@auth/core` as an *optional peer* — npm installs it anyway
+`next-auth@4.24.15` has `peerDependencies: {"@auth/core": "0.34.3"}` (optional), and npm auto-installs optional peers, so the vulnerable 0.34.3 lands in the tree even on a from-scratch lockfile regen and trips critical audit flags. It's types-only (grep shows zero runtime imports — only `.d.ts` references), so a global override `"@auth/core": "^0.41.3"` is safe. That override then surfaces a peer conflict on nodemailer (next-auth wants `^7.0.7`, @auth/core 0.41 allows `^7 || ^8` and npm picks 8) — resolve with a second global override `"nodemailer": "^7.0.7"`, not `--legacy-peer-deps`.
+
+### `npm audit`'s "breaking change" fixes can be DOWNGRADES — check what's actually vulnerable first
+2026-08: audit proposed prisma 6.19.3 → **6.12.0** (to shed `@prisma/config`'s deepmerge-ts) and next 15 → 16 (to shed sharp 0.34). Both were fixed instead with one-level global overrides (`deepmerge-ts ^8.0.1`, `sharp ^0.35.3`) — even prisma 7's `@prisma/config` still shipped the vulnerable deepmerge-ts 7.1.5, so the "upgrade" wouldn't have fixed it. Before accepting any audit-proposed major change, `npm view` the target's deps: the advisory is usually one transitive pin away, and an override is the fix.
+
+### Testcontainers log-wait failure `/.*Started.*/` under podman is RYUK, not your container
+`Log stream ended and message "/.*Started.*/" was not received` looks like the app container failing, but that regex is the **Ryuk reaper's** readiness log — Ryuk doesn't start under podman here. Local workaround: `TESTCONTAINERS_RYUK_DISABLED=true CI=true npm run test:ci` — but then nothing reaps the postgres container; `podman rm -f` it after. GitHub Actions (real Docker) is unaffected.
+
+### `prisma migrate dev` cannot run non-interactively — not even with a fake TTY
+It hard-fails in non-interactive shells, and `script -q /dev/null` gets past that only to hit the y/N confirmation, which ignores piped stdin (answers "no"). Working path: generate the SQL with `prisma migrate diff --from-url $DATABASE_URL --to-schema-datamodel prisma/schema.prisma --script`, save it as a hand-written migration (guards + default constraint names per `prisma/CLAUDE.md`), apply with `migrate deploy`, verify with `migrate diff --exit-code`.
 
 ### Doubly-nested npm overrides FLAP — keep overrides at most one level deep
 `"next-auth": {"@auth/core": {"cookie": …}}` applied at lockfile-regen time, then a later plain `npm install` silently re-resolved the deep entry back to the vulnerable version. Use a global or one-level override instead. If an override-protected vuln "comes back", suspect this before suspecting new advisories.
@@ -90,6 +104,9 @@ Jobs stuck `pending` looked like a queue bug but were a drifted podman VM clock 
 
 ### Next.js standalone doesn't bundle deps for out-of-band scripts
 `prisma/seed.ts` run via `npx tsx` in the standalone runner threw `Cannot find module 'bcryptjs'`: standalone only traces deps imported by the BUILT server code, not by side scripts. `@prisma/client` resolved (copied + traced) but `bcryptjs` didn't. Keep seed/boot scripts to `@prisma/client` only and embed precomputed values (e.g. a bcrypt hash) instead of importing crypto libs. Make boot-time seeding non-fatal so a seed hiccup degrades to "app up, empty" rather than crashlooping the machine.
+
+### CodeQL "default setup" and the advanced workflow are mutually exclusive
+Enabling CodeQL **default setup** (repo Settings → Code security → Code scanning) while the repo also runs the **advanced** `github/codeql-action/analyze` workflow (ours lives in `pull-request.yml`, documented in `.github/CLAUDE.md`) makes the advanced job's SARIF upload fail: `CodeQL analyses from advanced configurations cannot be processed when the default setup is enabled`. The analysis itself succeeds — only the upload 422s. Fix: disable default setup (`gh api -X PATCH repos/<owner>/<repo>/code-scanning/default-setup -f state=not-configured`), then re-run the failed job (`gh run rerun <id> --failed`). The repo's design is the advanced workflow; don't toggle on default setup.
 
 ### CodeQL `js/clear-text-logging` flags logging an env-sourced password
 The seed logged the demo password for reviewer convenience; because it was env-overridable (`process.env.DEMO_PASSWORD`), CodeQL (high) flagged it as logging a secret and failed the PR. Don't log password values even in seeds — log a non-sensitive literal hint only.
