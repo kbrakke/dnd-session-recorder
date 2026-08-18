@@ -89,7 +89,7 @@ export default function Dashboard() {
             iconBg="bg-ink-50"
             iconBorder="border-ink-200"
             title="Start New Session"
-            subtitle="Record and transcribe your D&D adventure"
+            subtitle="Record and transcribe your RPG adventure"
           />
           <ActionCard
             href="/campaigns"
@@ -132,7 +132,7 @@ export default function Dashboard() {
           <div className="bg-white border border-slate-300 rounded-ss-xl p-12 text-center shadow-ss-card">
             <Scroll className="h-[42px] w-[42px] text-slate-400 mx-auto mb-3" />
             <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No sessions yet</h3>
-            <p className="font-body text-sm text-slate-500 mb-4">Start recording your first D&D session to see it here</p>
+            <p className="font-body text-sm text-slate-500 mb-4">Start recording your first RPG session to see it here</p>
             <Link href="/sessions/upload">
               <Button className="gap-2">
                 <PenTool size={14} /> Start Recording
@@ -195,7 +195,7 @@ export default function Dashboard() {
           <div className="bg-white border border-slate-300 rounded-ss-xl p-12 text-center shadow-ss-card">
             <BookOpen className="h-[42px] w-[42px] text-slate-400 mx-auto mb-3" />
             <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No campaigns yet</h3>
-            <p className="font-body text-sm text-slate-500 mb-4">Create your first campaign to organize your D&D sessions</p>
+            <p className="font-body text-sm text-slate-500 mb-4">Create your first campaign to organize your RPG sessions</p>
             <Link href="/campaigns">
               <Button className="gap-2">
                 <BookOpen size={14} /> Create Campaign

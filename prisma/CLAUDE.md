@@ -15,7 +15,7 @@ Defines the data model for PostgreSQL. Uses `cuid()` for primary keys on most mo
 | `Account` | OAuth provider links (NextAuth) | provider, providerAccountId, tokens |
 | `Session` | NextAuth JWT sessions | sessionToken, expires |
 | `VerificationToken` | Email verification (NextAuth) | identifier, token, expires |
-| `Campaign` | D&D campaign container | name, description, systemPrompt (AI context) |
+| `Campaign` | RPG campaign container | name, description, systemPrompt (AI context) |
 | `GamingSession` | Individual game recording | title, sessionDate, status, progress tracking fields |
 | `Transcription` | Audio text segments | startTime, endTime, text, confidence |
 | `Summary` | AI-generated session summary | summaryText, keyEvents, isEdited, originalText |

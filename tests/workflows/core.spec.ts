@@ -5,7 +5,7 @@ test.describe('Core Application Tests', () => {
   test('should load all main pages', async ({ page }) => {
     // Homepage
     await page.goto('/');
-    await expect(page).toHaveTitle(/StoryScribe/);
+    await expect(page).toHaveTitle(/RPG Session Recorder/);
     
     // Auth pages
     await page.goto('/auth/signin');
@@ -29,7 +29,7 @@ test.describe('Core Application Tests', () => {
     
     // Back to home
     await page.goto('/');
-    await expect(page).toHaveTitle(/StoryScribe/);
+    await expect(page).toHaveTitle(/RPG Session Recorder/);
   });
 
   // Form validation test

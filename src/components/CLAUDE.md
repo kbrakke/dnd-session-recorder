@@ -19,7 +19,7 @@ components/
 ### Layout
 
 **`Navbar.tsx`** — Main navigation bar. Client component with:
-- Logo link ("D&D Chronicles")
+- Logo link ("RPG Session Recorder")
 - Nav links: Home, New Session, Campaigns
 - User profile dropdown with sign-out button
 - OAuth account indicators (shows linked providers)

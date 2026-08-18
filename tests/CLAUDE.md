@@ -96,7 +96,7 @@ A default `playwright.config.ts` also exists at the repo root — not referenced
 
 ## Playwright selector & assertion conventions
 
-- Select form inputs **by label** (`getByLabel('Email')`) — `TextInput` renders proper `<label htmlFor>`, so label selectors survive copy/placeholder changes. The app title is `StoryScribe`; signin heading "Welcome back", signup "Create your account".
+- Select form inputs **by label** (`getByLabel('Email')`) — `TextInput` renders proper `<label htmlFor>`, so label selectors survive copy/placeholder changes. The app title is `RPG Session Recorder`; signin heading "Welcome back", signup "Create your account".
 - Staging enables Google OAuth, so the signin page has BOTH a navbar "Sign in" and a "Sign in with Google" button that local CI never renders. Scope to the form with exact names: `page.locator('form').getByRole('button', { name: 'Sign in', exact: true })`.
 - `CLIENT_FETCH_ERROR` during rapid back-to-back navigation is benign (aborted next-auth session fetch) — filter it in console-error assertions.
 - A GET against a POST-only route returns **405**, not 404 — still proves the route isn't auth-blocked.

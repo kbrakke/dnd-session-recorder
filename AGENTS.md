@@ -1,8 +1,8 @@
-# RPG Session Recorder
+# D&D Session Recorder
 
-AI-powered transcription and summarization tool for tabletop RPG sessions. Users upload audio recordings of their game sessions, which are transcribed via OpenAI Whisper and summarized via GPT-4o.
+AI-powered transcription and summarization tool for Dungeons & Dragons sessions. Users upload audio recordings of their game sessions, which are transcribed via OpenAI Whisper and summarized via GPT-4o.
 
-> **Always read [LESSONS.md](LESSONS.md) at the start of any work in this repo.** It records gotcha moments (surprising failures worth never repeating), pending action items, and the user's explicit requests/preferences. Append there when something blows up unexpectedly or the user corrects your approach. Durable architecture, conventions, and "how this works here" knowledge belongs in the nearest directory `CLAUDE.md` instead — when a lesson hardens into a convention, promote it.
+> **Always read [LESSONS.md](LESSONS.md) at the start of any work in this repo.** It records gotcha moments (surprising failures worth never repeating), pending action items, and the user's explicit requests/preferences. Append there when something blows up unexpectedly or the user corrects your approach. Durable architecture, conventions, and "how this works here" knowledge belongs in the nearest directory `AGENTS.md` instead — when a lesson hardens into a convention, promote it.
 
 ## Tech Stack
 
@@ -187,7 +187,7 @@ Multi-stage Dockerfile produces a standalone Next.js image on Node 22 Alpine wit
 **Promotion is trunk-based** — `main` is the only long-lived branch (no `staging`/`production` branches):
 - **PR → `main`:** `pull-request.yml` fast gate (`CI Status`) + ephemeral review app. PR titles must be Conventional Commits (squash-merge makes the title the commit on `main`).
 - **Push to `main` → staging:** `staging.yml` runs the comprehensive suite, deploys staging, runs the post-deploy suite. Staging is always current `main`.
-- **Production → manual release:** run `production.yml` (`workflow_dispatch`, `patch/minor/major`). It generates release notes with git-cliff (`cliff.toml`), tags `vX.Y.Z`, publishes a GitHub Release (the public changelog), and blue-green deploys prod. See `.github/CLAUDE.md` for the full flow.
+- **Production → manual release:** run `production.yml` (`workflow_dispatch`, `patch/minor/major`). It generates release notes with git-cliff (`cliff.toml`), tags `vX.Y.Z`, publishes a GitHub Release (the public changelog), and blue-green deploys prod. See `.github/AGENTS.md` for the full flow.
 
 ## Testing
 

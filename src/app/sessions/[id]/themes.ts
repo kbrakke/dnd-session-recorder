@@ -1,5 +1,5 @@
 // Theme system for Session page
-// 3 themes matching the StoryScribe design system:
+// 3 themes matching the RPG Session Recorder design system:
 // - Daylight: clean light (default production look)
 // - Midnight: dark UI
 // - Tome: parchment/ancient book feel

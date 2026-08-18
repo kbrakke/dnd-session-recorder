@@ -21,7 +21,7 @@ export default function LandingPage() {
             Every roll, retold.<br />Every saga, scribed.
           </h1>
           <p className="font-body text-lg leading-relaxed text-ink-100 mt-5 mb-8 max-w-[580px] mx-auto">
-            Upload session audio. Get transcripts, summaries, TODOs, and character biographies — without ever lifting your DM pen.
+            Upload session audio. Get transcripts, summaries, TODOs, and character biographies — without ever lifting your GM pen.
           </p>
           <div className="flex justify-center gap-3 flex-wrap">
             <Link href="/auth/signup">
@@ -41,7 +41,7 @@ export default function LandingPage() {
       {/* Features */}
       <div>
         <div className="text-center mb-8">
-          <h2 className="font-display text-4xl font-semibold text-slate-900 m-0">What StoryScribe does</h2>
+          <h2 className="font-display text-4xl font-semibold text-slate-900 m-0">What RPG Session Recorder does</h2>
           <p className="font-body text-base text-slate-500 mt-2">Low effort. High information.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -61,7 +61,7 @@ export default function LandingPage() {
             icon={<BookOpen size={28} className="text-emerald-800" />}
             accent="bg-emerald-50"
             title="Campaign Memory"
-            body="Character bios, factions, dangling threads, and DM TODOs stitched across every session."
+            body="Character bios, factions, dangling threads, and GM TODOs stitched across every session."
           />
         </div>
       </div>
@@ -78,7 +78,7 @@ export default function LandingPage() {
       <div className="bg-gradient-to-r from-ink-950 to-ink-800 text-white rounded-ss-3xl p-10 text-center border border-ink-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_1px_0_0_rgba(15,23,42,0.05),0_2px_4px_0_rgba(15,23,42,0.08)]">
         <h3 className="font-display text-[32px] font-semibold m-0">Begin your chronicle</h3>
         <p className="font-body text-base text-ink-100 max-w-[540px] mx-auto mt-3 mb-6">
-          Join thousands of DMs who never miss a moment.
+          Join thousands of GMs who never miss a moment.
         </p>
         <Link href="/auth/signup">
           <button className="font-body font-semibold text-base px-[22px] py-2.5 rounded-ss-lg cursor-pointer bg-white text-ink-900 border border-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_1px_0_0_rgba(15,23,42,0.10)] inline-flex items-center gap-2 hover:bg-slate-50 transition-colors duration-150">

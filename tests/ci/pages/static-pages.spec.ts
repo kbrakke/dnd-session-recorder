@@ -5,7 +5,7 @@ test.describe('Static Page Tests', () => {
     await page.goto('/');
 
     // Check page loads without errors
-    await expect(page).toHaveTitle(/StoryScribe/i);
+    await expect(page).toHaveTitle(/RPG Session Recorder/i);
     
     // Check for main content (use generic selectors)
     const main = page.locator('main').or(page.locator('[role="main"]'));

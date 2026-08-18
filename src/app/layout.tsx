@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "StoryScribe",
-  description: "AI-powered transcription and summarization for D&D sessions",
+  title: "RPG Session Recorder",
+  description: "AI-powered transcription and summarization for tabletop RPG sessions",
 };
 
 export default function RootLayout({

@@ -1,31 +1,31 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'About - D&D Session Recorder',
-  description: 'Learn about the D&D Session Recorder and how it helps you manage your campaign sessions.',
+  title: 'About - RPG Session Recorder',
+  description: 'Learn about the RPG Session Recorder and how it helps you manage your campaign sessions.',
 };
 
 export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-4xl font-bold mb-8">About D&D Session Recorder</h1>
+      <h1 className="text-4xl font-bold mb-8">About RPG Session Recorder</h1>
 
       <section className="mb-12">
         <h2 className="text-2xl font-semibold mb-4">What is this for?</h2>
         <div className="prose prose-gray max-w-none">
           <p className="mb-4">
-            The D&D Chronicles is a tool, primarly for Dungeon Masters, to help with keeping track of
-            their campaigns and sessions. It can be difficuly to both run the game and take notes, and with so many games
-            taking place online it is often easy to create a recording of the game session. Rather than have the DM spend time
+            RPG Session Recorder is a tool, primarily for Game Masters, to help with keeping track of
+            their campaigns and sessions. It can be difficult to both run the game and take notes, and with so many games
+            taking place online it is often easy to create a recording of the game session. Rather than have the GM spend time
             manually going over the recording, or stopping the game to take notes, they can simply use this tool to fetch all the relevant info.
           </p>
           <p className="mb-4">
             With a session recorded, you can upload it to the appropriate campaign, the tool will transcibe the audio and generate a summary of the session.
-            You as the DM can provide additional context, like specific names, tone, and setting notes to help the summary be more relevant.
+            You as the GM can provide additional context, like specific names, tone, and setting notes to help the summary be more relevant.
             You can also generate a to-do list, having the text of the transcript fed in to an AI to look for any things mentioed in the session, or loose threads that you might want to keep in mind.
           </p>
           <p className="mb-4">
-            In addition to the basic campaign and session setup. There are plans to add more DM management features, like building our character chronicles, so you can quickly see how each character is progressing in their personal quests, or important events for them.
+            In addition to the basic campaign and session setup. There are plans to add more GM management features, like building our character chronicles, so you can quickly see how each character is progressing in their personal quests, or important events for them.
             Adding overatching plot trackers, so you can remember all the threads you have put out there and when the players inteact with them.
             Add session search and interaction. Trying to remember a specific event? Just search through your past sessions to find exactly what happened.
             Finally, the technology is there to support streaming, both streaming from somethig like discord and to the session transcription, allowing real time transcription and effortless tracking.

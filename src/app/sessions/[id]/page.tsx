@@ -25,7 +25,7 @@ type TabKey = 'summary' | 'transcript' | 'todos';
 const TABS: { key: TabKey; label: string; icon: typeof Sparkles }[] = [
   { key: 'summary', label: 'Summary', icon: Sparkles },
   { key: 'transcript', label: 'Transcript', icon: FileText },
-  { key: 'todos', label: 'DM Tasks', icon: CheckCircle },
+  { key: 'todos', label: 'GM Tasks', icon: CheckCircle },
 ];
 
 function SessionDetailPage() {

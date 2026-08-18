@@ -63,7 +63,7 @@ export function DeleteSessionModal({
             >
               <li>All transcriptions</li>
               <li>AI-generated summary</li>
-              <li>DM TODO list</li>
+              <li>GM TODO list</li>
               <li>Session metadata</li>
             </ul>
             <p
