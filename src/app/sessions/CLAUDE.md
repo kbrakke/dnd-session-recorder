@@ -1,6 +1,6 @@
 # src/app/sessions/
 
-Session management UI pages. Sessions represent individual D&D game recordings.
+Session management UI pages. Sessions represent individual tabletop RPG game recordings.
 
 ## Pages
 

@@ -51,7 +51,7 @@ export default function Navbar() {
             </div>
             <div>
               <span className="text-2xl font-bold font-display bg-gradient-to-r from-ink-900 to-ink-950 bg-clip-text text-transparent leading-none block">
-                StoryScribe
+                RPG Session Recorder
               </span>
               <div className="text-xs text-slate-500 font-body mt-0.5">Annals of heroism and folly.</div>
             </div>

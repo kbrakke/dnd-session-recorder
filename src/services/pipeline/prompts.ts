@@ -4,7 +4,7 @@
  */
 
 export function buildSummaryPrompt(transcript: string, campaignSystemPrompt?: string | null): string {
-  let basePrompt = `You are a skilled storyteller and D&D campaign chronicler. Below is a transcript of a D&D session. Please create an engaging summary that:
+  let basePrompt = `You are a skilled storyteller and tabletop RPG campaign chronicler. Below is a transcript of a tabletop RPG session. Please create an engaging summary that:
 
 1. Tells the story of what happened in this session
 2. Identifies key events, decisions, and character moments
@@ -17,13 +17,13 @@ export function buildSummaryPrompt(transcript: string, campaignSystemPrompt?: st
     basePrompt += `\n\nCampaign Context:\n${campaignSystemPrompt}`;
   }
 
-  basePrompt += `\n\nHere's the transcript:\n\n${transcript}\n\nPlease provide a compelling summary that captures the essence of this D&D session.`;
+  basePrompt += `\n\nHere's the transcript:\n\n${transcript}\n\nPlease provide a compelling summary that captures the essence of this session.`;
 
   return basePrompt;
 }
 
 export function buildDmTodoPrompt(transcript: string, campaignSystemPrompt?: string | null): string {
-  let basePrompt = `You are an experienced Dungeon Master assistant. Below is a transcript of a D&D session. Please create a comprehensive TODO list for the DM to help them prepare for the next session.
+  let basePrompt = `You are an experienced Game Master assistant. Below is a transcript of a tabletop RPG session. Please create a comprehensive TODO list for the GM to help them prepare for the next session.
 
 Your TODO list should be formatted in Markdown and include:
 
@@ -45,7 +45,7 @@ Avoid adding simple generic items, only include TODO items that come out of the 
     basePrompt += `\n\nCampaign Context:\n${campaignSystemPrompt}`;
   }
 
-  basePrompt += `\n\nSession Transcript:\n\n${transcript}\n\nPlease provide a detailed TODO list to help the DM prepare for the next session.`;
+  basePrompt += `\n\nSession Transcript:\n\n${transcript}\n\nPlease provide a detailed TODO list to help the GM prepare for the next session.`;
 
   return basePrompt;
 }

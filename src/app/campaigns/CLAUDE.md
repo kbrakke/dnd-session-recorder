@@ -1,6 +1,6 @@
 # src/app/campaigns/
 
-Campaign management UI pages. Campaigns are containers that group related D&D sessions and provide AI context via system prompts.
+Campaign management UI pages. Campaigns are containers that group related RPG sessions and provide AI context via system prompts.
 
 ## Pages
 

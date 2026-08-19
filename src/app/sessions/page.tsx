@@ -142,7 +142,7 @@ export default function SessionsPage() {
           </h3>
           <p className="text-gray-500 mb-6">
             {filter === 'all' 
-              ? 'Upload your first D&D session to get started!'
+              ? 'Upload your first RPG session to get started!'
               : `No sessions with ${filter} status found.`
             }
           </p>

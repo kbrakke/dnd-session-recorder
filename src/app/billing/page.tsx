@@ -76,7 +76,7 @@ function BillingContent() {
     <div className="max-w-2xl mx-auto py-10 px-4">
       <h1 className="text-3xl font-bold font-display text-ink-900 mb-2">Billing</h1>
       <p className="text-slate-600 mb-8">
-        Manage your StoryScribe subscription.
+        Manage your RPG Session Recorder subscription.
       </p>
 
       {checkoutResult === 'success' && (

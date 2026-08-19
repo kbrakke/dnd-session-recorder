@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       description:
         'A classic dungeon delve into a ruined fortress swallowed by a ravine. Used as review-app demo data.',
       systemPrompt:
-        'You are summarizing a Dungeons & Dragons session. Focus on plot beats, NPCs, and unresolved threads.',
+        'You are summarizing a tabletop RPG session. Focus on plot beats, NPCs, and unresolved threads.',
       userId: user.id,
     },
   });

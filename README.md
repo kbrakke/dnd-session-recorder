@@ -1,6 +1,6 @@
-# D&D Session Recorder
+# RPG Session Recorder
 
-An AI-powered web application for recording, transcribing, and summarizing Dungeons & Dragons sessions. Built with Next.js, this application helps Dungeon Masters manage their campaigns with automatic transcription and intelligent summaries.
+An AI-powered web application for recording, transcribing, and summarizing tabletop RPG sessions. Built with Next.js, this application helps Game Masters manage their campaigns with automatic transcription and intelligent summaries.
 
 ## Features
 
@@ -10,7 +10,7 @@ An AI-powered web application for recording, transcribing, and summarizing Dunge
 - **🤖 AI Transcription**: Powered by OpenAI Whisper for accurate speech-to-text conversion
 - **📋 Intelligent Summaries**: GPT-4 generates comprehensive session summaries with key events
 - **👥 User Authentication**: Secure login with Google OAuth and local credentials
-- **📚 Campaign Management**: Create, organize, and manage multiple D&D campaigns
+- **📚 Campaign Management**: Create, organize, and manage multiple RPG campaigns
 - **🎮 Session Organization**: Track sessions by campaign with date and duration
 - **🔍 Transcript Search**: Full-text search within session transcripts
 - **📊 Session Analytics**: View session statistics and completion status
@@ -39,7 +39,7 @@ The application uses a well-structured database with the following key entities:
 - **VerificationTokens**: Email verification and password reset tokens
 
 ### Campaign Structure
-- **Campaigns**: D&D campaigns with descriptions and user ownership
+- **Campaigns**: RPG campaigns with descriptions and user ownership
 - **GamingSessions**: Individual game sessions linked to campaigns
 - **Transcriptions**: Timestamped transcript segments with confidence scores
 - **Summaries**: AI-generated session summaries with key events
@@ -164,7 +164,7 @@ CORS_ORIGIN="http://localhost:3000"
 
 1. **Sign up** or log in to your account
 2. **Create a campaign** to organize your sessions
-3. **Upload audio** from your D&D session
+3. **Upload audio** from your RPG session
 4. **Wait for processing** (transcription and summarization)
 5. **Review transcripts** and summaries
 6. **Export or share** your session documentation
