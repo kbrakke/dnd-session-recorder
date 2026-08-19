@@ -76,6 +76,9 @@ Review apps reused `NEXTAUTH_SECRET_STAGING`. With JWT sessions, a token minted 
 ### `fly-review.yml` needs `permissions: pull-requests: write`, and the readiness gate must fail
 The default workflow token is read-only, so the github-script PR-comment step 403s ("Resource not accessible by integration"). Separately, the "wait for app ready" loop had no `curl --max-time` and ran tests even when health never passed — a down app hung the job ~22 min until timeout, surfacing as confusing `register`/TLS errors. Cap the curl, exit on health, and `exit 1` if it never comes up.
 
+### GitHub Environment branch policies survived the trunk-based migration
+The 2026-06-26 migration deleted the `staging` branch and its rulesets, but the `staging` **Environment** kept a deployment-branch policy allowing only the branch named `staging` — so every push-to-`main` deploy was rejected with "Branch main is not allowed to deploy to staging due to environment protection rules" (the nightly scheduled run masked it: schedule runs skip the deploy job, so the workflow showed green). Fixed 2026-08-19 by swapping the policy to `main` via `gh api .../environments/staging/deployment-branch-policies`. When retiring a branch, check Environments (Settings → Environments), not just rulesets/branch protection.
+
 ### A workflow-created tag won't trigger `on: push: tags`
 GitHub suppresses workflow events from actions authenticated with the default `GITHUB_TOKEN` (recursion guard). So a release job that creates a tag with `GITHUB_TOKEN` will NOT fire a separate `on: push: tags` deploy workflow. `production.yml` therefore does tag creation + GitHub Release + prod deploy in **one** job/run. If you ever split them, the tagger needs a PAT or GitHub App token, not `GITHUB_TOKEN`.
 
