@@ -6,8 +6,10 @@
  * Prints the price id to pin as STRIPE_PRICE_ID.
  *
  * Idempotent: products are tagged with metadata `app=dnd-session-recorder`
- * and reused on re-runs. (The app also lazy-creates this on first checkout —
- * the script just lets you pin STRIPE_PRICE_ID explicitly per environment.)
+ * and reused on re-runs. The product definition and lookup live in
+ * src/lib/stripe.ts, shared with the app runtime (which lazy-creates the same
+ * product on first checkout) — the script just lets you pin STRIPE_PRICE_ID
+ * explicitly per environment.
  *
  * Usage:
  *   set -a && source .env && set +a   # or export STRIPE_SECRET_KEY=rk_...
@@ -16,11 +18,7 @@
 
 import Stripe from 'stripe';
 import { exit } from 'process';
-
-// Keep in sync with src/services/billing.ts
-const PRODUCT_METADATA_KEY = 'app';
-const PRODUCT_METADATA_VALUE = 'dnd-session-recorder';
-const STRIPE_PREVIEW_API_VERSION = '2026-02-25.preview';
+import { findSubscriptionProduct, createSubscriptionProduct } from '../src/lib/stripe';
 
 async function main() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -33,35 +31,14 @@ async function main() {
 
   const stripe = new Stripe(key);
 
-  const products = await stripe.products.list({ active: true, limit: 100 });
-  const existing = products.data.find(
-    (p) => p.metadata[PRODUCT_METADATA_KEY] === PRODUCT_METADATA_VALUE && p.default_price
-  );
+  const existing = await findSubscriptionProduct(stripe);
   if (existing) {
-    const priceId =
-      typeof existing.default_price === 'string'
-        ? existing.default_price
-        : (existing.default_price as Stripe.Price).id;
-    console.log(`Found existing product: ${existing.id} (${existing.name})`);
-    console.log(`\nAdd to your environment:\nSTRIPE_PRICE_ID="${priceId}"`);
+    console.log(`Found existing product: ${existing.product.id} (${existing.product.name})`);
+    console.log(`\nAdd to your environment:\nSTRIPE_PRICE_ID="${existing.priceId}"`);
     return;
   }
 
-  const product = await stripe.products.create(
-    {
-      name: 'Basic subscription',
-      description: 'A basic subscription to our service',
-      tax_code: 'txcd_10103100',
-      default_price_data: {
-        unit_amount: 1000,
-        currency: 'usd',
-        recurring: { interval: 'month' },
-      },
-      metadata: { [PRODUCT_METADATA_KEY]: PRODUCT_METADATA_VALUE },
-    },
-    { apiVersion: STRIPE_PREVIEW_API_VERSION }
-  );
-
+  const product = await createSubscriptionProduct(stripe);
   console.log(`Created product: ${product.id} (${product.name})`);
   console.log(`\nAdd to your environment:\nSTRIPE_PRICE_ID="${product.default_price}"`);
 }

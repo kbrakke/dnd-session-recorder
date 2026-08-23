@@ -18,6 +18,8 @@ vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
 vi.mock('@/lib/stripe', () => ({
   getStripe: () => stripeMock,
   STRIPE_PREVIEW_API_VERSION: '2026-02-25.preview',
+  findSubscriptionProduct: vi.fn(),
+  createSubscriptionProduct: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -26,6 +28,7 @@ vi.mock('@/lib/logger', () => ({
 import {
   handleStripeEvent,
   syncSubscription,
+  getUserSubscription,
   isSubscriptionActive,
 } from '@/services/billing';
 
@@ -55,6 +58,8 @@ describe('syncSubscription', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('upserts keyed by stripeSubscriptionId (idempotent on replay)', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({ id: 'user_1' }); // existence check
+
     await syncSubscription(subscription());
 
     expect(prismaMock.subscription.upsert).toHaveBeenCalledTimes(1);
@@ -86,6 +91,26 @@ describe('syncSubscription', () => {
 
     expect(prismaMock.subscription.upsert).not.toHaveBeenCalled();
   });
+
+  it('falls back to the customer lookup when the metadata userId references a deleted user', async () => {
+    prismaMock.user.findUnique
+      .mockResolvedValueOnce(null) // existence check: metadata userId is gone
+      .mockResolvedValueOnce({ id: 'user_from_customer' }); // customer fallback
+
+    await syncSubscription(subscription());
+
+    expect(prismaMock.subscription.upsert.mock.calls[0][0].create.userId).toBe(
+      'user_from_customer'
+    );
+  });
+
+  it('skips the upsert (instead of hitting the FK) when the metadata userId is deleted and no customer matches', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+
+    await syncSubscription(subscription());
+
+    expect(prismaMock.subscription.upsert).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleStripeEvent', () => {
@@ -93,6 +118,7 @@ describe('handleStripeEvent', () => {
 
   it('retrieves then syncs the subscription on checkout.session.completed', async () => {
     stripeMock.subscriptions.retrieve.mockResolvedValueOnce(subscription());
+    prismaMock.user.findUnique.mockResolvedValueOnce({ id: 'user_1' });
 
     await handleStripeEvent({
       type: 'checkout.session.completed',
@@ -115,13 +141,18 @@ describe('handleStripeEvent', () => {
     expect(prismaMock.subscription.upsert).not.toHaveBeenCalled();
   });
 
-  it('syncs directly on customer.subscription.updated/deleted', async () => {
+  it('re-retrieves current state on customer.subscription.updated/deleted (payloads may be stale)', async () => {
+    // Stripe delivered a stale 'active' payload after the deletion — the
+    // retrieve must win over the event payload
+    stripeMock.subscriptions.retrieve.mockResolvedValueOnce(subscription({ status: 'canceled' }));
+    prismaMock.user.findUnique.mockResolvedValueOnce({ id: 'user_1' });
+
     await handleStripeEvent({
       type: 'customer.subscription.deleted',
-      data: { object: subscription({ status: 'canceled' }) },
+      data: { object: subscription({ status: 'active' }) },
     } as unknown as Stripe.Event);
 
-    expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    expect(stripeMock.subscriptions.retrieve).toHaveBeenCalledWith('sub_1');
     expect(prismaMock.subscription.upsert.mock.calls[0][0].update.status).toBe('canceled');
   });
 
@@ -132,5 +163,36 @@ describe('handleStripeEvent', () => {
     } as unknown as Stripe.Event);
 
     expect(prismaMock.subscription.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('getUserSubscription', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns the active/trialing row even when a newer non-active row exists', async () => {
+    prismaMock.subscription.findFirst.mockResolvedValueOnce({ id: 'sub_a', status: 'active' });
+
+    const result = await getUserSubscription('user_1');
+
+    expect(result).toEqual({ id: 'sub_a', status: 'active' });
+    expect(prismaMock.subscription.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaMock.subscription.findFirst.mock.calls[0][0].where).toEqual({
+      userId: 'user_1',
+      status: { in: ['active', 'trialing'] },
+    });
+  });
+
+  it('falls back to the newest row when nothing is active', async () => {
+    prismaMock.subscription.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'sub_b', status: 'canceled' });
+
+    const result = await getUserSubscription('user_1');
+
+    expect(result).toEqual({ id: 'sub_b', status: 'canceled' });
+    expect(prismaMock.subscription.findFirst).toHaveBeenCalledTimes(2);
+    expect(prismaMock.subscription.findFirst.mock.calls[1][0].where).toEqual({
+      userId: 'user_1',
+    });
   });
 });
