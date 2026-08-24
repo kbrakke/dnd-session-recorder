@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { isAiMocked, transcribeAudio, generateAiText } from '@/lib/ai';
 
-describe('ai service wrapper (mock mode)', () => {
+describe('ai service wrapper', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.stubEnv('MOCK_AI_SERVICES', 'true');
@@ -33,6 +33,62 @@ describe('ai service wrapper (mock mode)', () => {
 
       expect(first.text).toBeTruthy();
       expect(first.text).toEqual(second.text);
+    });
+  });
+
+  describe('transcribeAudio (real path, fetch stubbed)', () => {
+    const fetchMock = vi.fn();
+
+    beforeEach(() => {
+      vi.stubEnv('MOCK_AI_SERVICES', 'false');
+      vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ text: 'hello table' }), { status: 200 })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('POSTs to /v1/audio/transcriptions with gpt-transcribe by default', async () => {
+      const result = await transcribeAudio(Buffer.from('bytes'), 'chunk-0.m4a');
+
+      expect(result.text).toBe('hello table');
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+      expect(init.headers.Authorization).toBe('Bearer sk-test');
+      const form = init.body as FormData;
+      expect(form.get('model')).toBe('gpt-transcribe');
+      expect(form.get('response_format')).toBe('json');
+      // The filename extension is how OpenAI infers the container format
+      expect((form.get('file') as File).name).toBe('chunk-0.m4a');
+    });
+
+    it('TRANSCRIBE_MODEL overrides the default model', async () => {
+      vi.stubEnv('TRANSCRIBE_MODEL', 'whisper-1');
+
+      await transcribeAudio(Buffer.from('bytes'));
+
+      const form = fetchMock.mock.calls[0][1].body as FormData;
+      expect(form.get('model')).toBe('whisper-1');
+    });
+
+    it('throws with status and body on a non-2xx response', async () => {
+      fetchMock.mockResolvedValue(new Response('unsupported model', { status: 400 }));
+
+      await expect(transcribeAudio(Buffer.from('x'))).rejects.toThrow(
+        /400.*unsupported model/
+      );
+    });
+
+    it('throws when OPENAI_API_KEY is unset', async () => {
+      vi.stubEnv('OPENAI_API_KEY', '');
+
+      await expect(transcribeAudio(Buffer.from('x'))).rejects.toThrow('OPENAI_API_KEY');
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 

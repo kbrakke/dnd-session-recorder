@@ -6,7 +6,7 @@ Utility modules and shared configuration. These are imported throughout the appl
 
 ### `ai.ts` — AI Service Wrapper
 Centralized access to OpenAI-backed services. The only place `@ai-sdk/openai` / `ai` are imported — add new AI calls here, never inline in routes.
-- `transcribeAudio(buffer)` — Whisper transcription, returns `{ text }`
+- `transcribeAudio(buffer, filename?)` — transcription via `gpt-transcribe` by default (`TRANSCRIBE_MODEL` env overrides, e.g. `whisper-1`), returns `{ text }`. Calls `POST /v1/audio/transcriptions` directly (raw `fetch`), NOT the AI SDK: `@ai-sdk/openai` 3.0.x hardcodes `response_format: 'verbose_json'` for models outside its gpt-4o-transcribe allowlist, which `gpt-transcribe` rejects — and the raw endpoint exposes the `keywords`/`languages` hints planned for campaign vocabulary. Pass the real chunk filename: OpenAI infers the container format from its extension.
 - `generateAiText(prompt, kind)` — text generation; `kind` is `'summary' | 'dm-todo'` and selects the model via `TEXT_MODEL`: summary → `gpt-4o`, dm-todo → `gpt-4o-mini` (the todo re-sends the full transcript, so the mini model cuts that call's cost ~90%)
 - `isAiMocked()` — true when `MOCK_AI_SERVICES === 'true'` (exact string)
 - When mocked, every call returns a deterministic fixture (no OpenAI request, no API key needed). Used by PR-stage integration tests; the test-account cost-protection block in AI routes is bypassed when mocked (see `src/app/api/CLAUDE.md`).
