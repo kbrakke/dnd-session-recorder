@@ -61,11 +61,12 @@ loop. See `docs/PIPELINE_DURABILITY.md` for design and failure-mode analysis.
 
 ### `billing.ts` — Stripe Billing
 Subscription billing via Stripe Checkout with **Managed Payments** (preview: Stripe is merchant of record and handles tax). The Stripe client lives in `src/lib/stripe.ts`; product-create and checkout-session calls send the `2026-02-25.preview` version header per request (`STRIPE_PREVIEW_API_VERSION`).
-- `ensureSubscriptionPrice()` — resolves the $10/mo price: `STRIPE_PRICE_ID` env, else finds/creates the product tagged `app=dnd-session-recorder` (also creatable ahead of time via `scripts/stripe-setup.ts`)
-- `getOrCreateStripeCustomer(userId)` — persists `User.stripeCustomerId` on first use
-- `createSubscriptionCheckoutSession(userId, baseUrl)` — subscription-mode Checkout Session, `managed_payments[enabled]=true`, `client_reference_id`/`subscription_data.metadata.userId` carry the user id to webhooks
-- `handleStripeEvent(event)` / `syncSubscription(sub)` — webhook dispatch; upserts the `subscriptions` mirror row by `stripeSubscriptionId` (idempotent on replay). Stripe is the source of truth; the DB row is a cache for fast auth-time checks
-- `getUserSubscription(userId)` / `isSubscriptionActive(sub)` — status reads (`active`/`trialing` count as active)
+- `ensureSubscriptionPrice()` — resolves the $10/mo price: `STRIPE_PRICE_ID` env, else finds/creates the product tagged `app=dnd-session-recorder` (short TTL cache; the product definition + find/create helpers live in `src/lib/stripe.ts`, shared with `scripts/stripe-setup.ts`, and product create uses an idempotency key so racing cold machines can't duplicate it)
+- `getSubscriptionPriceInfo()` — resolved price as display data (amount/interval/product name) so the billing page never hardcodes what checkout charges
+- `getOrCreateStripeCustomer(userId)` — persists `User.stripeCustomerId` on first use; `customers.create` uses idempotency key `customer-create-<userId>` so concurrent first checkouts can't duplicate customers
+- `createSubscriptionCheckoutSession(userId, baseUrl)` — subscription-mode Checkout Session, `managed_payments[enabled]=true`, `client_reference_id`/`subscription_data.metadata.userId` carry the user id to webhooks. The checkout route 409s when the user is already active/trialing
+- `handleStripeEvent(event)` / `syncSubscription(sub)` — webhook dispatch; upserts the `subscriptions` mirror row by `stripeSubscriptionId` (idempotent on replay). Stripe doesn't guarantee event ordering, so `updated`/`deleted` handlers **re-retrieve the subscription** and never sync the (possibly stale) event payload. `syncSubscription` verifies the resolved userId still exists before upserting — a deleted user's live subscription must log-and-skip, not hit the FK and 500 into an endless Stripe retry loop. Stripe is the source of truth; the DB row is a cache for fast auth-time checks
+- `getUserSubscription(userId)` / `isSubscriptionActive(sub)` — status reads (`active`/`trialing` count as active). An active/trialing row is preferred over the newest row, so a stale canceled/incomplete row can't shadow a still-billing subscription
 - Billing period is **item-level** (`subscription.items.data[0].current_period_end`) on current API versions, not on the subscription object
 
 ### `storage.ts` — Audio Storage Abstraction

@@ -56,8 +56,8 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 - `accounts/route.ts` - `GET` linked OAuth accounts
 
 ### Billing (`billing/`)
-- `checkout/route.ts` - `POST` create a Stripe Checkout Session (subscription mode, Managed Payments); returns `{ url }` to redirect to. Sensitive-action rate limited.
-- `subscription/route.ts` - `GET` the user's subscription status from the `subscriptions` mirror table
+- `checkout/route.ts` - `POST` create a Stripe Checkout Session (subscription mode, Managed Payments); returns `{ url }` to redirect to, or **409** when the user already has an active/trialing subscription (double-charge guard). Sensitive-action rate limited.
+- `subscription/route.ts` - `GET` the user's subscription status from the `subscriptions` mirror table, plus the resolved display `price` (null when Stripe is unconfigured/unreachable — status must not depend on Stripe)
 - `webhook/route.ts` - `POST` Stripe webhook (PUBLIC in middleware — authenticated by signature verification against `STRIPE_WEBHOOK_SECRET`, never by session). Handles `checkout.session.completed` + `customer.subscription.updated/deleted`; returns 500 on handler failure so Stripe retries (handlers are idempotent upserts). All Stripe logic lives in `src/services/billing.ts`. Endpoints 503 when `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are unset.
 
 ### Utility

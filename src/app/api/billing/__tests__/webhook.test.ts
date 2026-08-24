@@ -46,20 +46,18 @@ function signedHeader(payload: string, secret = WEBHOOK_SECRET): string {
 }
 
 describe('POST /api/billing/webhook', () => {
-  const originalEnv = { ...process.env };
-
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-    process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_dummy');
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', WEBHOOK_SECRET);
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    vi.unstubAllEnvs();
   });
 
   it('returns 503 when the webhook secret is not configured', async () => {
-    delete process.env.STRIPE_WEBHOOK_SECRET;
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', '');
     const res = await POST(webhookRequest(checkoutCompletedPayload()));
     expect(res.status).toBe(503);
     expect(handleStripeEvent).not.toHaveBeenCalled();

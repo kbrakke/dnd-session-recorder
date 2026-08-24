@@ -3,8 +3,8 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle, CreditCard, XCircle } from 'lucide-react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { CheckCircle, CreditCard, Loader2, XCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { formatDate } from '@/lib/formatting';
 
@@ -15,14 +15,24 @@ interface SubscriptionResponse {
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
   } | null;
+  price: {
+    unitAmount: number | null;
+    currency: string;
+    interval: string | null;
+    productName: string | null;
+  } | null;
 }
+
+// Stop polling for the post-checkout webhook after this long and show the
+// "still processing" fallback instead of hammering the API forever
+const CHECKOUT_POLL_TIMEOUT_MS = 2 * 60 * 1000;
 
 function BillingContent() {
   const { status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
 
   const checkoutResult = searchParams.get('checkout'); // 'success' | 'cancelled' | null
 
@@ -31,6 +41,12 @@ function BillingContent() {
       router.push('/auth/signin');
     }
   }, [status, router]);
+
+  useEffect(() => {
+    if (checkoutResult !== 'success') return;
+    const timeout = setTimeout(() => setPollTimedOut(true), CHECKOUT_POLL_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [checkoutResult]);
 
   const { data, isLoading } = useQuery<SubscriptionResponse>({
     queryKey: ['billing', 'subscription'],
@@ -43,15 +59,16 @@ function BillingContent() {
     // The webhook may land a moment after the success redirect — poll briefly
     // until the subscription shows up
     refetchInterval: (query) =>
-      checkoutResult === 'success' && !query.state.data?.active ? 2000 : false,
+      checkoutResult === 'success' && !pollTimedOut && !query.state.data?.active ? 2000 : false,
   });
 
-  // Once the webhook lands, drop the stale polling trigger from the URL
+  // Once the webhook lands, drop the stale ?checkout=success trigger from the
+  // URL so a reload or bookmark doesn't replay the banner or re-arm polling
   useEffect(() => {
     if (checkoutResult === 'success' && data?.active) {
-      queryClient.invalidateQueries({ queryKey: ['billing'] });
+      router.replace('/billing');
     }
-  }, [checkoutResult, data?.active, queryClient]);
+  }, [checkoutResult, data?.active, router]);
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -71,6 +88,17 @@ function BillingContent() {
   }
 
   const subscription = data?.subscription;
+  const price = data?.price;
+  // Fall back to the defaults from SUBSCRIPTION_PRODUCT only while the
+  // resolved price hasn't loaded
+  const priceLabel =
+    price?.unitAmount != null
+      ? `${new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: price.currency.toUpperCase(),
+        }).format(price.unitAmount / 100)} / ${price.interval ?? 'month'}`
+      : '$10 / month';
+  const awaitingWebhook = checkoutResult === 'success' && !data?.active;
 
   return (
     <div className="max-w-2xl mx-auto py-10 px-4">
@@ -104,8 +132,10 @@ function BillingContent() {
             <CreditCard className="h-5 w-5 text-ink-900" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Basic subscription</h2>
-            <p className="text-sm text-slate-500">$10 / month</p>
+            <h2 className="text-lg font-semibold text-slate-900">
+              {price?.productName ?? 'Basic subscription'}
+            </h2>
+            <p className="text-sm text-slate-500">{priceLabel}</p>
           </div>
         </div>
 
@@ -120,6 +150,23 @@ function BillingContent() {
               <p>
                 {subscription.cancelAtPeriodEnd ? 'Ends' : 'Renews'} on{' '}
                 {formatDate(subscription.currentPeriodEnd, 'long')}
+              </p>
+            )}
+          </div>
+        ) : awaitingWebhook ? (
+          // Never offer Subscribe in the paid-but-webhook-pending window — a
+          // second checkout here would double-charge
+          <div className="text-sm text-slate-700">
+            {pollTimedOut ? (
+              <p>
+                Your payment was received, but the subscription is taking longer than expected to
+                activate. Refresh this page in a minute — if it still isn&apos;t active, contact
+                support before subscribing again.
+              </p>
+            ) : (
+              <p className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Finalizing your subscription…</span>
               </p>
             )}
           </div>

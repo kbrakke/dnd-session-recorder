@@ -1,28 +1,18 @@
 import Stripe from 'stripe';
 import type { Subscription } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { getStripe, STRIPE_PREVIEW_API_VERSION } from '@/lib/stripe';
+import {
+  getStripe,
+  STRIPE_PREVIEW_API_VERSION,
+  findSubscriptionProduct,
+  createSubscriptionProduct,
+} from '@/lib/stripe';
 import { logger } from '@/lib/logger';
 
-// The single subscription product this app sells. Identified in Stripe by
-// metadata so re-deploys and multiple environments don't create duplicates.
-const PRODUCT_METADATA_KEY = 'app';
-const PRODUCT_METADATA_VALUE = 'dnd-session-recorder';
-
-const SUBSCRIPTION_PRODUCT: Stripe.ProductCreateParams = {
-  name: 'Basic subscription',
-  description: 'A basic subscription to our service',
-  // Digital-product tax code required for Managed Payments eligibility
-  tax_code: 'txcd_10103100',
-  default_price_data: {
-    unit_amount: 1000,
-    currency: 'usd',
-    recurring: { interval: 'month' },
-  },
-  metadata: { [PRODUCT_METADATA_KEY]: PRODUCT_METADATA_VALUE },
-};
-
-let cachedPriceId: string | null = null;
+// A TTL bounds how long an archived/repriced product keeps being sold from a
+// stale per-process cache
+const PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedPrice: { id: string; expiresAt: number } | null = null;
 
 /**
  * Resolve the monthly price to sell. Precedence: STRIPE_PRICE_ID env var,
@@ -33,29 +23,53 @@ export async function ensureSubscriptionPrice(): Promise<string> {
   if (process.env.STRIPE_PRICE_ID) {
     return process.env.STRIPE_PRICE_ID;
   }
-  if (cachedPriceId) {
-    return cachedPriceId;
+  if (cachedPrice && Date.now() < cachedPrice.expiresAt) {
+    return cachedPrice.id;
   }
 
   const stripe = getStripe();
-  const products = await stripe.products.list({ active: true, limit: 100 });
-  const existing = products.data.find(
-    (p) => p.metadata[PRODUCT_METADATA_KEY] === PRODUCT_METADATA_VALUE && p.default_price
-  );
-  if (existing) {
-    cachedPriceId =
-      typeof existing.default_price === 'string'
-        ? existing.default_price
-        : (existing.default_price as Stripe.Price).id;
-    return cachedPriceId;
+  const found = await findSubscriptionProduct(stripe);
+  let priceId: string;
+  if (found) {
+    priceId = found.priceId;
+  } else {
+    const product = await createSubscriptionProduct(stripe);
+    logger.info(`Created Stripe subscription product ${product.id}`);
+    priceId = product.default_price as string;
+  }
+  cachedPrice = { id: priceId, expiresAt: Date.now() + PRICE_CACHE_TTL_MS };
+  return priceId;
+}
+
+export interface SubscriptionPriceInfo {
+  unitAmount: number | null;
+  currency: string;
+  interval: string | null;
+  productName: string | null;
+}
+
+let cachedPriceInfo: { info: SubscriptionPriceInfo; expiresAt: number } | null = null;
+
+/**
+ * The resolved price as display data for the billing page, so the UI never
+ * hardcodes an amount that STRIPE_PRICE_ID (or a product edit) can change.
+ */
+export async function getSubscriptionPriceInfo(): Promise<SubscriptionPriceInfo> {
+  if (cachedPriceInfo && Date.now() < cachedPriceInfo.expiresAt) {
+    return cachedPriceInfo.info;
   }
 
-  const product = await stripe.products.create(SUBSCRIPTION_PRODUCT, {
-    apiVersion: STRIPE_PREVIEW_API_VERSION,
-  });
-  logger.info(`Created Stripe subscription product ${product.id}`);
-  cachedPriceId = product.default_price as string;
-  return cachedPriceId;
+  const priceId = await ensureSubscriptionPrice();
+  const price = await getStripe().prices.retrieve(priceId, { expand: ['product'] });
+  const info: SubscriptionPriceInfo = {
+    unitAmount: price.unit_amount,
+    currency: price.currency,
+    interval: price.recurring?.interval ?? null,
+    productName:
+      typeof price.product === 'object' && 'name' in price.product ? price.product.name : null,
+  };
+  cachedPriceInfo = { info, expiresAt: Date.now() + PRICE_CACHE_TTL_MS };
+  return info;
 }
 
 /**
@@ -74,11 +88,16 @@ export async function getOrCreateStripeCustomer(userId: string): Promise<string>
     return user.stripeCustomerId;
   }
 
-  const customer = await getStripe().customers.create({
-    email: user.email ?? undefined,
-    name: user.name ?? undefined,
-    metadata: { userId },
-  });
+  const customer = await getStripe().customers.create(
+    {
+      email: user.email ?? undefined,
+      name: user.name ?? undefined,
+      metadata: { userId },
+    },
+    // Concurrent first checkouts (double-click, second tab) collapse to one
+    // customer instead of racing to create duplicates
+    { idempotencyKey: `customer-create-${userId}` }
+  );
   await prisma.user.update({
     where: { id: userId },
     data: { stripeCustomerId: customer.id },
@@ -120,7 +139,8 @@ export async function createSubscriptionCheckoutSession(
 /**
  * Upsert our mirror row from a Stripe subscription object. Stripe is the
  * source of truth; upserting by stripeSubscriptionId keeps webhook replays
- * and out-of-order deliveries idempotent.
+ * idempotent. Out-of-order delivery is handled by callers passing freshly
+ * retrieved state, not stale event payloads (see handleStripeEvent).
  */
 export async function syncSubscription(
   subscription: Stripe.Subscription,
@@ -130,6 +150,18 @@ export async function syncSubscription(
     typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
 
   let userId = subscription.metadata?.userId || fallbackUserId || null;
+  if (userId) {
+    // The id may reference a hard-deleted user whose Stripe subscription
+    // lives on; an unchecked id would hit the FK on the create path and make
+    // the webhook 500 (and Stripe retry) forever
+    const exists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!exists) {
+      userId = null;
+    }
+  }
   if (!userId) {
     const user = await prisma.user.findUnique({
       where: { stripeCustomerId: customerId },
@@ -189,7 +221,12 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<void> {
     }
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      await syncSubscription(event.data.object as Stripe.Subscription);
+      // Stripe doesn't guarantee delivery order, so the event payload may be
+      // stale (e.g. an old 'active' update delivered after the deletion) —
+      // re-retrieve so we always sync the subscription's current state
+      const eventSubscription = event.data.object as Stripe.Subscription;
+      const subscription = await getStripe().subscriptions.retrieve(eventSubscription.id);
+      await syncSubscription(subscription);
       break;
     }
     default:
@@ -198,6 +235,15 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<void> {
 }
 
 export async function getUserSubscription(userId: string): Promise<Subscription | null> {
+  // An active/trialing row always wins — a newer canceled/incomplete row must
+  // not shadow a subscription Stripe is still billing
+  const active = await prisma.subscription.findFirst({
+    where: { userId, status: { in: ['active', 'trialing'] } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (active) {
+    return active;
+  }
   return prisma.subscription.findFirst({
     where: { userId },
     orderBy: { createdAt: 'desc' },
