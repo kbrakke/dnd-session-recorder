@@ -47,6 +47,7 @@ test.describe('Route Protection', () => {
       '/api/campaigns',
       '/api/uploads',
       '/api/billing/subscription',
+      '/api/recordings/test-id',
     ];
 
     for (const route of protectedApiRoutes) {
@@ -58,6 +59,16 @@ test.describe('Route Protection', () => {
     // the route's 405 before auth matters)
     const checkout = await request.post('/api/billing/checkout');
     expect(checkout.status()).toBe(401);
+
+    // Live-recording endpoints, probed with their real methods
+    const startRecording = await request.post('/api/sessions/test-id/recording');
+    expect(startRecording.status()).toBe(401);
+    const heartbeat = await request.put('/api/recordings/test-id/heartbeat');
+    expect(heartbeat.status()).toBe(401);
+    const partUpload = await request.put('/api/recordings/test-id/segments/0/parts/0', {
+      data: Buffer.from('audio'),
+    });
+    expect(partUpload.status()).toBe(401);
   });
 
   test('Stripe webhook is public (authenticated by signature, not session)', async ({ request }) => {

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { Campaign } from '@prisma/client';
+import { Campaign, Recording } from '@prisma/client';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { SessionWithIncludes } from '@/services/database';
+import { getOwnedRecording } from '@/services/recording';
 import { RateLimiter, getRateLimitIdentifier } from '@/lib/rate-limiter';
 
 type AuthedUser = { id: string; email?: string | null; name?: string | null };
@@ -44,6 +45,43 @@ export async function requireCampaignOwner(
     return { error: notFound('Campaign not found'), user: null, campaign: null };
   }
   return { error: null, user, campaign };
+}
+
+/** Authenticate and confirm the user owns the live recording (404-masked). */
+export async function requireRecordingOwner(
+  recordingId: string
+): Promise<
+  | { error: NextResponse; user: null; recording: null }
+  | { error: null; user: AuthedUser; recording: Recording }
+> {
+  const { error, user } = await requireAuth();
+  if (error) return { error, user: null, recording: null };
+
+  const recording = await getOwnedRecording(recordingId, user.id);
+  if (!recording) {
+    return { error: notFound('Recording not found'), user: null, recording: null };
+  }
+  return { error: null, user, recording };
+}
+
+/**
+ * Verify the caller holds the recording's current recorder token
+ * (`x-recorder-token`). Start/takeover rotates the token, so a stale tab's
+ * uploads and heartbeats fail here with 409 instead of corrupting the
+ * ledger. Returns null when the token matches.
+ */
+export function requireRecorderToken(
+  request: Request,
+  recording: Recording
+): NextResponse | null {
+  const token = request.headers.get('x-recorder-token');
+  if (!token || token !== recording.recorderToken) {
+    return NextResponse.json(
+      { error: 'Recording was taken over in another tab' },
+      { status: 409 }
+    );
+  }
+  return null;
 }
 
 /**

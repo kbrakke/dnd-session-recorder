@@ -21,13 +21,19 @@ export const STALE_LEASE_MINUTES = 2;
 
 export type ActiveJobStatus = 'pending' | 'running';
 
+export type PipelineJobType = 'process_session' | 'finalize_recording';
+
 /**
- * Enqueue a processing job for a session. Idempotent: if an active job
- * already exists it is returned (and, if it was waiting out a retry backoff,
- * made immediately runnable — a manual kick should not have to wait).
+ * Enqueue a job for a session. Idempotent PER SESSION, not per type: at most
+ * one active job exists for a session, and if one does it is returned even
+ * when its type differs (the two types never legitimately overlap — a
+ * finalize job enqueues process_session only after it completes). A pending
+ * job waiting out a retry backoff is made immediately runnable — a manual
+ * kick should not have to wait.
  */
-export async function enqueueProcessSession(
-  sessionId: string
+async function enqueueJob(
+  sessionId: string,
+  type: PipelineJobType
 ): Promise<{ job: PipelineJob; created: boolean }> {
   return prisma.$transaction(async tx => {
     // Lock the session row to serialize concurrent enqueues for one session.
@@ -54,13 +60,27 @@ export async function enqueueProcessSession(
       return { job: existing, created: false };
     }
 
-    const created = await tx.pipelineJob.create({ data: { sessionId } });
+    const created = await tx.pipelineJob.create({ data: { sessionId, type } });
     await tx.$executeRaw`
       UPDATE pipeline_jobs SET run_after = NOW() WHERE id = ${created.id}
     `;
     const job = await tx.pipelineJob.findUniqueOrThrow({ where: { id: created.id } });
     return { job, created: true };
   });
+}
+
+/** Enqueue the transcribe -> summarize -> dm_todo pipeline for a session. */
+export async function enqueueProcessSession(
+  sessionId: string
+): Promise<{ job: PipelineJob; created: boolean }> {
+  return enqueueJob(sessionId, 'process_session');
+}
+
+/** Enqueue assembly of a live recording into a normal Upload. */
+export async function enqueueFinalizeRecording(
+  sessionId: string
+): Promise<{ job: PipelineJob; created: boolean }> {
+  return enqueueJob(sessionId, 'finalize_recording');
 }
 
 /**
