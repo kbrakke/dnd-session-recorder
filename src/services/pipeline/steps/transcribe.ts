@@ -121,7 +121,7 @@ export async function runTranscribeStep(sessionId: string, ctx: StepContext): Pr
 
         const fileBuffer = fs.readFileSync(chunkPaths[row.chunkIndex]);
         const transcription = await withTimeout(
-          transcribeAudio(fileBuffer),
+          transcribeAudio(fileBuffer, path.basename(chunkPaths[row.chunkIndex])),
           CHUNK_TIMEOUT_MS,
           `Transcription timeout: chunk ${row.chunkIndex + 1}/${chunkRows.length} took longer than 30 minutes`
         );
