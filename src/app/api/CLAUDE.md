@@ -55,6 +55,16 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 ### User (`user/`)
 - `accounts/route.ts` - `GET` linked OAuth accounts
 
+### Live Recording (`recordings/`, plus `sessions/[id]/recording`)
+In-browser session recording (docs/LIVE_RECORDING_DESIGN.md). The session stays `draft` while recording; all state lives on the `Recording` row. Capture endpoints (`segments`, `parts`, `close`, `heartbeat`) require the current `x-recorder-token` (rotated on start/takeover; stale tabs get 409) and are **deliberately not rate-limited beyond auth** — 15s heartbeats + ~90s part uploads would trip the general limiter.
+- `sessions/[id]/recording/route.ts` - `POST` start OR take over recording (sensitive-action limited; 409 if session has audio or recording is past capture). Returns recording state + fresh recorder token + next segment index.
+- `recordings/[id]/route.ts` - `GET` state (`interrupted` derived from DB-clock heartbeat staleness), `DELETE` discard (deletes part objects + rows; 409 once finalizing/finalized)
+- `recordings/[id]/segments/route.ts` - `POST` open segment N (gapless, idempotent)
+- `recordings/[id]/segments/[n]/parts/[m]/route.ts` - `PUT` raw part bytes (≤8MB; idempotent by index; implicit heartbeat)
+- `recordings/[id]/segments/[n]/close/route.ts` - `POST` declare final part count; 409 returns `missing` indexes for client re-upload
+- `recordings/[id]/heartbeat/route.ts` - `PUT` liveness ping `{ state: recording|paused }` (raw SQL `NOW()`)
+- `recordings/[id]/finalize/route.ts` - `POST` enqueue the `finalize_recording` job (no recorder token — the recovery card runs in a fresh tab). Assembly happens on the pipeline worker; on success the session becomes a normal `uploaded` session and transcription auto-enqueues behind the test-account cost gate.
+
 ### Billing (`billing/`)
 - `checkout/route.ts` - `POST` create a Stripe Checkout Session (subscription mode, Managed Payments); returns `{ url }` to redirect to, or **409** when the user already has an active/trialing subscription (double-charge guard). Sensitive-action rate limited.
 - `subscription/route.ts` - `GET` the user's subscription status from the `subscriptions` mirror table, plus the resolved display `price` (null when Stripe is unconfigured/unreachable — status must not depend on Stripe)

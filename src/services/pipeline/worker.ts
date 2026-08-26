@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import {
   claimNextJob,
   completeJob,
+  enqueueProcessSession,
   failJob,
   heartbeatJob,
   reapStaleJobs,
@@ -16,6 +17,8 @@ import { StepContext } from './util';
 import { runTranscribeStep } from './steps/transcribe';
 import { runSummarizeStep } from './steps/summarize';
 import { runDmTodoStep } from './steps/dmTodo';
+import { runFinalizeRecordingStep } from './steps/finalizeRecording';
+import { markRecordingFailed } from '@/services/recording';
 
 const POLL_INTERVAL_MS = Number(process.env.PIPELINE_POLL_INTERVAL_MS || 5000);
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
@@ -60,9 +63,27 @@ async function runJob(job: PipelineJob): Promise<void> {
     logger.info('Pipeline job started', {
       jobId: job.id,
       sessionId,
+      type: job.type,
       attempt: job.attempts,
       workerId: WORKER_ID,
     });
+
+    // job.type dispatch: finalize jobs assemble a live recording into an
+    // Upload; everything else is the classic transcribe -> summarize ->
+    // dm_todo chain. process_session is enqueued only AFTER completeJob —
+    // enqueue idempotency is per-session, so enqueueing while this job is
+    // still 'running' would return this job and never create the next one.
+    if (job.type === 'finalize_recording') {
+      await setJobStep(job.id, 'finalize');
+      const result = await runFinalizeRecordingStep(sessionId, ctx);
+      await completeJob(job.id, 'finalize');
+      if (result.enqueueProcessing) {
+        await enqueueProcessSession(sessionId);
+        await db.updateSession(sessionId, { status: 'transcribing' });
+      }
+      logger.info('Pipeline job completed', { jobId: job.id, sessionId, type: job.type });
+      return;
+    }
 
     await setJobStep(job.id, 'transcribe');
     await runTranscribeStep(sessionId, ctx);
@@ -98,7 +119,13 @@ async function runJob(job: PipelineJob): Promise<void> {
 
     if (outcome === 'failed') {
       try {
-        await db.setSessionError(sessionId, job.currentStep || 'processing', message);
+        if (job.type === 'finalize_recording') {
+          // The session is still 'draft'; the failure belongs on the
+          // Recording row (parts retained, recovery card offers retry).
+          await markRecordingFailed(sessionId, message);
+        } else {
+          await db.setSessionError(sessionId, job.currentStep || 'processing', message);
+        }
       } catch (updateError) {
         logger.error('Failed to mark session errored', updateError as Error, { sessionId });
       }

@@ -24,6 +24,7 @@ model User {
   uploads        Upload[]
   gamingSessions GamingSession[] // D&D game sessions
   subscriptions  Subscription[]
+  recordings     Recording[]
 }
 
 model Account {
@@ -118,10 +119,77 @@ model GamingSession {
   transcriptions   Transcription[]
   pipelineJobs     PipelineJob[]
   transcriptChunks TranscriptChunk[]
+  recording        Recording?
 
   @@index([userId])
   @@index([campaignId])
   @@map("gaming_sessions")
+}
+
+// Live in-browser recording state (docs/LIVE_RECORDING_DESIGN.md). The
+// session keeps its normal status vocabulary (stays 'draft' while recording);
+// all live-recording state lives here. "Interrupted" is DERIVED, never
+// stored: status in (recording, paused) with a stale lastHeartbeatAt.
+// Time-sensitive writes (lastHeartbeatAt) use raw SQL NOW() per the clock
+// rule in src/services/CLAUDE.md.
+model Recording {
+  id                String   @id @default(cuid())
+  sessionId         String   @unique @map("session_id")
+  userId            String   @map("user_id")
+  status            String   // recording | paused | finalizing | finalized | failed
+  source            String   @default("web") // web | discord (future)
+  mimeType          String   @map("mime_type") // e.g. audio/webm;codecs=opus
+  recorderToken     String   @map("recorder_token") // rotates on start/takeover; parts+heartbeats must match
+  startedAt         DateTime @default(now()) @map("started_at")
+  lastHeartbeatAt   DateTime @default(now()) @map("last_heartbeat_at")
+  finalizedUploadId String?  @map("finalized_upload_id")
+  errorMessage      String?  @map("error_message")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  session  GamingSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  segments RecordingSegment[]
+
+  @@index([userId, status])
+  @@map("recordings")
+}
+
+// One continuous MediaRecorder run: independently decodable once its parts
+// are byte-concatenated in order. A new segment opens on start, resume,
+// mic change, and scheduled rotation.
+model RecordingSegment {
+  id          String   @id @default(cuid())
+  recordingId String   @map("recording_id")
+  index       Int // 0-based, gapless per recording
+  status      String   @default("open") // open | closed (closed = partCount is final)
+  partCount   Int      @default(0) @map("part_count")
+  sizeBytes   Int      @default(0) @map("size_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  recording Recording       @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  parts     RecordingPart[]
+
+  @@unique([recordingId, index])
+  @@map("recording_segments")
+}
+
+// Integrity ledger for uploaded byte ranges (same philosophy as
+// transcript_chunks): finalize verifies gapless indexes and byte counts
+// against storage before assembling. Rows are deleted with their objects
+// after a successful finalize.
+model RecordingPart {
+  id         String   @id @default(cuid())
+  segmentId  String   @map("segment_id")
+  index      Int // 0-based, gapless per segment
+  storageKey String   @map("storage_key")
+  sizeBytes  Int      @map("size_bytes")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  segment RecordingSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  @@unique([segmentId, index])
+  @@map("recording_parts")
 }
 
 // Durable work queue for the transcribe -> summarize -> dm-todo pipeline.

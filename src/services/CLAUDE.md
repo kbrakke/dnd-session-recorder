@@ -69,6 +69,17 @@ Subscription billing via Stripe Checkout with **Managed Payments** (preview: Str
 - `getUserSubscription(userId)` / `isSubscriptionActive(sub)` — status reads (`active`/`trialing` count as active). An active/trialing row is preferred over the newest row, so a stale canceled/incomplete row can't shadow a still-billing subscription
 - Billing period is **item-level** (`subscription.items.data[0].current_period_end`) on current API versions, not on the subscription object
 
+### `recording.ts` — Live Recording Lifecycle
+State machine for in-browser recording (docs/LIVE_RECORDING_DESIGN.md): `recording | paused | finalizing | finalized | failed`, with **`interrupted` always DERIVED** (`deriveDisplayStatus`: capture status + heartbeat older than `RECORDING_STALE_SECONDS` vs the DB clock) — never stored, no cron. Heartbeat writes use raw SQL `NOW()` (clock rule below). Key invariants:
+- Start and takeover are the same operation (`startOrTakeoverRecording`): a fresh `recorderToken` is issued and stale tabs' writes 409.
+- `savePart` is idempotent by `(segment, index)` and recomputes segment aggregates from the ledger, so retries can't double-count. Part uploads double as heartbeats.
+- `contiguousParts` implements "finalize what we have": assembly uses each segment's gapless part prefix.
+- `discardRecording` deletes part objects best-effort, then the row — deleting the row is what frees the session for re-recording.
+
+### `pipeline/steps/finalizeRecording.ts` — Recording Assembly
+Runs as pipeline job **`type: 'finalize_recording'`** (the worker dispatches on `job.type`; everything else runs the classic chain). Downloads parts, byte-concatenates per segment, ffmpeg-concats segments (stream copy), probes duration, publishes a normal `Upload`, links the session (`uploaded`, duration mirrored), and deletes part objects/rows. `finalizedUploadId` is set **before** the session link so a crash re-runs into pure bookkeeping, never a second Upload. Terminal failures mark the `Recording` failed (parts retained, retryable) — not the session, which is still `draft`.
+- Queue idempotency is per **session**, not per type: `enqueueJob` returns any active job for the session regardless of type. Therefore the step only RETURNS `enqueueProcessing` and the **worker enqueues `process_session` after `completeJob`** (cost-gated like create-with-upload) — enqueueing from inside the still-running finalize job would return that job itself and the process job would never exist (caught by the fake-recorder E2E).
+
 ### `storage.ts` — Audio Storage Abstraction
 Two backends selected by env: Tigris/S3 object storage (`BUCKET_NAME` + `AWS_ENDPOINT_URL_S3`, set by `fly storage create`) or local `UPLOAD_DIR` (dev default). Every upload row carries a non-null `storageKey` (backend-relative); `localPathForKey` resolves it for the local backend.
 - `saveAudio(key, buffer, contentType)` / `deleteAudio(upload)` / `audioExists(upload)`

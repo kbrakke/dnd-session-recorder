@@ -63,6 +63,41 @@ export function buildAudioKey(userId: string, filename: string): string {
   return `audio/${userId}/${filename}`;
 }
 
+/**
+ * Storage key for one uploaded part of a live recording. Parts are raw byte
+ * ranges of a MediaRecorder stream (not standalone playable), kept under
+ * their own prefix; only the finalized, assembled file gets an `audio/` key.
+ */
+export function buildRecordingPartKey(
+  userId: string,
+  recordingId: string,
+  segmentIndex: number,
+  partIndex: number
+): string {
+  return `recording/${userId}/${recordingId}/${segmentIndex}/${partIndex}.part`;
+}
+
+/**
+ * Download an object to an explicit local path (finalize assembles recording
+ * parts this way). Unlike ensureLocalAudio there is no caching — callers own
+ * the destination lifecycle.
+ */
+export async function downloadObjectToFile(key: string, destPath: string): Promise<void> {
+  await mkdir(path.dirname(destPath), { recursive: true });
+  if (isObjectStorageEnabled()) {
+    const response = await s3().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+    const bytes = await response.Body!.transformToByteArray();
+    await writeFile(destPath, Buffer.from(bytes));
+    return;
+  }
+  await fs.promises.copyFile(localPathForKey(key), destPath);
+}
+
+/** Delete an object by key (recording parts). Missing objects are a no-op. */
+export async function deleteObjectByKey(key: string): Promise<void> {
+  await deleteAudio({ storageKey: key });
+}
+
 /** Persist an uploaded audio buffer to the active backend. */
 export async function saveAudio(key: string, buffer: Buffer, contentType: string): Promise<void> {
   if (isObjectStorageEnabled()) {

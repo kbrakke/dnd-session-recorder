@@ -22,7 +22,10 @@ Defines the data model for PostgreSQL. Uses `cuid()` for primary keys on most mo
 | `DmTodoList` | AI-generated DM notes | content (markdown), isEdited, originalText |
 | `Upload` | Audio file metadata | filename, storageKey, size, mimetype, duration |
 | `Subscription` | Mirror of the user's Stripe subscription (webhook-maintained; Stripe is source of truth) | stripeSubscriptionId (unique), status, currentPeriodEnd, cancelAtPeriodEnd |
-| `PipelineJob` | Durable work queue for processing pipeline | status, currentStep, attempts, runAfter (backoff), lockedBy/heartbeatAt (lease) |
+| `PipelineJob` | Durable work queue for processing pipeline | **type** (process_session \| finalize_recording), status, currentStep, attempts, runAfter (backoff), lockedBy/heartbeatAt (lease) |
+| `Recording` | Live in-browser recording state (session stays `draft`; interrupted is derived, never stored) | sessionId (unique), status, recorderToken, lastHeartbeatAt (raw NOW()), finalizedUploadId |
+| `RecordingSegment` | One continuous MediaRecorder run (independently decodable after part concat) | recordingId+index (unique), status open/closed, partCount, sizeBytes |
+| `RecordingPart` | Uploaded byte range of a segment; integrity ledger, deleted after finalize | segmentId+index (unique), storageKey, sizeBytes |
 | `TranscriptChunk` | Per-chunk Whisper checkpoint (deleted after stitch) | chunkIndex, totalChunks, status, text |
 
 **Key relationships:**
