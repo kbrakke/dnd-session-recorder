@@ -24,6 +24,28 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
 - The promotion model is now trunk-based (2026-06-26): `main` is the only long-lived branch. The `staging`/`production` branches and their `protect-staging`/`protect-production` rulesets were **deleted** — staging deploys continuously off `main` (`staging.yml`), production ships via a manual `workflow_dispatch` git-cliff release (`production.yml`). Only `protect-main` remains (PR + `CI Status` + linear + no force-push, squash-only, repository-admin bypass).
+- **`fly-review.yml` needs a dependabot guard before Dependabot is switched on.** Those PRs run with a
+  read-only token and no repo secrets, so `FLY_API_TOKEN` is empty and the review-app deploy can only
+  fail. Claude's tokens (git push AND the GitHub App) both lack the `workflows` permission, so this
+  one has to be applied by hand — add to the `review_app` job in `.github/workflows/fly-review.yml`:
+
+  ```yaml
+  jobs:
+    review_app:
+      runs-on: ubuntu-latest
+      # Dependabot PRs run with a read-only token and NO access to repo secrets, so
+      # FLY_API_TOKEN is empty and the deploy can only fail. Skip them — a lockfile
+      # bump has nothing to look at in a browser anyway, and `ci-status` (which
+      # Dependabot PRs do run in full) is the required check, not this workflow.
+      if: github.actor != 'dependabot[bot]'
+      outputs:
+  ```
+
+- **Dependabot *security* updates are a repo setting, not `dependabot.yml`.** The config file only
+  shapes the PRs. Turn the PRs on at Settings ▸ Code security (alerts + security updates + grouped
+  security updates), or `gh api -X PUT repos/kbrakke/dnd-session-recorder/vulnerability-alerts` and
+  `.../automated-security-fixes`.
+
 - Production has no required-reviewer rule on its GitHub Environment — the `workflow_dispatch` "Run workflow" button is the manual gate. Add required reviewers to the `Production` environment if a second-person approval is ever wanted.
 
 ## Tooling gotchas

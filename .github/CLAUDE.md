@@ -71,10 +71,12 @@ only shapes those PRs (the `security` group collapses a batch into one, and `com
 keeps the title a valid Conventional Commit so the `pr-title` gate passes — Dependabot's
 unconfigured default, `Bump x from a to b`, fails it).
 
-Dependabot PRs get a read-only token and **no repo secrets**, so `fly-review.yml` skips
-`github.actor == 'dependabot[bot]'` — `FLY_API_TOKEN` would be empty and the deploy could only fail.
-`pull-request.yml` runs in full for them (`deps` changes ⇒ `security-audit` + `secret-scan` do run),
-and `ci-status` is the required check, so nothing is weakened by the skip.
+⚠️ **Not done yet — `fly-review.yml` needs a dependabot guard.** Dependabot PRs get a read-only
+token and **no repo secrets**, so `FLY_API_TOKEN` is empty and the review-app deploy can only fail:
+persistent red on every dependency PR plus wasted Fly provisioning attempts. Add `if: github.actor
+!= 'dependabot[bot]'` to the `review_app` job (see LESSONS.md pending items for the exact hunk).
+`pull-request.yml` is fine as-is — it runs in full for Dependabot (`deps` changes ⇒ `security-audit`
+and `secret-scan` both run) and `ci-status`, not `fly-review`, is the required check.
 
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections
