@@ -49,7 +49,7 @@
     "isomorphic-dompurify": "^3.16.0",
     "lucide-react": "^0.525.0",
     "marked": "^16.4.0",
-    "next": "^15.5.4",
+    "next": "^15.5.25",
     "next-auth": "^4.24.7",
     "pino": "^10.1.0",
     "prettier": "^3.6.2",
@@ -78,7 +78,8 @@
     "sharp": "^0.35.4",
     "deepmerge-ts": "^8.0.1",
     "@auth/core": "^0.41.3",
-    "nodemailer": "^7.0.7"
+    "nodemailer": "^7.0.7",
+    "magicast": "^0.5.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

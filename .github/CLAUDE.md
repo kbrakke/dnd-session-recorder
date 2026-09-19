@@ -75,13 +75,16 @@ unconfigured default, `Bump x from a to b`, fails it).
 inert and Dependabot falls back to its defaults — including the title `Bump x from a to b`, which
 fails `pr-title` and therefore `ci-status`, leaving the PR unmergeable under `protect-main`.
 
-⚠️ **Not done yet — three jobs need a `dependabot[bot]` guard.** Those PRs run with a read-only
-`GITHUB_TOKEN` and no repo secrets, so `fly-review.yml`'s `review_app` (empty `FLY_API_TOKEN`),
-`codeql` (`security-events: write` for the SARIF upload) and `pr-comment` (`pull-requests: write`)
-can only fail. None is in `ci-status`, so none blocks a merge — they're just permanent red on every
-dependency PR. LESSONS.md pending items has the table and the exact hunk. The rest of
-`pull-request.yml` is fine and *should* run: an npm PR trips both `deps` and `src` (the filter
-matches `*.json`), so audit, secret scan, lint, unit, build and integration tests all execute.
+`fly-review.yml`'s `review_app` carries `if: github.actor != 'dependabot[bot]'`: those PRs get no
+repo secrets, so `FLY_API_TOKEN` is empty and the deploy could only fail. `codeql` and `pr-comment`
+need no such guard — both were verified green on a Dependabot-triggered run. The rest of
+`pull-request.yml` runs in full and should: an npm PR trips both `deps` and `src` (the filter matches
+`*.json`), so audit, secret scan, lint, unit, build and integration tests all execute.
+
+**Dependabot regenerates the lockfile with its own npm, which is newer than CI's.** That is what the
+`magicast` override in `package.json` is for — without it npm 11's tree omits an optional peer that
+npm 10's `npm ci` demands, and every dependency PR goes red in four jobs (`security-audit` here runs
+`npm ci` before the audit, unlike the staging and review-app audit steps). See LESSONS.md.
 
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections

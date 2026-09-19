@@ -24,32 +24,19 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
 - The promotion model is now trunk-based (2026-06-26): `main` is the only long-lived branch. The `staging`/`production` branches and their `protect-staging`/`protect-production` rulesets were **deleted** — staging deploys continuously off `main` (`staging.yml`), production ships via a manual `workflow_dispatch` git-cliff release (`production.yml`). Only `protect-main` remains (PR + `CI Status` + linear + no force-push, squash-only, repository-admin bypass).
-- **Three jobs need a `dependabot[bot]` guard.** Dependabot PRs run with a read-only `GITHUB_TOKEN`
-  and NO access to repo secrets, so anything needing write or a secret can only fail. Claude's tokens
-  (git push AND the GitHub App) both lack the `workflows` permission, so these have to be applied by
-  hand. Note an npm PR sets the `src` filter too (it matches `*.json`), so the code jobs all run —
-  which is fine and wanted; only these three are broken:
+- **Only `fly-review.yml` needs a `dependabot[bot]` guard — done 2026-09-19.** `review_app` failed on
+  the first Dependabot-triggered runs (PR #38 etc.) because those PRs get no repo secrets, so
+  `FLY_API_TOKEN` was empty; `if: github.actor != 'dependabot[bot]'` on the job fixed it. Note the
+  guard keys on the *triggering actor*, not the PR author, which is what you want: when a human
+  pushes or clicks "Update branch" on a Dependabot PR the token is unrestricted, so the job runs and
+  works (observed on PR #40).
 
-  | file | job | add | why |
-  |---|---|---|---|
-  | `fly-review.yml` | `review_app` | `if: github.actor != 'dependabot[bot]'` | `FLY_API_TOKEN` is empty; deploy can only fail (+ wasted Fly provisioning) |
-  | `pull-request.yml` | `codeql` | append `&& github.actor != 'dependabot[bot]'` to the existing `if` | needs `security-events: write` for the SARIF upload; also pointless on a lockfile-only diff |
-  | `pull-request.yml` | `pr-comment` | `if: always() && github.actor != 'dependabot[bot]'` | needs `pull-requests: write` to post the status comment |
-
-  None of the three is in `ci-status`, so none of them *blocks* a merge — they're just permanent red
-  on every dependency PR. Example hunk for `fly-review.yml`:
-
-  ```yaml
-  jobs:
-    review_app:
-      runs-on: ubuntu-latest
-      # Dependabot PRs run with a read-only token and NO access to repo secrets, so
-      # FLY_API_TOKEN is empty and the deploy can only fail. Skip them — a lockfile
-      # bump has nothing to look at in a browser anyway, and `ci-status` (which
-      # Dependabot PRs do run in full) is the required check, not this workflow.
-      if: github.actor != 'dependabot[bot]'
-      outputs:
-  ```
+  An earlier version of this entry also listed `codeql` and `pr-comment` as needing the guard, on the
+  theory that `security-events: write` and `pull-requests: write` are unavailable to Dependabot.
+  **That was wrong** — both jobs came back green on PR #38's Dependabot-triggered run, and neither
+  step swallows errors, so the SARIF upload and the status comment really did go through. Leave them
+  alone. Note an npm PR trips the `src` filter too (it matches `*.json`), so the full code suite runs
+  on a dependency bump, which is wanted.
 
 - **Dependabot *security* updates are a repo setting, not `dependabot.yml`.** The config file only
   shapes the PRs. Turn the PRs on at Settings ▸ Code security (alerts + security updates + grouped
@@ -77,13 +64,22 @@ complete, so CI (setup-node + node 22 ⇒ npm 10.9.x) stays green — **but** an
 be out of sync for npm 10 (see next entry). Anything that regenerates this lockfile (a human, Dependabot)
 needs npm ≥ 11.
 
-### npm 11 drops optional-peer packages that npm 10's `npm ci` then demands
-After the npm 11 regen above, `npm ci` on npm 10 failed with `Missing: magicast@0.3.5 from lock file`:
-`c12@3.1.0` (under `@prisma/config`) declares `magicast ^0.3.5` as an **optional peer**, npm 10 installs
-it nested, npm 11 omits it. Same mechanism dropped the top-level `ajv@8.20.0` (optional peer of
-`@hookform/resolvers`) — which happily took the `fast-uri` advisory with it, since only `zodResolver`
-is used here. Fix: re-add the nested entry by hand, then run `npm install` under npm 10 to let it
-re-canonicalize the file. Verify **both** `npm ci` (npm 10, what CI runs) and `npm audit` before pushing.
+### npm 11 drops optional-peer packages that npm 10's `npm ci` then demands — fix it with an override
+`npm ci` on npm 10 fails with `Missing: magicast@0.3.5 from lock file` against any lockfile npm 11
+generated: `c12@3.1.0` (under `@prisma/config`) declares `magicast ^0.3.5` as an **optional peer**,
+npm 10 installs it nested alongside the top-level 0.5.x, npm 11 just dedupes to the top-level one.
+Same mechanism dropped the top-level `ajv@8.20.0` (optional peer of `@hookform/resolvers`) — which
+happily took the `fast-uri` advisory with it, since only `zodResolver` is used here.
+
+This bites **every Dependabot npm PR**, because Dependabot regenerates with its own newer npm: PR #40
+failed `npm ci` in four separate jobs (note `security-audit` in `pull-request.yml` runs `npm ci`
+first, unlike the staging/review audit jobs, so even the audit job goes red).
+
+Real fix, applied 2026-09-19: a global override `"magicast": "^0.5.4"`, which makes npm 10 resolve
+the same single top-level copy npm 11 picks. Both versions now agree on the tree. Hand-patching the
+nested entry into the lockfile also works but only for that one lockfile — the next regen undoes it.
+magicast is `devOptional` (it arrives via the prisma CLI) and c12 only uses it to *write* config
+files, which Prisma never does, so overriding its `^0.3.5` peer range is inert at runtime.
 
 ### `npm audit`'s "breaking change" fixes can be DOWNGRADES — check what's actually vulnerable first
 2026-08: audit proposed prisma 6.19.3 → **6.12.0** (to shed `@prisma/config`'s deepmerge-ts) and next 15 → 16 (to shed sharp 0.34). Both were fixed instead with one-level global overrides (`deepmerge-ts ^8.0.1`, `sharp ^0.35.3`) — even prisma 7's `@prisma/config` still shipped the vulnerable deepmerge-ts 7.1.5, so the "upgrade" wouldn't have fixed it. Before accepting any audit-proposed major change, `npm view` the target's deps: the advisory is usually one transitive pin away, and an override is the fix.
