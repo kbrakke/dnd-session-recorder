@@ -34,6 +34,25 @@ It has twice proposed next 15 → **9.3.3** and next-auth 4 → 3 (the first run
 ### next-auth v4 pins a vulnerable `@auth/core` as an *optional peer* — npm installs it anyway
 `next-auth@4.24.15` has `peerDependencies: {"@auth/core": "0.34.3"}` (optional), and npm auto-installs optional peers, so the vulnerable 0.34.3 lands in the tree even on a from-scratch lockfile regen and trips critical audit flags. It's types-only (grep shows zero runtime imports — only `.d.ts` references), so a global override `"@auth/core": "^0.41.3"` is safe. That override then surfaces a peer conflict on nodemailer (next-auth wants `^7.0.7`, @auth/core 0.41 allows `^7 || ^8` and npm picks 8) — resolve with a second global override `"nodemailer": "^7.0.7"`, not `--legacy-peer-deps`.
 
+### npm 10's arborist CRASHES resolving vitest ≥4.1.11 — regen the lockfile with npm 11+
+`npm install` / `npm update` / `npm audit fix` all die with `Cannot read properties of null (reading 'edgesOut')`
+(stack: `#loadPeerSet` in `build-ideal-tree.js`). Minimal repro: a package.json whose only dep is
+`vitest@^4.1.11`. vitest declares ~12 optional peers (`@vitest/browser-playwright`, `@vitest/ui`, …);
+npm 10 auto-installs optional peers, resolves `@vitest/browser-playwright` to **5.0.1**, follows its
+`vitest@*` peer into the vitest 5 graph, and blows up. An `overrides` pin on the peer does NOT help.
+Fix: regenerate with `npx -y npm@11 install …`. `npm ci` on npm 10 is unaffected once the lock is
+complete, so CI (setup-node + node 22 ⇒ npm 10.9.x) stays green — **but** an npm-11-generated lock can
+be out of sync for npm 10 (see next entry). Anything that regenerates this lockfile (a human, Dependabot)
+needs npm ≥ 11.
+
+### npm 11 drops optional-peer packages that npm 10's `npm ci` then demands
+After the npm 11 regen above, `npm ci` on npm 10 failed with `Missing: magicast@0.3.5 from lock file`:
+`c12@3.1.0` (under `@prisma/config`) declares `magicast ^0.3.5` as an **optional peer**, npm 10 installs
+it nested, npm 11 omits it. Same mechanism dropped the top-level `ajv@8.20.0` (optional peer of
+`@hookform/resolvers`) — which happily took the `fast-uri` advisory with it, since only `zodResolver`
+is used here. Fix: re-add the nested entry by hand, then run `npm install` under npm 10 to let it
+re-canonicalize the file. Verify **both** `npm ci` (npm 10, what CI runs) and `npm audit` before pushing.
+
 ### `npm audit`'s "breaking change" fixes can be DOWNGRADES — check what's actually vulnerable first
 2026-08: audit proposed prisma 6.19.3 → **6.12.0** (to shed `@prisma/config`'s deepmerge-ts) and next 15 → 16 (to shed sharp 0.34). Both were fixed instead with one-level global overrides (`deepmerge-ts ^8.0.1`, `sharp ^0.35.3`) — even prisma 7's `@prisma/config` still shipped the vulnerable deepmerge-ts 7.1.5, so the "upgrade" wouldn't have fixed it. Before accepting any audit-proposed major change, `npm view` the target's deps: the advisory is usually one transitive pin away, and an override is the fix.
 
