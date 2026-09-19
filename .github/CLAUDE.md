@@ -60,6 +60,22 @@ isolated deployed environment. A `npm audit --audit-level moderate` step gates t
 is a deployed environment, so it gets the same audit bar as PR/staging (this was the gap that let stale
 packages reach staging).
 
+### `dependabot.yml` — automated dependency PRs
+Weekly (Mon 09:00 ET) **version updates** for npm and github-actions, grouped prod/dev for
+minor+patch; majors arrive as individual PRs on purpose (read the release notes before taking one —
+see "Bumping action versions" below, and LESSONS.md on audit-driven downgrades).
+
+**Security updates are a repo setting, not this file.** Settings ▸ Code security ▸ "Dependabot
+alerts" + "Dependabot security updates" is what opens a PR when an advisory lands; `dependabot.yml`
+only shapes those PRs (the `security` group collapses a batch into one, and `commit-message.prefix`
+keeps the title a valid Conventional Commit so the `pr-title` gate passes — Dependabot's
+unconfigured default, `Bump x from a to b`, fails it).
+
+Dependabot PRs get a read-only token and **no repo secrets**, so `fly-review.yml` skips
+`github.actor == 'dependabot[bot]'` — `FLY_API_TOKEN` would be empty and the deploy could only fail.
+`pull-request.yml` runs in full for them (`deps` changes ⇒ `security-audit` + `secret-scan` do run),
+and `ci-status` is the required check, so nothing is weakened by the skip.
+
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections
 (`feat`→Features, `fix`→Bug Fixes, `perf`, `refactor`, `docs`, `revert`; `chore`/`ci`/`test`/`build`/`style`

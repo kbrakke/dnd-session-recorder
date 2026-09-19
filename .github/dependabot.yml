@@ -1,0 +1,82 @@
+# Dependabot configuration.
+#
+# Two separate mechanisms are at play and this file only covers one of them:
+#
+#   * **Security updates** — PRs opened automatically when a GitHub advisory hits
+#     a dependency in package-lock.json. These are switched on in repo Settings ▸
+#     Code security ("Dependabot alerts" + "Dependabot security updates"), NOT
+#     here. This file only shapes them: the `security` group below collapses a
+#     batch into one PR, and `commit-message.prefix` makes the title a valid
+#     Conventional Commit so the `pr-title` gate in pull-request.yml passes
+#     (Dependabot's unconfigured default, "Bump x from a to b", fails it).
+#
+#   * **Version updates** — the weekly sweep configured here. Catches routine
+#     patches *before* an advisory lands, which is what would have kept the
+#     2026-09 next/sharp/js-yaml/vitest batch from wedging the staging deploy.
+#
+# Majors are deliberately left ungrouped so each arrives as its own reviewable,
+# closeable PR. Don't let a major land just to satisfy audit metadata — see
+# LESSONS.md on `npm audit fix --force` proposing downgrades.
+#
+# Caveat: Dependabot runs its own `npm install`. npm 10's arborist crashes
+# resolving vitest ≥4.1.11's optional peer set (LESSONS.md), so if the updater
+# image is on npm 10 the npm PRs will error out. Check the Dependabot run logs
+# (Insights ▸ Dependency graph ▸ Dependabot) if PRs stop appearing.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+    commit-message:
+      # `chore(deps): …` — a valid Conventional Commit for the pr-title gate, and
+      # `chore` is skipped by cliff.toml, so dependency bumps stay out of the
+      # public release notes.
+      prefix: chore
+      prefix-development: chore
+      include: scope
+    groups:
+      # One PR per advisory batch instead of one per package.
+      security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+      production:
+        applies-to: version-updates
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development:
+        applies-to: version-updates
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # Action versions are pinned to majors (checkout@v6, setup-node@v6, …). Group
+  # the minor/patch drift; let majors come in one at a time — .github/CLAUDE.md
+  # has a checklist to work through before accepting one.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: America/New_York
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
