@@ -108,7 +108,7 @@ jobs:
       - name: Deploy PR app to Fly.io
         id: deploy
         if: github.event.action != 'closed'
-        uses: superfly/fly-pr-review-apps@1.2.1
+        uses: superfly/fly-pr-review-apps@1.6.0
         with:
           name: ${{ env.APP_NAME }}
           config: fly.review.toml
@@ -128,7 +128,7 @@ jobs:
       # On PR close: tear down the review app, then its throwaway Postgres.
       - name: Destroy review app on PR close
         if: github.event.action == 'closed'
-        uses: superfly/fly-pr-review-apps@1.2.1
+        uses: superfly/fly-pr-review-apps@1.6.0
         with:
           name: ${{ env.APP_NAME }}
           config: fly.review.toml
