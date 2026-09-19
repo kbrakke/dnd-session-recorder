@@ -47,7 +47,7 @@ jobs:
       # Prod blocks on HIGH+ only (PR + staging gate at moderate); lows never
       # block. npm audit reads package-lock.json, so no install is needed.
       - name: Setup Node.js (for audit)
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
