@@ -60,6 +60,29 @@ isolated deployed environment. A `npm audit --audit-level moderate` step gates t
 is a deployed environment, so it gets the same audit bar as PR/staging (this was the gap that let stale
 packages reach staging).
 
+### `dependabot.yml` — automated dependency PRs
+Weekly (Mon 09:00 ET) **version updates** for npm and github-actions, grouped prod/dev for
+minor+patch; majors arrive as individual PRs on purpose (read the release notes before taking one —
+see "Bumping action versions" below, and LESSONS.md on audit-driven downgrades).
+
+**Security updates are a repo setting, not this file.** Settings ▸ Code security ▸ "Dependabot
+alerts" + "Dependabot security updates" is what opens a PR when an advisory lands; `dependabot.yml`
+only shapes those PRs (the `security` group collapses a batch into one, and `commit-message.prefix`
+keeps the title a valid Conventional Commit so the `pr-title` gate passes — Dependabot's
+unconfigured default, `Bump x from a to b`, fails it).
+
+**Dependabot only reads this file from the DEFAULT BRANCH.** Until it is on `main` the config is
+inert and Dependabot falls back to its defaults — including the title `Bump x from a to b`, which
+fails `pr-title` and therefore `ci-status`, leaving the PR unmergeable under `protect-main`.
+
+⚠️ **Not done yet — three jobs need a `dependabot[bot]` guard.** Those PRs run with a read-only
+`GITHUB_TOKEN` and no repo secrets, so `fly-review.yml`'s `review_app` (empty `FLY_API_TOKEN`),
+`codeql` (`security-events: write` for the SARIF upload) and `pr-comment` (`pull-requests: write`)
+can only fail. None is in `ci-status`, so none blocks a merge — they're just permanent red on every
+dependency PR. LESSONS.md pending items has the table and the exact hunk. The rest of
+`pull-request.yml` is fine and *should* run: an npm PR trips both `deps` and `src` (the filter
+matches `*.json`), so audit, secret scan, lint, unit, build and integration tests all execute.
+
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections
 (`feat`→Features, `fix`→Bug Fixes, `perf`, `refactor`, `docs`, `revert`; `chore`/`ci`/`test`/`build`/`style`
