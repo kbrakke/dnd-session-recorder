@@ -71,12 +71,17 @@ only shapes those PRs (the `security` group collapses a batch into one, and `com
 keeps the title a valid Conventional Commit so the `pr-title` gate passes — Dependabot's
 unconfigured default, `Bump x from a to b`, fails it).
 
-⚠️ **Not done yet — `fly-review.yml` needs a dependabot guard.** Dependabot PRs get a read-only
-token and **no repo secrets**, so `FLY_API_TOKEN` is empty and the review-app deploy can only fail:
-persistent red on every dependency PR plus wasted Fly provisioning attempts. Add `if: github.actor
-!= 'dependabot[bot]'` to the `review_app` job (see LESSONS.md pending items for the exact hunk).
-`pull-request.yml` is fine as-is — it runs in full for Dependabot (`deps` changes ⇒ `security-audit`
-and `secret-scan` both run) and `ci-status`, not `fly-review`, is the required check.
+**Dependabot only reads this file from the DEFAULT BRANCH.** Until it is on `main` the config is
+inert and Dependabot falls back to its defaults — including the title `Bump x from a to b`, which
+fails `pr-title` and therefore `ci-status`, leaving the PR unmergeable under `protect-main`.
+
+⚠️ **Not done yet — three jobs need a `dependabot[bot]` guard.** Those PRs run with a read-only
+`GITHUB_TOKEN` and no repo secrets, so `fly-review.yml`'s `review_app` (empty `FLY_API_TOKEN`),
+`codeql` (`security-events: write` for the SARIF upload) and `pr-comment` (`pull-requests: write`)
+can only fail. None is in `ci-status`, so none blocks a merge — they're just permanent red on every
+dependency PR. LESSONS.md pending items has the table and the exact hunk. The rest of
+`pull-request.yml` is fine and *should* run: an npm PR trips both `deps` and `src` (the filter
+matches `*.json`), so audit, secret scan, lint, unit, build and integration tests all execute.
 
 ### Release notes (`cliff.toml`)
 git-cliff config at the repo root maps Conventional Commit prefixes to public release sections

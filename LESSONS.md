@@ -24,10 +24,20 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
 - The promotion model is now trunk-based (2026-06-26): `main` is the only long-lived branch. The `staging`/`production` branches and their `protect-staging`/`protect-production` rulesets were **deleted** — staging deploys continuously off `main` (`staging.yml`), production ships via a manual `workflow_dispatch` git-cliff release (`production.yml`). Only `protect-main` remains (PR + `CI Status` + linear + no force-push, squash-only, repository-admin bypass).
-- **`fly-review.yml` needs a dependabot guard before Dependabot is switched on.** Those PRs run with a
-  read-only token and no repo secrets, so `FLY_API_TOKEN` is empty and the review-app deploy can only
-  fail. Claude's tokens (git push AND the GitHub App) both lack the `workflows` permission, so this
-  one has to be applied by hand — add to the `review_app` job in `.github/workflows/fly-review.yml`:
+- **Three jobs need a `dependabot[bot]` guard.** Dependabot PRs run with a read-only `GITHUB_TOKEN`
+  and NO access to repo secrets, so anything needing write or a secret can only fail. Claude's tokens
+  (git push AND the GitHub App) both lack the `workflows` permission, so these have to be applied by
+  hand. Note an npm PR sets the `src` filter too (it matches `*.json`), so the code jobs all run —
+  which is fine and wanted; only these three are broken:
+
+  | file | job | add | why |
+  |---|---|---|---|
+  | `fly-review.yml` | `review_app` | `if: github.actor != 'dependabot[bot]'` | `FLY_API_TOKEN` is empty; deploy can only fail (+ wasted Fly provisioning) |
+  | `pull-request.yml` | `codeql` | append `&& github.actor != 'dependabot[bot]'` to the existing `if` | needs `security-events: write` for the SARIF upload; also pointless on a lockfile-only diff |
+  | `pull-request.yml` | `pr-comment` | `if: always() && github.actor != 'dependabot[bot]'` | needs `pull-requests: write` to post the status comment |
+
+  None of the three is in `ci-status`, so none of them *blocks* a merge — they're just permanent red
+  on every dependency PR. Example hunk for `fly-review.yml`:
 
   ```yaml
   jobs:
