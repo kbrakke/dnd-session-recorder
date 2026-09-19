@@ -19,6 +19,11 @@ permissions:
 jobs:
   review_app:
     runs-on: ubuntu-latest
+    # Dependabot PRs run with a read-only token and NO access to repo secrets, so
+    # FLY_API_TOKEN is empty and the deploy can only fail. Skip them — a lockfile
+    # bump has nothing to look at in a browser anyway, and `ci-status` (which
+    # Dependabot PRs do run in full) is the required check, not this workflow.
+    if: github.actor != 'dependabot[bot]'
     outputs:
       url: ${{ steps.deploy.outputs.url }}
     # Only run one deployment at a time per PR.

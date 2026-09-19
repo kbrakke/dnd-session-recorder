@@ -24,6 +24,38 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 - Staging's `ALLOW_TEST_CLEANUP` secret must be EXACTLY `'true'` since the 2026-06-11 hardening — if staging test cleanup starts 403ing, check that value first.
 - `fluent-ffmpeg` is deprecated/unmaintained (npm install warns). Only two call sites in `audioProcessing.ts` still use it; migrating them to direct `execFile('ffmpeg', …)` drops the dependency. Queued, not urgent.
 - The promotion model is now trunk-based (2026-06-26): `main` is the only long-lived branch. The `staging`/`production` branches and their `protect-staging`/`protect-production` rulesets were **deleted** — staging deploys continuously off `main` (`staging.yml`), production ships via a manual `workflow_dispatch` git-cliff release (`production.yml`). Only `protect-main` remains (PR + `CI Status` + linear + no force-push, squash-only, repository-admin bypass).
+- **Three jobs need a `dependabot[bot]` guard.** Dependabot PRs run with a read-only `GITHUB_TOKEN`
+  and NO access to repo secrets, so anything needing write or a secret can only fail. Claude's tokens
+  (git push AND the GitHub App) both lack the `workflows` permission, so these have to be applied by
+  hand. Note an npm PR sets the `src` filter too (it matches `*.json`), so the code jobs all run —
+  which is fine and wanted; only these three are broken:
+
+  | file | job | add | why |
+  |---|---|---|---|
+  | `fly-review.yml` | `review_app` | `if: github.actor != 'dependabot[bot]'` | `FLY_API_TOKEN` is empty; deploy can only fail (+ wasted Fly provisioning) |
+  | `pull-request.yml` | `codeql` | append `&& github.actor != 'dependabot[bot]'` to the existing `if` | needs `security-events: write` for the SARIF upload; also pointless on a lockfile-only diff |
+  | `pull-request.yml` | `pr-comment` | `if: always() && github.actor != 'dependabot[bot]'` | needs `pull-requests: write` to post the status comment |
+
+  None of the three is in `ci-status`, so none of them *blocks* a merge — they're just permanent red
+  on every dependency PR. Example hunk for `fly-review.yml`:
+
+  ```yaml
+  jobs:
+    review_app:
+      runs-on: ubuntu-latest
+      # Dependabot PRs run with a read-only token and NO access to repo secrets, so
+      # FLY_API_TOKEN is empty and the deploy can only fail. Skip them — a lockfile
+      # bump has nothing to look at in a browser anyway, and `ci-status` (which
+      # Dependabot PRs do run in full) is the required check, not this workflow.
+      if: github.actor != 'dependabot[bot]'
+      outputs:
+  ```
+
+- **Dependabot *security* updates are a repo setting, not `dependabot.yml`.** The config file only
+  shapes the PRs. Turn the PRs on at Settings ▸ Code security (alerts + security updates + grouped
+  security updates), or `gh api -X PUT repos/kbrakke/dnd-session-recorder/vulnerability-alerts` and
+  `.../automated-security-fixes`.
+
 - Production has no required-reviewer rule on its GitHub Environment — the `workflow_dispatch` "Run workflow" button is the manual gate. Add required reviewers to the `Production` environment if a second-person approval is ever wanted.
 
 ## Tooling gotchas
@@ -33,6 +65,25 @@ It has twice proposed next 15 → **9.3.3** and next-auth 4 → 3 (the first run
 
 ### next-auth v4 pins a vulnerable `@auth/core` as an *optional peer* — npm installs it anyway
 `next-auth@4.24.15` has `peerDependencies: {"@auth/core": "0.34.3"}` (optional), and npm auto-installs optional peers, so the vulnerable 0.34.3 lands in the tree even on a from-scratch lockfile regen and trips critical audit flags. It's types-only (grep shows zero runtime imports — only `.d.ts` references), so a global override `"@auth/core": "^0.41.3"` is safe. That override then surfaces a peer conflict on nodemailer (next-auth wants `^7.0.7`, @auth/core 0.41 allows `^7 || ^8` and npm picks 8) — resolve with a second global override `"nodemailer": "^7.0.7"`, not `--legacy-peer-deps`.
+
+### npm 10's arborist CRASHES resolving vitest ≥4.1.11 — regen the lockfile with npm 11+
+`npm install` / `npm update` / `npm audit fix` all die with `Cannot read properties of null (reading 'edgesOut')`
+(stack: `#loadPeerSet` in `build-ideal-tree.js`). Minimal repro: a package.json whose only dep is
+`vitest@^4.1.11`. vitest declares ~12 optional peers (`@vitest/browser-playwright`, `@vitest/ui`, …);
+npm 10 auto-installs optional peers, resolves `@vitest/browser-playwright` to **5.0.1**, follows its
+`vitest@*` peer into the vitest 5 graph, and blows up. An `overrides` pin on the peer does NOT help.
+Fix: regenerate with `npx -y npm@11 install …`. `npm ci` on npm 10 is unaffected once the lock is
+complete, so CI (setup-node + node 22 ⇒ npm 10.9.x) stays green — **but** an npm-11-generated lock can
+be out of sync for npm 10 (see next entry). Anything that regenerates this lockfile (a human, Dependabot)
+needs npm ≥ 11.
+
+### npm 11 drops optional-peer packages that npm 10's `npm ci` then demands
+After the npm 11 regen above, `npm ci` on npm 10 failed with `Missing: magicast@0.3.5 from lock file`:
+`c12@3.1.0` (under `@prisma/config`) declares `magicast ^0.3.5` as an **optional peer**, npm 10 installs
+it nested, npm 11 omits it. Same mechanism dropped the top-level `ajv@8.20.0` (optional peer of
+`@hookform/resolvers`) — which happily took the `fast-uri` advisory with it, since only `zodResolver`
+is used here. Fix: re-add the nested entry by hand, then run `npm install` under npm 10 to let it
+re-canonicalize the file. Verify **both** `npm ci` (npm 10, what CI runs) and `npm audit` before pushing.
 
 ### `npm audit`'s "breaking change" fixes can be DOWNGRADES — check what's actually vulnerable first
 2026-08: audit proposed prisma 6.19.3 → **6.12.0** (to shed `@prisma/config`'s deepmerge-ts) and next 15 → 16 (to shed sharp 0.34). Both were fixed instead with one-level global overrides (`deepmerge-ts ^8.0.1`, `sharp ^0.35.3`) — even prisma 7's `@prisma/config` still shipped the vulnerable deepmerge-ts 7.1.5, so the "upgrade" wouldn't have fixed it. Before accepting any audit-proposed major change, `npm view` the target's deps: the advisory is usually one transitive pin away, and an override is the fix.
