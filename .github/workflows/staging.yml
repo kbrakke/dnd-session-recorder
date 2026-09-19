@@ -113,7 +113,7 @@ jobs:
           # DATABASE_URL set by testcontainers
 
       - name: Upload test results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: workflow-test-results-${{ github.run_id }}
