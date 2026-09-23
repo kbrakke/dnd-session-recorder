@@ -40,6 +40,7 @@ export async function GET(
       job: job
         ? {
             id: job.id,
+            type: job.type,
             status: job.status,
             step: job.currentStep,
             attempts: job.attempts,

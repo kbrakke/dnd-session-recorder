@@ -63,6 +63,16 @@ export async function POST(
       );
     }
 
+    // A session being recorded live gets its audio from finalize; linking a
+    // file underneath would leave the recording with nowhere to assemble to.
+    if (gamingSession.recording && gamingSession.recording.status !== 'finalized') {
+      logger.warn('Cannot link upload - session has a live recording', uploadContext);
+      return NextResponse.json(
+        { error: 'Session has a live recording in progress', code: 'has_recording' },
+        { status: 409 }
+      );
+    }
+
     // Verify upload exists and belongs to user
     logger.debug('Fetching upload', uploadContext);
     const upload = await db.getUploadById(validatedData.upload_id);

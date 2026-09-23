@@ -150,7 +150,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 For endpoints needing rate limiting, use specialized auth functions:
 
 ```typescript
-// General API rate limiting (100 req/15min)
+// General API rate limiting (100 req/min in prod; 1000 in dev/CI)
 import { requireAuthWithRateLimit } from '@/lib/auth-utils';
 
 export async function POST(request: Request) {
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
   // ...
 }
 
-// Stricter rate limiting for sensitive actions (10 req/15min)
+// Stricter rate limiting for sensitive actions (10 req/min in prod; 100 in dev/CI)
 import { requireAuthForSensitiveAction } from '@/lib/auth-utils';
 
 export async function POST(request: Request) {

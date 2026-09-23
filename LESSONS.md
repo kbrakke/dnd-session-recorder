@@ -135,6 +135,12 @@ GitHub suppresses workflow events from actions authenticated with the default `G
 
 ## Code & test gotchas
 
+### `ffprobe-static`'s path is bogus under the Turbopack dev server — probes fail silently
+Under `next dev --turbopack` (which CI also uses) `require('ffprobe-static').path` resolves to `/ROOT/node_modules/ffprobe-static/…`, so every `execFile(ffprobe)` fails with ENOENT. `probeAudioDurationSeconds` swallows the error and returns null, so it looks like "this file has no duration", not like a broken binary. Found 2026-09-22 when a finalize segment probe returned all-null params. Use `ffprobeBinary()` (`src/services/audioProcessing.ts`), which checks the path exists and falls back to system `ffprobe`. Also: the pipeline worker starts once at boot and keeps its code across HMR — restart the dev server after editing worker/step code before trusting a test run.
+
+### npm 11 lockfile regen dropped `magicast` AGAIN when adding a devDependency (2026-09-22)
+`npx -y npm@11 install --save-dev fake-indexeddb` re-removed the nested `@prisma/config/node_modules/magicast` entry that npm 10's `npm ci` needs (see the tooling entry above). For a single new leaf devDependency with no deps, hand-inserting its `packages` entry (and the root `devDependencies` key) into the ORIGINAL lockfile, in place and without re-sorting, gave an 11-line diff that `npx -y npm@10 ci` accepts.
+
 ### TS narrowing doesn't follow Vitest assertions
 `expect(result.error).toBeNull()` does NOT narrow the type. Use a real type guard (`if (result.error !== null) throw …`) before accessing branch-specific fields of a discriminated union — it's a runtime assertion AND a narrow.
 

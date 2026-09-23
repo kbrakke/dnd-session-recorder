@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireRecorderToken, requireRecordingOwner, zodErrorResponse } from '@/lib/route-utils';
-import { closeSegment, getSegment } from '@/services/recording';
+import {
+  captureRejected,
+  recorderTokenFrom,
+  recordingError,
+  recordingValidationError,
+  requireRecorderToken,
+  requireRecordingOwner,
+} from '@/lib/route-utils';
+import { CaptureRejectedError, closeSegment, getSegment } from '@/services/recording';
 
 const closeSegmentSchema = z.object({
   partCount: z.number().int().min(1).max(100000),
@@ -10,8 +17,8 @@ const closeSegmentSchema = z.object({
 /**
  * POST /api/recordings/[id]/segments/[segmentIndex]/close
  * Declare the segment complete with its final part count. If the server's
- * ledger disagrees, the missing part indexes come back so the client can
- * re-upload them from its local buffer.
+ * ledger disagrees, the missing part indexes come back (code
+ * 'parts_missing') so the client can re-upload them from its local buffer.
  */
 export async function POST(
   request: Request,
@@ -26,12 +33,12 @@ export async function POST(
 
   const segmentIndex = Number(rawSegment);
   if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
-    return NextResponse.json({ error: 'Invalid segment index' }, { status: 400 });
+    return recordingError(400, 'invalid_request', 'Invalid segment index');
   }
 
   const segment = await getSegment(recording.id, segmentIndex);
   if (!segment) {
-    return NextResponse.json({ error: 'Segment not found' }, { status: 404 });
+    return recordingError(404, 'segment_not_found', 'Segment not found');
   }
   if (segment.status === 'closed') {
     return NextResponse.json({ segment: { index: segment.index, status: 'closed' } });
@@ -41,17 +48,21 @@ export async function POST(
   try {
     body = closeSegmentSchema.parse(await request.json());
   } catch (parseError) {
-    const zodError = zodErrorResponse(parseError);
-    if (zodError) return zodError;
-    throw parseError;
+    const validation = recordingValidationError(parseError);
+    if (validation) return validation;
+    return recordingError(400, 'invalid_request', 'Invalid JSON body');
   }
 
-  const result = await closeSegment(segment, body.partCount);
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: 'Parts missing from segment', missing: result.missing },
-      { status: 409 }
-    );
+  try {
+    const result = await closeSegment(segment, body.partCount, recorderTokenFrom(request));
+    if (!result.ok) {
+      return recordingError(409, 'parts_missing', 'Parts missing from segment', {
+        missing: result.missing,
+      });
+    }
+  } catch (err) {
+    if (err instanceof CaptureRejectedError) return captureRejected(err);
+    throw err;
   }
 
   return NextResponse.json({ segment: { index: segment.index, status: 'closed' } });

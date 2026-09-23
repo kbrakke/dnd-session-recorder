@@ -286,6 +286,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      # Live-recording finalize always runs ffmpeg (a stream-copy remux that
+      # writes the WebM duration/cues), so the recording E2E needs it.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run integration tests
         run: npm run test:ci
         env:

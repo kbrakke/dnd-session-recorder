@@ -4,7 +4,7 @@ import { Campaign, Recording } from '@prisma/client';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { SessionWithIncludes } from '@/services/database';
-import { getOwnedRecording } from '@/services/recording';
+import { CaptureRejectedError, getOwnedRecording } from '@/services/recording';
 import { RateLimiter, getRateLimitIdentifier } from '@/lib/rate-limiter';
 
 type AuthedUser = { id: string; email?: string | null; name?: string | null };
@@ -65,23 +65,71 @@ export async function requireRecordingOwner(
 }
 
 /**
+ * Stable machine-readable codes on every live-recording 4xx. The client
+ * branches on `code`, never on the human `error` string (several distinct
+ * failures share status 409).
+ */
+export type RecordingErrorCode =
+  | 'stale_token'
+  | 'not_capturing'
+  | 'still_capturing'
+  | 'segment_gap'
+  | 'segment_not_found'
+  | 'segment_closed'
+  | 'parts_missing'
+  | 'empty_part'
+  | 'invalid_request'
+  | 'part_too_large'
+  | 'recording_too_large'
+  | 'already_finalizing'
+  | 'nothing_captured'
+  | 'cannot_discard'
+  | 'has_audio'
+  | 'past_capture';
+
+/** `{ error, code, ...extra }` with the given status. */
+export function recordingError(
+  status: number,
+  code: RecordingErrorCode,
+  message: string,
+  extra: Record<string, unknown> = {}
+): NextResponse {
+  return NextResponse.json({ error: message, code, ...extra }, { status });
+}
+
+/** The caller's `x-recorder-token` header, or null. */
+export function recorderTokenFrom(request: Request): string | null {
+  return request.headers.get('x-recorder-token');
+}
+
+/**
  * Verify the caller holds the recording's current recorder token
  * (`x-recorder-token`). Start/takeover rotates the token, so a stale tab's
  * uploads and heartbeats fail here with 409 instead of corrupting the
- * ledger. Returns null when the token matches.
+ * ledger. Returns null when the token matches. This is only the fast path —
+ * the service layer re-verifies inside each write's transaction.
  */
 export function requireRecorderToken(
   request: Request,
   recording: Recording
 ): NextResponse | null {
-  const token = request.headers.get('x-recorder-token');
+  const token = recorderTokenFrom(request);
   if (!token || token !== recording.recorderToken) {
-    return NextResponse.json(
-      { error: 'Recording was taken over in another tab' },
-      { status: 409 }
-    );
+    return recordingError(409, 'stale_token', 'Recording was taken over in another tab');
   }
   return null;
+}
+
+/** 409 for a recording that has left the capture phase. */
+export function notCapturing(): NextResponse {
+  return recordingError(409, 'not_capturing', 'Recording is not capturing');
+}
+
+/** Map a service-layer CaptureRejectedError to its 409. */
+export function captureRejected(error: CaptureRejectedError): NextResponse {
+  return error.reason === 'stale_token'
+    ? recordingError(409, 'stale_token', 'Recording was taken over in another tab')
+    : notCapturing();
 }
 
 /**
@@ -119,6 +167,14 @@ export function notFound(message: string): NextResponse {
 export function zodErrorResponse(error: unknown): NextResponse | null {
   if (error instanceof z.ZodError) {
     return NextResponse.json({ error: 'Validation error', details: error.issues }, { status: 400 });
+  }
+  return null;
+}
+
+/** Recording-route variant of zodErrorResponse: adds code 'invalid_request'. */
+export function recordingValidationError(error: unknown): NextResponse | null {
+  if (error instanceof z.ZodError) {
+    return recordingError(400, 'invalid_request', 'Validation error', { details: error.issues });
   }
   return null;
 }

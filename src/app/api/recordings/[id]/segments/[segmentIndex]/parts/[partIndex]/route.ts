@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
-import { requireRecorderToken, requireRecordingOwner } from '@/lib/route-utils';
 import {
+  captureRejected,
+  notCapturing,
+  recorderTokenFrom,
+  recordingError,
+  requireRecorderToken,
+  requireRecordingOwner,
+} from '@/lib/route-utils';
+import {
+  CaptureRejectedError,
   MAX_PART_BYTES,
   MAX_RECORDING_BYTES,
   getSegment,
@@ -29,7 +37,7 @@ export async function PUT(
   if (tokenError) return tokenError;
 
   if (recording.status !== 'recording' && recording.status !== 'paused') {
-    return NextResponse.json({ error: 'Recording is not capturing' }, { status: 409 });
+    return notCapturing();
   }
 
   const segmentIndex = Number(rawSegment);
@@ -38,28 +46,33 @@ export async function PUT(
     !Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex > 9999 ||
     !Number.isInteger(partIndex) || partIndex < 0 || partIndex > 99999
   ) {
-    return NextResponse.json({ error: 'Invalid segment or part index' }, { status: 400 });
+    return recordingError(400, 'invalid_request', 'Invalid segment or part index');
   }
 
   const segment = await getSegment(recording.id, segmentIndex);
   if (!segment) {
-    return NextResponse.json({ error: 'Segment not found' }, { status: 404 });
+    return recordingError(404, 'segment_not_found', 'Segment not found');
   }
   if (segment.status !== 'open') {
-    return NextResponse.json({ error: 'Segment is closed' }, { status: 409 });
+    return recordingError(409, 'segment_closed', 'Segment is closed');
   }
 
   const data = Buffer.from(await request.arrayBuffer());
   if (data.length === 0) {
-    return NextResponse.json({ error: 'Empty part' }, { status: 400 });
+    return recordingError(400, 'empty_part', 'Empty part');
   }
   if (data.length > MAX_PART_BYTES) {
-    return NextResponse.json({ error: 'Part exceeds maximum size' }, { status: 413 });
+    return recordingError(413, 'part_too_large', 'Part exceeds maximum size');
   }
   if ((await recordingTotalBytes(recording.id)) + data.length > MAX_RECORDING_BYTES) {
-    return NextResponse.json({ error: 'Recording exceeds maximum total size' }, { status: 413 });
+    return recordingError(413, 'recording_too_large', 'Recording exceeds maximum total size');
   }
 
-  await savePart(recording, segment, partIndex, data);
+  try {
+    await savePart(recording, segment, partIndex, data, recorderTokenFrom(request));
+  } catch (err) {
+    if (err instanceof CaptureRejectedError) return captureRejected(err);
+    throw err;
+  }
   return NextResponse.json({ received: data.length });
 }

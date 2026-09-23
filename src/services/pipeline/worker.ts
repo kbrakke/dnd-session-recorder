@@ -137,6 +137,22 @@ async function runJob(job: PipelineJob): Promise<void> {
   }
 }
 
+const REAPED_MESSAGE = 'Processing was interrupted repeatedly. Please retry.';
+
+/**
+ * A reaped finalize job fails the RECORDING (session stays 'draft', parts
+ * retained, recovery card offers retry) — erroring the session would leave
+ * the recording stuck in 'finalizing' forever. Everything else errors the
+ * session as before.
+ */
+export async function markReapedJobFailed(sessionId: string, type: string): Promise<void> {
+  if (type === 'finalize_recording') {
+    await markRecordingFailed(sessionId, REAPED_MESSAGE);
+  } else {
+    await db.setSessionError(sessionId, 'processing', REAPED_MESSAGE);
+  }
+}
+
 async function workerLoop(): Promise<void> {
   const state = globalState.__pipelineWorker!;
   let lastReap = 0;
@@ -147,11 +163,11 @@ async function workerLoop(): Promise<void> {
     try {
       if (Date.now() - lastReap >= REAP_INTERVAL_MS) {
         lastReap = Date.now();
-        const { failedSessionIds } = await reapStaleJobs();
-        for (const sessionId of failedSessionIds) {
-          await db
-            .setSessionError(sessionId, 'processing', 'Processing was interrupted repeatedly. Please retry.')
-            .catch(err => logger.error('Failed to mark reaped session errored', err as Error, { sessionId }));
+        const { failed } = await reapStaleJobs();
+        for (const { sessionId, type } of failed) {
+          await markReapedJobFailed(sessionId, type).catch(err =>
+            logger.error('Failed to mark reaped job failed', err as Error, { sessionId, type })
+          );
         }
       }
 
