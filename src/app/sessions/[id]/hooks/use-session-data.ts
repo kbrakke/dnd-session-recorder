@@ -45,6 +45,11 @@ export function useSessionData({ sessionId }: UseSessionDataProps) {
     },
     refetchOnMount: true,
     staleTime: 0,
+    // A draft polls nothing — except while its recording is being assembled,
+    // so the page flips to the pipeline UI once the session becomes
+    // 'uploaded' (the progress poll takes over from there).
+    refetchInterval: query =>
+      query.state.data?.recording?.status === 'finalizing' ? 3000 : false,
   });
 
   // Lightweight progress poll, only while the pipeline is queued or running

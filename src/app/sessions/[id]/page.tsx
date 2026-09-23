@@ -9,6 +9,8 @@ import { SessionSidebar } from './components/session-sidebar';
 import { ProcessingPipeline } from './components/processing-pipeline';
 import { ErrorBanner } from './components/error-banner';
 import { UploadSection } from './components/upload-section';
+import { RecordingBanner } from './components/recording-banner';
+import { RecoveryCard } from './components/recovery-card';
 import { AudioPlayer } from './components/audio-player';
 import { SummarySection } from './components/summary-section';
 import { TranscriptSection } from './components/transcript-section';
@@ -56,6 +58,8 @@ function SessionDetailPage() {
     generateSummaryMutation,
     generateTodoMutation,
     deleteSessionMutation,
+    finalizeRecordingMutation,
+    discardRecordingMutation,
   } = useSessionMutations({ sessionId });
 
   const { theme: currentTheme, setTheme } = useSessionTheme();
@@ -117,7 +121,12 @@ function SessionDetailPage() {
     );
   }
 
-  const needsAudio = !session.uploadId && transcriptions.length === 0;
+  // A recording row persists as 'finalized' forever: gate on status. While a
+  // recording exists (live, interrupted, failed) its banner/card is the call
+  // to action — uploading a file underneath would 409 anyway.
+  const recording = session.recording;
+  const hasLiveRecording = !!recording && recording.status !== 'finalized';
+  const needsAudio = !session.uploadId && transcriptions.length === 0 && !hasLiveRecording;
 
   const handleDeleteSession = (sessionToDelete: SessionToDelete) => {
     setDeleteState({ showModal: true, session: sessionToDelete });
@@ -144,6 +153,24 @@ function SessionDetailPage() {
         isStarting={startProcessingMutation.isPending}
         isCancelling={cancelTranscriptionMutation.isPending}
       />
+
+      {/* Live recording: in progress / assembling (read-only) */}
+      {recording && ['recording', 'paused', 'finalizing'].includes(recording.status) && (
+        <RecordingBanner sessionId={sessionId} recording={recording} />
+      )}
+
+      {/* Live recording: interrupted or assembly failed */}
+      {recording && (recording.status === 'interrupted' || recording.status === 'failed') && (
+        <RecoveryCard
+          sessionId={sessionId}
+          recording={recording}
+          onFinalize={force => finalizeRecordingMutation.mutate({ recordingId: recording.id, force })}
+          onDiscard={force => discardRecordingMutation.mutate({ recordingId: recording.id, force })}
+          isFinalizing={finalizeRecordingMutation.isPending}
+          isDiscarding={discardRecordingMutation.isPending}
+          error={finalizeRecordingMutation.error ?? discardRecordingMutation.error}
+        />
+      )}
 
       {/* Upload Section */}
       {needsAudio && <UploadSection sessionId={sessionId} />}

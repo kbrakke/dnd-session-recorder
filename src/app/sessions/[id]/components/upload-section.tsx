@@ -1,6 +1,7 @@
 'use client';
 
-import { AlertCircle, RefreshCw, Upload, CheckCircle } from 'lucide-react';
+import Link from 'next/link';
+import { AlertCircle, RefreshCw, Upload, CheckCircle, Mic } from 'lucide-react';
 import { useUploadState } from '../hooks/use-upload-state';
 
 interface UploadSectionProps {
@@ -43,9 +44,24 @@ export function UploadSection({ sessionId }: UploadSectionProps) {
               No audio file
             </h3>
             <p className="mb-4 text-sm" style={{ color: 'var(--sp-fg-3)' }}>
-              This session has no audio file attached. Upload an audio recording to
+              Record the session live in your browser, or upload an audio file, to
               generate transcriptions and AI summaries.
             </p>
+
+            <Link
+              href={`/sessions/${sessionId}/record`}
+              data-testid="record-live"
+              className="mb-4 px-4 py-2 text-sm font-semibold rounded-[4px] inline-flex items-center gap-2"
+              style={{
+                background: 'var(--sp-primary)',
+                color: 'var(--sp-on-primary)',
+                border: '1px solid var(--sp-primary-border)',
+                boxShadow: 'var(--sp-shadow-btn)',
+              }}
+            >
+              <Mic className="h-4 w-4" />
+              Record live
+            </Link>
 
             {uploadError && (
               <div

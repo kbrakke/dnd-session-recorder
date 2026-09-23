@@ -1,4 +1,7 @@
 // Shared types for session detail page
+import type { RecordingSummary } from '@/lib/recording/types';
+
+export type { RecordingSummary };
 
 export type SessionStatus =
   | 'draft'
@@ -41,6 +44,12 @@ export interface SessionDetail extends GamingSession {
   _count: {
     transcriptions: number;
   };
+  /**
+   * The session's live recording, if any (token-free summary; status derived
+   * server-side). Persists as 'finalized' forever once assembled — gate UI on
+   * `status`, not on presence.
+   */
+  recording: RecordingSummary | null;
 }
 
 /** Shape of GET /api/sessions/[id]/progress — the lightweight polling feed. */

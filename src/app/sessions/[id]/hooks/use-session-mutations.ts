@@ -1,6 +1,9 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createRecorderApi } from '@/lib/recording/api';
+
+const recorderApi = createRecorderApi();
 
 interface UseSessionMutationsProps {
   sessionId: string;
@@ -141,7 +144,32 @@ export function useSessionMutations({ sessionId }: UseSessionMutationsProps) {
     },
   });
 
+  // Recovery card actions for an interrupted/failed live recording. `force`
+  // is only sent after the user confirmed a still-capturing warning (the
+  // mutation error carries kind 'still-capturing' + lastHeartbeatAt).
+  const finalizeRecordingMutation = useMutation({
+    mutationFn: ({ recordingId, force }: { recordingId: string; force?: boolean }) =>
+      recorderApi.finalizeRecording(recordingId, { force }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['progress', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+
+  // Discarding keeps the (draft) session — unlike deleteSessionMutation.
+  const discardRecordingMutation = useMutation({
+    mutationFn: ({ recordingId, force }: { recordingId: string; force?: boolean }) =>
+      recorderApi.discardRecording(recordingId, { force }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+
   return {
+    finalizeRecordingMutation,
+    discardRecordingMutation,
     startProcessingMutation,
     cancelTranscriptionMutation,
     updateSummaryMutation,

@@ -4,8 +4,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Play, Edit3, Save, X, FileText, Sparkles, Trash2 } from 'lucide-react';
+import { Calendar, Clock, BookOpen, ArrowLeft, AlertCircle, Play, Edit3, Save, X, FileText, Sparkles, Trash2, Mic } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import { RecordingBadge } from '@/components/recording/recording-badge';
+import type { RecordingSummary } from '@/lib/recording/types';
 import { logger } from '@/lib/logger';
 
 interface Campaign {
@@ -28,6 +30,7 @@ interface Session {
     transcriptions: number;
   };
   summary: { id: number } | null;
+  recording: RecordingSummary | null;
 }
 
 interface EditingState {
@@ -227,12 +230,20 @@ export default function CampaignDetailsPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900">Session Timeline</h2>
-              <Link href={`/sessions/upload?campaignId=${campaignId}`}>
-                <Button size="sm" className="flex items-center space-x-2">
-                  <Play className="h-4 w-4" />
-                  <span>New Session</span>
-                </Button>
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link href={`/sessions/record?campaignId=${campaignId}`}>
+                  <Button size="sm" variant="outline" className="flex items-center space-x-2">
+                    <Mic className="h-4 w-4" />
+                    <span>Record live</span>
+                  </Button>
+                </Link>
+                <Link href={`/sessions/upload?campaignId=${campaignId}`}>
+                  <Button size="sm" className="flex items-center space-x-2">
+                    <Play className="h-4 w-4" />
+                    <span>New Session</span>
+                  </Button>
+                </Link>
+              </div>
             </div>
 
             {sessionsLoading ? (
@@ -244,9 +255,16 @@ export default function CampaignDetailsPage() {
               <div className="text-center py-8">
                 <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-500 mb-4">No sessions yet for this campaign</p>
-                <Link href={`/sessions/upload?campaignId=${campaignId}`}>
-                  <Button>Create First Session</Button>
-                </Link>
+                <div className="flex justify-center gap-2">
+                  <Link href={`/sessions/record?campaignId=${campaignId}`}>
+                    <Button variant="outline" className="gap-2">
+                      <Mic className="h-4 w-4" /> Record live
+                    </Button>
+                  </Link>
+                  <Link href={`/sessions/upload?campaignId=${campaignId}`}>
+                    <Button>Create First Session</Button>
+                  </Link>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -257,9 +275,13 @@ export default function CampaignDetailsPage() {
                         <div className="flex-1">
                           <div className="flex items-center space-x-3 mb-2">
                             <h3 className="text-lg font-semibold text-gray-900">{session.title}</h3>
-                            <div className={`px-2 py-1 rounded-full border text-xs font-medium ${getStatusColor(session.status)}`}>
-                              {session.status}
-                            </div>
+                            {session.recording && session.recording.status !== 'finalized' ? (
+                              <RecordingBadge status={session.recording.status} />
+                            ) : (
+                              <div className={`px-2 py-1 rounded-full border text-xs font-medium ${getStatusColor(session.status)}`}>
+                                {session.status}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center space-x-4 text-sm text-gray-500">
                             <div className="flex items-center space-x-1">
