@@ -156,7 +156,8 @@ function RecordNewSessionContent() {
           </p>
         </div>
         <Link
-          href={campaignId ? `/sessions/upload?campaignId=${campaignId}` : '/sessions/upload'}
+          // Object form: Next encodes the (user-controllable) query value.
+          href={{ pathname: '/sessions/upload', query: campaignId ? { campaignId } : {} }}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-ink-900"
         >
           <Upload className="h-4 w-4" /> Upload a file instead
