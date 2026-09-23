@@ -9,6 +9,8 @@ import { Calendar, Clock, Mic, Plus, BookOpen, Play, FileText, Sparkles, AlertCi
 import Button from '@/components/ui/Button';
 import { formatDate, formatDurationSeconds } from '@/lib/formatting';
 import { isInFlight, statusLabel } from '@/lib/session-status';
+import { RecordingBadge } from '@/components/recording/recording-badge';
+import type { RecordingSummary } from '@/lib/recording/types';
 
 interface Session {
   id: string;
@@ -27,6 +29,7 @@ interface Session {
     id: number;
   } | null;
   status: string;
+  recording: RecordingSummary | null;
 }
 
 export default function SessionsPage() {
@@ -164,12 +167,16 @@ export default function SessionsPage() {
                 <div className="flex-1">
                   <div className="flex items-center space-x-3 mb-2">
                     <h3 className="text-xl font-bold text-gray-900">{session.title}</h3>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(session.status)}`}>
-                      <div className="flex items-center space-x-1">
-                        {getStatusIcon(session.status)}
-                        <span>{statusLabel(session.status)}</span>
-                      </div>
-                    </span>
+                    {session.recording && session.recording.status !== 'finalized' ? (
+                      <RecordingBadge status={session.recording.status} />
+                    ) : (
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(session.status)}`}>
+                        <div className="flex items-center space-x-1">
+                          {getStatusIcon(session.status)}
+                          <span>{statusLabel(session.status)}</span>
+                        </div>
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center space-x-4 text-sm text-gray-600 mb-4">
                     <div className="flex items-center">

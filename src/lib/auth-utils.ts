@@ -108,7 +108,7 @@ export async function requireAuth() {
  * ```
  *
  * @remarks
- * - Rate limit: 100 requests per 15 minutes (default)
+ * - Rate limit: 100 requests per minute in prod (1000 in dev/CI)
  * - Returns 429 Too Many Requests when limit exceeded
  * - Includes `X-RateLimit-*` headers in response
  */
@@ -174,7 +174,7 @@ export async function requireAuthWithRateLimit(request: Request) {
  * ```
  *
  * @remarks
- * - Rate limit: 10 requests per 15 minutes (stricter than general API)
+ * - Rate limit: 10 requests per minute in prod, 100 in dev/CI (stricter than general API)
  * - Returns 429 Too Many Authentication Attempts when limit exceeded
  * - Includes `X-RateLimit-*` headers in response
  */

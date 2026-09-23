@@ -26,6 +26,18 @@ test.describe('Route Protection', () => {
     await expect(page).toHaveURL(/\/auth\/signin/);
   });
 
+  test('unauthenticated access to /sessions/record redirects to sign-in', async ({ page }) => {
+    await page.goto('/sessions/record');
+
+    await expect(page).toHaveURL(/\/auth\/signin/);
+  });
+
+  test('unauthenticated access to /sessions/[id]/record redirects to sign-in', async ({ page }) => {
+    await page.goto('/sessions/test-id/record');
+
+    await expect(page).toHaveURL(/\/auth\/signin/);
+  });
+
   test('unauthenticated access to /billing redirects to sign-in', async ({ page }) => {
     await page.goto('/billing');
 

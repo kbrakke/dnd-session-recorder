@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Live-recording specs need a fake microphone, a longer timeout, and run in
+// their own project so the rest of the suite keeps its plain browser.
+const RECORDING_SPECS = /tests[\\/]ci[\\/]recording[\\/].*\.spec\.ts$/;
+
 export default defineConfig({
   testDir: './tests/ci',
   fullyParallel: true,
@@ -21,6 +25,29 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: RECORDING_SPECS,
+    },
+    {
+      name: 'chromium-recording',
+      testMatch: RECORDING_SPECS,
+      timeout: 180_000,
+      use: {
+        ...devices['Desktop Chrome'],
+        // Full Chromium (new headless) — the headless shell has had media
+        // stack gaps. Installed by `playwright install chromium`.
+        channel: 'chromium',
+        permissions: ['microphone'],
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-capture',
+            '--use-fake-ui-for-media-capture',
+            // Linux Chromium (the CI runner) exposes NO fake microphone without
+            // this audio-side switch: getUserMedia fails "Requested device not
+            // found" even though the flags above work on macOS.
+            '--use-fake-device-for-media-stream',
+          ],
+        },
+      },
     },
   ],
   webServer: {
@@ -39,6 +66,14 @@ export default defineConfig({
       // Mock OpenAI (Whisper + GPT-4o) so the transcription/summary pipeline
       // can be exercised in PR CI without spending credits. See src/lib/ai.ts.
       MOCK_AI_SERVICES: 'true',
+      // Faster worker polling so finalize/processing complete within the
+      // recording specs' budget (worker.ts default is 5000).
+      PIPELINE_POLL_INTERVAL_MS: '1000',
+      // Recorder test knobs (src/lib/recording/constants.ts, inlined at
+      // compile time): 1s chunks and ~5s parts so a 20s recording lands
+      // parts mid-recording and a reload leaves a real IndexedDB tail.
+      NEXT_PUBLIC_RECORDING_TIMESLICE_MS: '1000',
+      NEXT_PUBLIC_RECORDING_PART_MAX_MS: '5000',
     },
   },
   timeout: 30000, // 30 seconds per test

@@ -68,13 +68,20 @@ export function buildAudioKey(userId: string, filename: string): string {
  * ranges of a MediaRecorder stream (not standalone playable), kept under
  * their own prefix; only the finalized, assembled file gets an `audio/` key.
  */
+/**
+ * Object key for one recording part. `attempt` makes each upload attempt's
+ * object immutable and unique: a rejected attempt can then delete exactly its
+ * own object, never one a concurrent accepted upload wrote.
+ */
 export function buildRecordingPartKey(
   userId: string,
   recordingId: string,
   segmentIndex: number,
-  partIndex: number
+  partIndex: number,
+  attempt?: string
 ): string {
-  return `recording/${userId}/${recordingId}/${segmentIndex}/${partIndex}.part`;
+  const suffix = attempt ? `${partIndex}-${attempt}` : `${partIndex}`;
+  return `recording/${userId}/${recordingId}/${segmentIndex}/${suffix}.part`;
 }
 
 /**

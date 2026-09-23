@@ -3,7 +3,7 @@ import { db } from '@/services/database';
 import { prisma } from '@/lib/prisma';
 import { isAiMocked } from '@/lib/ai';
 import { isTestAccount } from '@/lib/whitelist';
-import { enqueueProcessSession, cancelActiveJobs } from '@/services/pipeline/queue';
+import { enqueueProcessSession, cancelActiveJobs, getLatestJob } from '@/services/pipeline/queue';
 import { audioExists } from '@/services/storage';
 import { requireSessionOwner, enforceRateLimit } from '@/lib/route-utils';
 import { aiTranscriptionRateLimiter } from '@/lib/rate-limiter';
@@ -106,8 +106,23 @@ export async function DELETE(
   const { sessionId } = await params;
 
   try {
-    const { error } = await requireSessionOwner(sessionId);
+    const { error, session } = await requireSessionOwner(sessionId);
     if (error) return error;
+
+    // Cancel is for transcription/summary. Never let it cancel a recording's
+    // finalize job: that would strand the recording in 'finalizing' and set
+    // a draft session to 'uploaded' with no upload.
+    const activeJob = await getLatestJob(sessionId);
+    if (
+      session.status === 'draft' ||
+      (activeJob?.type === 'finalize_recording' &&
+        (activeJob.status === 'pending' || activeJob.status === 'running'))
+    ) {
+      return NextResponse.json(
+        { error: 'Nothing to cancel: the session is not being transcribed' },
+        { status: 409 }
+      );
+    }
 
     const { isTimedOut, minutesElapsed } = await db.checkProcessingTimeout(sessionId, 30);
 

@@ -30,7 +30,9 @@ Next.js App Router uses file-system routing:
 | `/auth/error` | `auth/error/page.tsx` | Auth error display |
 | `/sessions` | `sessions/page.tsx` | List all sessions with status filters |
 | `/sessions/upload` | `sessions/upload/page.tsx` | Upload audio file |
+| `/sessions/record` | `sessions/record/page.tsx` | Record live: session details + microphone pre-flight |
 | `/sessions/[id]` | `sessions/[id]/page.tsx` | Session detail with processing pipeline |
+| `/sessions/[id]/record` | `sessions/[id]/record/page.tsx` | Live recorder HUD, recovery, assembly |
 | `/sessions/[id]/transcript` | `sessions/[id]/transcript/page.tsx` | Raw transcription view |
 | `/sessions/[id]/summary` | `sessions/[id]/summary/page.tsx` | Summary view/edit |
 | `/campaigns` | `campaigns/page.tsx` | Campaign list with CRUD |
@@ -53,4 +55,4 @@ All API routes are under `api/`. See `src/app/api/CLAUDE.md` for details.
 
 ## Protected pages guard themselves
 
-Middleware only covers `/api/*` — every protected PAGE must carry the standard client-side guard: `useSession()` + `useEffect` redirecting unauthenticated users to `/auth/signin`, plus `enabled: status === 'authenticated'` on its queries. `tests/ci/middleware/route-protection.spec.ts` enforces this for `/campaigns`, `/sessions`, `/settings`, `/sessions/upload` — new protected pages need the same guard (a redesign once silently dropped it from three pages).
+Middleware only covers `/api/*` — every protected PAGE must carry the standard client-side guard: `useSession()` + `useEffect` redirecting unauthenticated users to `/auth/signin`, plus `enabled: status === 'authenticated'` on its queries. `tests/ci/middleware/route-protection.spec.ts` enforces this for `/campaigns`, `/sessions`, `/settings`, `/sessions/upload`, `/sessions/record`, `/sessions/[id]/record` — new protected pages need the same guard (a redesign once silently dropped it from three pages).

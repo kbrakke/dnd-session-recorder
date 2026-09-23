@@ -11,6 +11,7 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 ## User's working preferences
 
 - Goes step-by-step on multi-step plans rather than bundling. Wait for the green light before proceeding.
+  - Exception (2026-09-23, live recording UI): once the user says "keep going, no need to ask between steps", build continuously through the remaining plan steps and report at the end — commit per step, but don't stop for a green light.
 - Wants this LESSONS.md maintained — but for gotchas and requests, not architecture notes (those go to CLAUDE.md files; refactored 2026-06-11 at their request).
 - Wants test stages clearly separated with little overlap (the three-stage contract is documented in `tests/CLAUDE.md`).
 - Prefers testcontainers + mocked AI for PR-level tests; prefers containers (Podman) over native services.
@@ -135,6 +136,15 @@ GitHub suppresses workflow events from actions authenticated with the default `G
 
 ## Code & test gotchas
 
+### Linux Chromium needs `--use-fake-device-for-media-stream` for a fake MICROPHONE
+`--use-fake-device-for-media-capture` + `--use-fake-ui-for-media-capture` give a fake mic on macOS, but on the Linux CI runner `getUserMedia({audio})` fails `NotFoundError: Requested device not found` and `enumerateDevices()` is empty (headless shell, new headless, and headed-under-xvfb alike; a fake audio file or PulseAudio don't help). Adding `--use-fake-device-for-media-stream` fixes it. Found 2026-09-23 when the recording E2E passed locally and failed 3/3 in PR CI. Fastest way to debug browser-media differences: run a tiny Playwright probe inside `mcr.microsoft.com/playwright:v<version>-noble` under Podman instead of iterating on CI.
+
+### `ffprobe-static`'s path is bogus under the Turbopack dev server — probes fail silently
+Under `next dev --turbopack` (which CI also uses) `require('ffprobe-static').path` resolves to `/ROOT/node_modules/ffprobe-static/…`, so every `execFile(ffprobe)` fails with ENOENT. `probeAudioDurationSeconds` swallows the error and returns null, so it looks like "this file has no duration", not like a broken binary. Found 2026-09-22 when a finalize segment probe returned all-null params. Use `ffprobeBinary()` (`src/services/audioProcessing.ts`), which checks the path exists and falls back to system `ffprobe`. Also: the pipeline worker starts once at boot and keeps its code across HMR — restart the dev server after editing worker/step code before trusting a test run.
+
+### npm 11 lockfile regen dropped `magicast` AGAIN when adding a devDependency (2026-09-22)
+`npx -y npm@11 install --save-dev fake-indexeddb` re-removed the nested `@prisma/config/node_modules/magicast` entry that npm 10's `npm ci` needs (see the tooling entry above). For a single new leaf devDependency with no deps, hand-inserting its `packages` entry (and the root `devDependencies` key) into the ORIGINAL lockfile, in place and without re-sorting, gave an 11-line diff that `npx -y npm@10 ci` accepts.
+
 ### TS narrowing doesn't follow Vitest assertions
 `expect(result.error).toBeNull()` does NOT narrow the type. Use a real type guard (`if (result.error !== null) throw …`) before accessing branch-specific fields of a discriminated union — it's a runtime assertion AND a narrow.
 
@@ -164,3 +174,6 @@ Enabling CodeQL **default setup** (repo Settings → Code security → Code scan
 
 ### CodeQL `js/clear-text-logging` flags logging an env-sourced password
 The seed logged the demo password for reviewer convenience; because it was env-overridable (`process.env.DEMO_PASSWORD`), CodeQL (high) flagged it as logging a secret and failed the PR. Don't log password values even in seeds — log a non-sensitive literal hint only.
+
+### "Probably persisted" is not persisted — in durability code, only a positive server verdict deletes a local copy
+Two PR #50 review rounds found the same shape three times: a 15 s stop-join timeout treated as "the recorder stopped" (finalized before the late blob), `segment_closed` treated as "the ledger has the part" (true only until a prefix close — then Retry deleted the only copy), and a throwaway drain queue whose refused parts were dropped on Resume (Stop then finalized and purged them). Rule: a timeout, an inference, or a discarded object never resolves pending audio — only a 2xx for that exact part, or the user's explicit "finalize without it". Regression tests must let the timeout/refusal path actually fire (the first stop-join test mocked the timer to never resolve and so never exercised it).

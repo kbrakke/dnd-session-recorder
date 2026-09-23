@@ -219,11 +219,15 @@ export async function getLatestJob(sessionId: string): Promise<PipelineJob | nul
 
 /**
  * Recover jobs whose worker died: any 'running' job with a stale heartbeat
- * is either requeued (attempts remaining) or failed. Returns sessions whose
- * jobs were terminally failed so callers can mark them errored.
+ * is either requeued (attempts remaining) or failed. Returns the terminally
+ * failed jobs (session + type) so callers can mark the right row failed: a
+ * finalize job's failure belongs on the Recording, not the draft session.
  */
-export async function reapStaleJobs(): Promise<{ requeued: number; failedSessionIds: string[] }> {
-  const failedRows = await prisma.$queryRaw<Array<{ session_id: string }>>`
+export async function reapStaleJobs(): Promise<{
+  requeued: number;
+  failed: Array<{ sessionId: string; type: string }>;
+}> {
+  const failedRows = await prisma.$queryRaw<Array<{ session_id: string; type: string }>>`
     UPDATE pipeline_jobs
     SET status = 'failed',
         last_error = 'Processing was interrupted repeatedly (worker lease expired after max attempts)',
@@ -233,7 +237,7 @@ export async function reapStaleJobs(): Promise<{ requeued: number; failedSession
     WHERE status = 'running'
       AND heartbeat_at < NOW() - (${STALE_LEASE_MINUTES}::int * INTERVAL '1 minute')
       AND attempts >= max_attempts
-    RETURNING session_id
+    RETURNING session_id, type
   `;
 
   const requeued = await prisma.$executeRaw`
@@ -255,5 +259,8 @@ export async function reapStaleJobs(): Promise<{ requeued: number; failedSession
     });
   }
 
-  return { requeued, failedSessionIds: failedRows.map(r => r.session_id) };
+  return {
+    requeued,
+    failed: failedRows.map(r => ({ sessionId: r.session_id, type: r.type })),
+  };
 }

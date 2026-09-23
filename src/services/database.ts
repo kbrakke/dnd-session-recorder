@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { Campaign, GamingSession, Transcription, Summary, Upload } from '@prisma/client';
+import { recordingSummarySelect, type RecordingSummaryRow } from './recording';
 
 export interface CreateCampaignData {
   name: string;
@@ -33,6 +34,8 @@ export interface SessionWithIncludes extends GamingSession {
   transcriptions: Transcription[];
   summary: Summary | null;
   upload: Upload | null;
+  /** Raw row — routes MUST map it through summarizeRecording before responding. */
+  recording: RecordingSummaryRow | null;
 }
 
 export interface SessionListItem extends GamingSession {
@@ -41,6 +44,8 @@ export interface SessionListItem extends GamingSession {
     transcriptions: number;
   };
   summary: { id: number } | null;
+  /** Raw row — routes MUST map it through summarizeRecording before responding. */
+  recording: RecordingSummaryRow | null;
 }
 
 export class DatabaseService {
@@ -122,6 +127,7 @@ export class DatabaseService {
         summary: {
           select: { id: true },
         },
+        recording: recordingSummarySelect,
       },
       orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
     });
@@ -139,6 +145,7 @@ export class DatabaseService {
         },
         summary: true,
         upload: true,
+        recording: recordingSummarySelect,
       },
     });
   }

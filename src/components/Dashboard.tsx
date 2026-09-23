@@ -3,9 +3,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Calendar, Clock, BookOpen, Scroll, Archive, PenTool } from 'lucide-react';
+import { Calendar, Clock, BookOpen, Scroll, Archive, PenTool, Mic } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import StatusPill from '@/components/ui/StatusPill';
+import { RecordingBadge } from '@/components/recording/recording-badge';
+import type { RecordingSummary } from '@/lib/recording/types';
 import LandingPage from '@/components/LandingPage';
 import { formatDate, formatDurationSeconds } from '@/lib/formatting';
 import { isInFlight, statusLabel } from '@/lib/session-status';
@@ -35,6 +37,7 @@ interface Session {
     id: number;
   } | null;
   status: string;
+  recording: RecordingSummary | null;
 }
 
 export default function Dashboard() {
@@ -83,6 +86,14 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <div className="bg-white rounded-ss-xl border border-slate-300 p-6 shadow-ss-card">
         <div className="flex flex-col sm:flex-row gap-4">
+          <ActionCard
+            href="/sessions/record"
+            icon={<Mic size={26} className="text-red-800" strokeWidth={2} />}
+            iconBg="bg-red-50"
+            iconBorder="border-red-200"
+            title="Record Live"
+            subtitle="Capture tonight's session in your browser"
+          />
           <ActionCard
             href="/sessions/upload"
             icon={<PenTool size={26} className="text-ink-900" strokeWidth={2} />}
@@ -133,11 +144,18 @@ export default function Dashboard() {
             <Scroll className="h-[42px] w-[42px] text-slate-400 mx-auto mb-3" />
             <h3 className="font-display text-xl font-semibold text-slate-900 mb-1.5">No sessions yet</h3>
             <p className="font-body text-sm text-slate-500 mb-4">Start recording your first RPG session to see it here</p>
-            <Link href="/sessions/upload">
-              <Button className="gap-2">
-                <PenTool size={14} /> Start Recording
-              </Button>
-            </Link>
+            <div className="flex justify-center gap-2">
+              <Link href="/sessions/record">
+                <Button className="gap-2">
+                  <Mic size={14} /> Record live
+                </Button>
+              </Link>
+              <Link href="/sessions/upload">
+                <Button variant="outline" className="gap-2">
+                  <PenTool size={14} /> Upload a recording
+                </Button>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="bg-white rounded-ss-xl border border-slate-300 overflow-hidden shadow-ss-card">
@@ -147,7 +165,11 @@ export default function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2.5 mb-1">
                       <span className="font-body font-semibold text-[15px] text-slate-900 whitespace-nowrap">{session.title}</span>
-                      <StatusPill status={session.status} />
+                      {session.recording && session.recording.status !== 'finalized' ? (
+                        <RecordingBadge status={session.recording.status} />
+                      ) : (
+                        <StatusPill status={session.status} />
+                      )}
                     </div>
                     <div className="flex gap-3.5 font-body text-[13px] text-slate-500 whitespace-nowrap">
                       <span className="inline-flex items-center gap-1"><BookOpen size={12} />{session.campaign_name}</span>

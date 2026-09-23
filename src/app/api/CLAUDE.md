@@ -56,14 +56,20 @@ Non-ownership is masked as **404** (never 403) so resource existence doesn't lea
 - `accounts/route.ts` - `GET` linked OAuth accounts
 
 ### Live Recording (`recordings/`, plus `sessions/[id]/recording`)
-In-browser session recording (docs/LIVE_RECORDING_DESIGN.md). The session stays `draft` while recording; all state lives on the `Recording` row. Capture endpoints (`segments`, `parts`, `close`, `heartbeat`) require the current `x-recorder-token` (rotated on start/takeover; stale tabs get 409) and are **deliberately not rate-limited beyond auth** — 15s heartbeats + ~90s part uploads would trip the general limiter.
-- `sessions/[id]/recording/route.ts` - `POST` start OR take over recording (sensitive-action limited; 409 if session has audio or recording is past capture). Returns recording state + fresh recorder token + next segment index.
-- `recordings/[id]/route.ts` - `GET` state (`interrupted` derived from DB-clock heartbeat staleness), `DELETE` discard (deletes part objects + rows; 409 once finalizing/finalized)
+In-browser session recording (docs/LIVE_RECORDING_DESIGN.md, docs/LIVE_RECORDING_UI_SPEC.md). The session stays `draft` while recording; all state lives on the `Recording` row. Capture endpoints (`segments`, `parts`, `close`, `heartbeat`) require the current `x-recorder-token` (rotated on start/takeover; stale tabs get 409) and are **deliberately not rate-limited beyond auth** — 15s heartbeats + ~90s part uploads would trip the general limiter.
+
+**Every recording 4xx carries a stable `code`** (`recordingError()` in `@/lib/route-utils`): `stale_token`, `not_capturing`, `still_capturing`, `segment_gap`, `segment_not_found`, `segment_closed`, `parts_missing` (+`missing[]`), `empty_part`, `invalid_request`, `part_too_large`, `recording_too_large`, `already_finalizing`, `nothing_captured`, `cannot_discard`, `has_audio`, `past_capture`. Clients branch on `code`, never on the `error` string (several distinct failures share 409). Route-level token/status checks are only a fast path — the service re-verifies inside each write's transaction; map `CaptureRejectedError` with `captureRejected()`.
+
+**Live guard:** takeover, finalize and discard of a LIVE recording (derived `recording`/`paused`) return 409 `still_capturing` (+`lastHeartbeatAt`) unless the caller holds the current token or passes `force` — the UI confirms with the user first.
+- `sessions/[id]/recording/route.ts` - `POST { mimeType?, force? }` start OR take over (sensitive-action limited: 10/min prod, 100/min dev/CI). 409 `has_audio` (session has audio), `past_capture` (recording past capture, session has transcripts, or an active pipeline job), `still_capturing`. Returns recording state + fresh recorder token + next segment index.
+- `recordings/[id]/route.ts` - `GET` state (`interrupted` derived from DB-clock heartbeat staleness; includes per-segment ledger `segments[{index,status,partCount,maxPartIndex,sizeBytes}]` and `partCount` for the crash drain), `DELETE` discard (`?force=1` for a live recording; 409 `cannot_discard` once finalizing/finalized)
 - `recordings/[id]/segments/route.ts` - `POST` open segment N (gapless, idempotent)
-- `recordings/[id]/segments/[n]/parts/[m]/route.ts` - `PUT` raw part bytes (≤8MB; idempotent by index; implicit heartbeat)
-- `recordings/[id]/segments/[n]/close/route.ts` - `POST` declare final part count; 409 returns `missing` indexes for client re-upload
-- `recordings/[id]/heartbeat/route.ts` - `PUT` liveness ping `{ state: recording|paused }` (raw SQL `NOW()`)
-- `recordings/[id]/finalize/route.ts` - `POST` enqueue the `finalize_recording` job (no recorder token — the recovery card runs in a fresh tab). Assembly happens on the pipeline worker; on success the session becomes a normal `uploaded` session and transcription auto-enqueues behind the test-account cost gate.
+- `recordings/[id]/segments/[n]/parts/[m]/route.ts` - `PUT` raw part bytes (≤8MB; idempotent by index; implicit heartbeat). On a CLOSED segment it answers 2xx if the ledger already holds that part and 409 `segment_closed` only if it doesn't — clients must never treat `segment_closed` as an ACK
+- `recordings/[id]/segments/[n]/close/route.ts` - `POST` declare final part count; 409 `parts_missing` returns `missing` indexes for client re-upload
+- `recordings/[id]/heartbeat/route.ts` - `PUT` liveness ping `{ state: recording|paused }` (raw SQL `NOW()`, conditional on the token) — the only way pause/resume reaches the server
+- `recordings/[id]/finalize/route.ts` - `POST { force? }` enqueue the `finalize_recording` job. Stop sends its `x-recorder-token`; the recovery card (another tab) needs `force` for a live recording. 400 `nothing_captured` with zero parts. Assembly happens on the pipeline worker; on success the session becomes a normal `uploaded` session and transcription auto-enqueues behind the test-account cost gate.
+- Session reads (`GET /api/sessions`, `GET /api/sessions/[id]`) carry `recording: { id, status (derived), estimatedDurationSeconds, startedAt, lastHeartbeatAt, errorMessage } | null` — one `SELECT NOW()` per request, never the recorder token, set AFTER the spread so the raw relation never leaks. The Recording row persists as `finalized` forever: gate UI on `status`, not on presence.
+- `sessions/[id]/upload` refuses (409 `has_recording`) while a non-finalized recording exists; `DELETE /api/transcription/[sessionId]` refuses (409) on a draft or during a finalize job; `/progress` `job` includes `type`.
 
 ### Billing (`billing/`)
 - `checkout/route.ts` - `POST` create a Stripe Checkout Session (subscription mode, Managed Payments); returns `{ url }` to redirect to, or **409** when the user already has an active/trialing subscription (double-charge guard). Sensitive-action rate limited.
@@ -103,7 +109,7 @@ Frontend polls `GET /api/sessions/[id]/progress` for real-time updates
 ## Response Conventions
 
 - Success: `200` with JSON body
-- Created: `200` (not 201) with created object
+- Created: `200` or `201` (POST /api/sessions and POST /api/campaigns return 201) — clients should check `response.ok`
 - Validation error: `400` with `{ error: string }` or Zod error details
 - Unauthorized: `401` with `{ error: 'Unauthorized' }`
 - Not found: `404` with `{ error: '... not found' }`

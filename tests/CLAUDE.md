@@ -28,6 +28,9 @@ Config: `playwright.config.ci.ts`
 - Chromium only, 4 workers
 - 2 retries in CI mode
 - Tests: route protection, middleware behavior
+- Two projects: `chromium` (everything except `tests/ci/recording/`) and `chromium-recording` (`tests/ci/recording/*.spec.ts` only: full Chromium via `channel: 'chromium'`, `--use-fake-device-for-media-capture` + `--use-fake-ui-for-media-capture`, microphone permission, 180s timeout). Iterate on it alone with `--project=chromium-recording`.
+- `webServer.env` sets `PIPELINE_POLL_INTERVAL_MS=1000` and the recorder knobs `NEXT_PUBLIC_RECORDING_TIMESLICE_MS=1000` / `NEXT_PUBLIC_RECORDING_PART_MAX_MS=5000` (compile-time, so a locally reused dev server started WITHOUT them makes mid-recording part assertions fail — run the recording project with `CI=true`).
+- The PR `test` job installs system ffmpeg: recording finalize always remuxes through ffmpeg.
 
 ### Staging / Post-Deploy Tests (`npm run test:staging` / `npm run test:post-deploy`)
 Both scripts run the same suite with `playwright.config.staging.ts` — the target
@@ -40,6 +43,7 @@ workflows set `DEPLOY_URL` (staging, review apps, production).
 ### Unit Tests (`npm test` / `npm run test:unit`)
 Config: `vitest.config.ts`
 - Pure-logic tests, no server needed. Live under `src/**/__tests__/*.test.ts`.
+- IndexedDB code is tested in the `node` environment with `fake-indexeddb` (`import { IDBFactory } from 'fake-indexeddb'` and inject `new IDBFactory()` per test) — no jsdom needed.
 - Fast (<1s); covers `src/lib/{whitelist,auth-utils}`, `src/services/audioProcessing`, `src/app/sessions/[id]/themes`, etc.
 
 ## Test Infrastructure

@@ -74,3 +74,18 @@ Never hand-roll status switch statements in components — earlier copies invent
 ### `utils.ts` — General Utilities
 - `cn(...inputs)` — merges Tailwind CSS classes using `clsx` + `tailwind-merge`
 - `CI_OPTIMIZED` — boolean flag for CI environment detection
+
+### `recording/` — Live Recorder Engine (client)
+Framework-free modules for in-browser recording (docs/LIVE_RECORDING_UI_SPEC.md, Steps 2–3). Browser-safe: **never touch `window`/`navigator`/`indexedDB` at module scope** (the record pages are SSR-prerendered), and never import `src/services/*` (Prisma). Every browser object (`IDBFactory`, `MediaDevices`, `MediaRecorder`, `AudioContext`, `fetch`, timers) is injected, so all of it is Vitest-tested in the `node` env (`fake-indexeddb` for storage).
+- `constants.ts` — tunables; `NEXT_PUBLIC_RECORDING_{TIMESLICE,PART_MAX,ROTATION}_MS` test knobs (compile-time)
+- `types.ts` — client mirrors of server JSON + engine snapshot types
+- `part-assembler.ts` — timeslice chunks → parts; part index fixed at slice time, never re-sliced (retries resend identical bytes)
+- `idb-store.ts` — IndexedDB buffer: one short transaction per op, never await non-IDB work inside one; a chunk row exists ⇔ not yet ACKed; `groupPending`
+- `upload-queue.ts` — FIFO single consumer, head-of-line retry; error policy keyed on the server `code`; rows deleted only after a 2xx; a refused part (or one answered `segment_closed`) stays UNRESOLVED (`rejectedParts()`, health stays degraded) until retried or explicitly abandoned; its segment's close is deferred meanwhile (never prefix-close over a part this browser holds); `unresolved()`/`adoptUnresolved()` carry it from a crash drain into the live queue
+- `heartbeat.ts` — one request in flight, state read at send time, generation-guarded verdicts
+- `recovery.ts` — `decideRecovery` + `planDrain`: drain with the STORED token, never take over just to drain
+- `api.ts` — fetch wrappers + `classifyRecorderError` (never `keepalive`: 64 KiB cap)
+- `capture.ts` / `capabilities.ts` — mic/MediaRecorder/meter wrappers; the hard-block gate does a real IndexedDB round trip
+- `rotation.ts`, `media-clock.ts`, `safety.ts`, `state-machine.ts` — pure policy, active-time clock, safety-indicator copy, phase table (invalid transitions return null, never throw)
+- `engine.ts` — `RecorderEngine`: orchestrates everything above outside React. Commands are phase-guarded; seq/part/seal bookkeeping is synchronous in `onChunk` (an async assembler would mis-stamp chunks); segment opens are eager; rotation starts the new run before stopping the old; unrequested recorder stops mean "mic lost", never finalize. Oversized blobs are split into ≤ `PART_MAX_BYTES` slices (parts stay < 6 MiB). Stop joins every outstanding run stop before draining (a stalled one is waited on until the user explicitly gives it up — a timeout alone never finalizes), and parks in `tail-blocked` rather than finalize across a refused part; "saved through" advances only across a contiguous acknowledged prefix. `bootstrap()` is memoized and never takes over. Disposed only on terminal outcomes/eviction, never by a React unmount.
+- `engine-registry.ts` — one engine per session on `globalThis.__recorderEngines` (survives Fast Refresh, StrictMode and navigation); `activeRecorderEngine()` feeds the Navbar indicator. Fast Refresh keeps the OLD engine instance alive: after editing engine modules in dev, reload the page.

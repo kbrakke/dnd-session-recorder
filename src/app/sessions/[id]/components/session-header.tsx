@@ -3,6 +3,7 @@
 import { Calendar, Clock, BookOpen, FileText, Download, Edit, Trash2 } from 'lucide-react';
 import type { SessionDetail, SessionStatus } from '../types';
 import StatusPill from '@/components/ui/StatusPill';
+import { RecordingBadge } from '@/components/recording/recording-badge';
 import { formatDate, formatDurationMinutes } from '@/lib/formatting';
 
 interface SessionHeaderProps {
@@ -46,7 +47,11 @@ export function SessionHeader({ session, onDelete, transcriptionCount }: Session
           >
             {session.title}
           </h1>
-          <StatusPill status={mapStatusToPill(session.status)} className="shrink-0" />
+          {session.recording && session.recording.status !== 'finalized' ? (
+            <RecordingBadge status={session.recording.status} className="shrink-0" />
+          ) : (
+            <StatusPill status={mapStatusToPill(session.status)} className="shrink-0" />
+          )}
         </div>
 
         <div

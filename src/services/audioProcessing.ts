@@ -270,8 +270,21 @@ export async function validateAudioFile(filePath: string): Promise<{
  * filenames can't inject shell commands. Prefers the system ffprobe in
  * production and the bundled ffprobe-static binary elsewhere.
  */
+/**
+ * The ffprobe binary to execute. Production images ship a system ffprobe.
+ * Elsewhere prefer the bundled ffprobe-static binary — but only when its path
+ * actually exists: under the Turbopack dev server (which CI also uses) the
+ * package's path resolves to a bogus '/ROOT/node_modules/…' location, and
+ * every probe would fail with ENOENT. Fall back to a system ffprobe then.
+ */
+export function ffprobeBinary(): string {
+  if (process.env.NODE_ENV === 'production') return 'ffprobe';
+  const bundled = ffprobe.path as string | undefined;
+  return bundled && fs.existsSync(bundled) ? bundled : 'ffprobe';
+}
+
 export async function probeAudioDurationSeconds(filePath: string): Promise<number | null> {
-  const ffprobeBin = process.env.NODE_ENV === 'production' ? 'ffprobe' : (ffprobe.path as string);
+  const ffprobeBin = ffprobeBinary();
   try {
     const { stdout } = await execFileAsync(ffprobeBin, [
       '-v', 'quiet',

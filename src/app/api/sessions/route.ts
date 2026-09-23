@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth-utils';
 import { db } from '@/services/database';
 import { logger } from '@/lib/logger';
+import { dbNowMs, summarizeRecording } from '@/services/recording';
 
 const createSessionSchema = z.object({
   campaign_id: z.string().min(1, 'Campaign ID must be a positive integer'),
@@ -22,13 +23,18 @@ export async function GET(request: Request) {
     const campaignId = searchParams.get('campaignId');
     
     const sessions = await db.getSessions(user.id, campaignId || undefined);
-    
-    // Transform data to match existing API format
+
+    // ONE DB-clock read per request (not per row) derives 'interrupted'.
+    const nowMs = sessions.some(s => s.recording) ? await dbNowMs() : 0;
+
+    // Transform data to match existing API format. `recording` is set AFTER
+    // the spread so the raw relation (with segments[]) never leaks.
     const transformedSessions = await Promise.all(sessions.map(async session => ({
       ...session,
       campaign_name: session.campaign.name,
-      total_speech_time: session._count.transcriptions > 0 ? 
+      total_speech_time: session._count.transcriptions > 0 ?
         await db.getTotalSpeechTime(session.id) : 0,
+      recording: session.recording ? summarizeRecording(session.recording, nowMs) : null,
     })));
     
     return NextResponse.json(transformedSessions);
