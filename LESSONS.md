@@ -11,6 +11,7 @@ Append an entry whenever an action causes an unexpected failure or the user corr
 ## User's working preferences
 
 - Goes step-by-step on multi-step plans rather than bundling. Wait for the green light before proceeding.
+  - Exception (2026-09-23, live recording UI): once the user says "keep going, no need to ask between steps", build continuously through the remaining plan steps and report at the end — commit per step, but don't stop for a green light.
 - Wants this LESSONS.md maintained — but for gotchas and requests, not architecture notes (those go to CLAUDE.md files; refactored 2026-06-11 at their request).
 - Wants test stages clearly separated with little overlap (the three-stage contract is documented in `tests/CLAUDE.md`).
 - Prefers testcontainers + mocked AI for PR-level tests; prefers containers (Podman) over native services.

@@ -46,7 +46,7 @@ export function toMicError(error: unknown): MicError {
   }
 }
 
-type MediaDevicesLike = Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>;
+export type MediaDevicesLike = Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>;
 
 /**
  * Audio inputs with a usable id. Labels and ids are blank until the page
@@ -128,7 +128,7 @@ export interface LevelMeter {
   dispose(): Promise<void>;
 }
 
-type AudioContextCtor = new () => Pick<
+export type AudioContextCtor = new () => Pick<
   AudioContext,
   'createMediaStreamSource' | 'createAnalyser' | 'close' | 'state' | 'resume'
 >;

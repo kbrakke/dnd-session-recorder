@@ -27,6 +27,10 @@ describe('transition', () => {
     for (const [from, e, to] of path) expect(transition(from, ev(e))).toBe(to);
   });
 
+  it('a fresh start goes idle → starting (the pre-flight hook owns the stream)', () => {
+    expect(transition('idle', ev('START'))).toBe('starting');
+  });
+
   it('resolves FINALIZE_POLL by status', () => {
     expect(transition('finalizing', { type: 'FINALIZE_POLL', status: 'finalized' })).toBe('finalized');
     expect(transition('finalizing', { type: 'FINALIZE_POLL', status: 'failed' })).toBe('finalize-failed');

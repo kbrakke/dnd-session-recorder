@@ -170,9 +170,20 @@ export interface RecorderSnapshot {
     /** Seconds of local audio that could not be attached. */
     strandedSeconds: number;
   } | null;
-  finalize: { status: RecordingDisplayStatus | null; errorMessage: string | null };
+  finalize: {
+    status: RecordingDisplayStatus | null;
+    errorMessage: string | null;
+    /** Assembly attempts so far (worker retries), when known. */
+    attempts: number | null;
+    /** Stop found no audio at all: only Discard makes sense. */
+    nothingCaptured: boolean;
+  };
+  /** Uploading the tail has stalled long enough to offer finalizing without it. */
+  abandonAvailable: boolean;
   errorMessage: string | null;
   takenOverMessage: string | null;
   /** The page navigates here (router.replace) when set. */
   redirectTo: string | null;
+  /** bootstrap() has decided what to show (idle then means "fresh: pre-flight"). */
+  bootstrapped: boolean;
 }

@@ -34,6 +34,8 @@ type Table = Partial<Record<RecorderPhase, Partial<Record<RecorderEventType, Rec
  */
 export const TRANSITIONS: Table = {
   idle: {
+    // The pre-flight hook owns the mic stream, so a fresh start goes idle → starting.
+    START: 'starting',
     UNSUPPORTED: 'unsupported',
     PREFLIGHT_READY: 'preflight',
     RECOVER: 'recovering',
