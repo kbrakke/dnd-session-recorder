@@ -466,6 +466,17 @@ export async function getSegment(
   });
 }
 
+/** A part already in the ledger (a closed segment's idempotent retry). */
+export async function getPart(
+  segmentId: string,
+  index: number
+): Promise<{ sizeBytes: number } | null> {
+  return prisma.recordingPart.findUnique({
+    where: { segmentId_index: { segmentId, index } },
+    select: { sizeBytes: true },
+  });
+}
+
 /** Total uploaded bytes across all of a recording's parts. */
 export async function recordingTotalBytes(recordingId: string): Promise<number> {
   const totals = await prisma.recordingPart.aggregate({

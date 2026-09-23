@@ -74,6 +74,29 @@ export function AssemblingState({ engine, snapshot }: { engine: RecorderEngine; 
             : 'Finishing up. Keep this tab open.'}
         </p>
         <SafetyIndicator snapshot={snapshot} />
+        {snapshot.phase === 'stopping' && snapshot.stopStalled && (
+          <div data-testid="stop-stalled" className="rounded-ss-lg border border-amber-300 bg-amber-50 p-3 text-sm text-slate-800 space-y-2">
+            <p>
+              The browser’s recorder hasn’t handed over its last few seconds of audio yet. Still waiting — nothing is
+              finalized until it does.
+            </p>
+            {confirm === 'loss' ? (
+              <div className="space-y-2 text-red-900">
+                <p>Finalize without that audio? Whatever the recorder hasn’t delivered will be lost for good.</p>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="danger" data-testid="confirm-abandon-stalled" onClick={() => engine.abandonStalledStop()}>
+                    Finalize without it
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setConfirm(null)}>Keep waiting</Button>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" size="sm" variant="outline" onClick={() => setConfirm('loss')}>
+                Finalize without it
+              </Button>
+            )}
+          </div>
+        )}
         {snapshot.abandonAvailable && !confirmAbandon && (
           <Button type="button" variant="outline" size="sm" onClick={() => setConfirmAbandon(true)}>
             Finalize without the un-uploaded audio

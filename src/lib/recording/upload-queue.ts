@@ -91,6 +91,14 @@ const MAX_REOPENS_PER_SEGMENT = 3;
 
 type Waiter = { resolve(): void; reject(error: Error): void };
 
+type CloseJob = Extract<UploadJob, { kind: 'close' }>;
+
+/** Refused parts and the closes they hold back (see `UploadQueue.unresolved`). */
+export interface UnresolvedWork {
+  parts: SealedPart[];
+  closes: CloseJob[];
+}
+
 export class UploadQueue {
   private jobs: UploadJob[] = [];
   private _state: QueueState = 'idle';
@@ -104,6 +112,12 @@ export class UploadQueue {
   private readonly closeRetries = new Map<number, number>();
   /** Parts the server refused; unresolved until retried or abandoned. */
   private rejected: SealedPart[] = [];
+  /**
+   * Closes held back because their segment has an unresolved part. Closing
+   * (even as a prefix) would make the segment unwritable, so a later Retry
+   * could never land the refused part. Released by `requeueRejected()`.
+   */
+  private deferredCloses = new Map<number, CloseJob>();
 
   constructor(
     private readonly recordingId: string,
@@ -146,17 +160,49 @@ export class UploadQueue {
     return [...this.rejected];
   }
 
-  /** Try the refused parts again (they go to the head, in order). */
-  requeueRejected(): void {
-    const parts = this.rejected;
-    this.rejected = [];
-    for (const part of [...parts].reverse()) this.enqueueFront({ kind: 'part', ...part });
+  /** Unresolved work to carry into another queue (crash drain → live queue). */
+  unresolved(): UnresolvedWork {
+    return { parts: [...this.rejected], closes: [...this.deferredCloses.values()] };
   }
 
-  /** The user accepted losing the refused parts (finalize across the gap). */
+  /**
+   * Take over another queue's unresolved work, so a later Stop still parks
+   * in tail-blocked instead of finalizing across it.
+   */
+  adoptUnresolved(work: UnresolvedWork): void {
+    for (const part of work.parts) this.markRejected(part);
+    for (const close of work.closes) this.deferredCloses.set(close.segmentIndex, close);
+    if (this.rejected.length > 0) this.setHealth('degraded', 'Earlier audio is still waiting to be uploaded');
+  }
+
+  /**
+   * Try the refused parts again, then the closes they held back. They go to
+   * the head in (segment, part) order, closes after their segment's parts.
+   */
+  requeueRejected(): void {
+    if (this.stopped) return;
+    const parts: UploadJob[] = this.rejected.map(part => ({ kind: 'part', ...part }));
+    const closes = [...this.deferredCloses.values()];
+    this.rejected = [];
+    this.deferredCloses.clear();
+    for (const close of closes) this.closeRetries.delete(close.segmentIndex);
+    const order = (j: UploadJob) => [j.segmentIndex, j.kind === 'close' ? 1 : 0, j.kind === 'part' ? j.partIndex : 0];
+    const jobs = [...parts, ...closes].sort((a, b) => {
+      const [x, y] = [order(a), order(b)];
+      return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+    });
+    this.jobs.unshift(...jobs);
+    this.kick();
+  }
+
+  /**
+   * The user accepted losing the refused parts (finalize across the gap).
+   * Their segments stay open: finalize assembles each one's contiguous prefix.
+   */
   abandonRejected(): SealedPart[] {
     const parts = this.rejected;
     this.rejected = [];
+    this.deferredCloses.clear();
     if (this.health === 'degraded') this.setHealth('ok', null);
     return parts;
   }
@@ -193,6 +239,11 @@ export class UploadQueue {
       }
 
       const job = this.jobs[0];
+      if (job.kind === 'close' && this.hasUnresolved(job.segmentIndex)) {
+        this.remove(job);
+        this.deferredCloses.set(job.segmentIndex, job);
+        continue;
+      }
       try {
         await this.execute(job);
         if (this.stopped) return;
@@ -297,12 +348,14 @@ export class UploadQueue {
       }
 
       case 'segment-closed':
-        // A closed segment passed close's integrity check, so the ledger
-        // already holds this part: treat as ACK.
+        // The server answers a part it already holds with a 2xx even after
+        // close, so this means the part is NOT in the ledger and can no
+        // longer be written. Never an ACK: the local copy stays unresolved.
         this.remove(job);
         if (job.kind === 'part') {
-          await this.deps.parts.ack(job.segmentIndex, job.partIndex);
-          this.events.onPartAcked?.(stripKind(job), this.deps.now());
+          this.markRejected(stripKind(job));
+          this.events.onRejected?.(job, err.message);
+          this.setHealth('degraded', err.message);
         }
         return 'continue';
 
@@ -318,7 +371,7 @@ export class UploadQueue {
         // client-bug and anything unexpected: never retry a 4xx forever —
         // but a refused part stays unresolved (rows kept, health degraded).
         this.remove(job);
-        if (job.kind === 'part') this.rejected.push(stripKind(job));
+        if (job.kind === 'part') this.markRejected(stripKind(job));
         this.events.onRejected?.(job, err.message);
         this.setHealth('degraded', err.message);
         return 'continue';
@@ -328,22 +381,25 @@ export class UploadQueue {
   /**
    * Round 1: re-upload every missing part still held locally, then re-close
    * with the same count. Round 2: close as the contiguous prefix before the
-   * first gap (or skip close when part 0 is gone). Finalize assembles an open
-   * or closed segment's contiguous prefix either way — close is an integrity
-   * check, never a prerequisite.
+   * first gap (or skip close when part 0 is gone) — but ONLY when the missing
+   * parts are gone locally too. A missing part this browser still holds, or
+   * one the server refused, is unresolved: the close is deferred so the
+   * segment stays writable for a Retry. Finalize assembles an open or closed
+   * segment's contiguous prefix either way — close is an integrity check,
+   * never a prerequisite.
    */
-  private async handlePartsMissing(
-    job: Extract<UploadJob, { kind: 'close' }>,
-    missing: number[]
-  ): Promise<void> {
+  private async handlePartsMissing(job: CloseJob, missing: number[]): Promise<void> {
     this.remove(job);
     const round = this.closeRetries.get(job.segmentIndex) ?? 0;
     this.closeRetries.set(job.segmentIndex, round + 1);
     const sorted = [...missing].sort((a, b) => a - b);
+    const isRejected = (p: number) =>
+      this.rejected.some(r => r.segmentIndex === job.segmentIndex && r.partIndex === p);
 
     if (round === 0) {
       const available: UploadJob[] = [];
       for (const partIndex of sorted) {
+        if (isRejected(partIndex)) continue; // retried only when the user asks
         const meta = await this.deps.parts.lookup(job.segmentIndex, partIndex);
         if (meta) available.push({ kind: 'part', ...meta });
       }
@@ -352,10 +408,40 @@ export class UploadQueue {
       return;
     }
 
+    let held = false;
+    for (const partIndex of sorted) {
+      if (isRejected(partIndex)) {
+        held = true;
+        continue;
+      }
+      const meta = await this.deps.parts.lookup(job.segmentIndex, partIndex);
+      if (!meta) continue;
+      // Uploaded yet still missing: never drop the only copy on a guess.
+      held = true;
+      this.markRejected(meta);
+      this.events.onRejected?.({ kind: 'part', ...meta }, 'The server did not keep this part');
+    }
+    if (held) {
+      this.deferredCloses.set(job.segmentIndex, job);
+      this.setHealth('degraded', 'The server is missing audio this browser still holds');
+      return;
+    }
+
     if (round === 1 && sorted.length > 0 && sorted[0] > 0) {
       this.jobs.unshift({ kind: 'close', segmentIndex: job.segmentIndex, partCount: sorted[0] });
     }
     this.events.onPartsAbandoned?.(job.segmentIndex, sorted);
+  }
+
+  private hasUnresolved(segmentIndex: number): boolean {
+    return this.rejected.some(r => r.segmentIndex === segmentIndex);
+  }
+
+  private markRejected(part: SealedPart): void {
+    const known = this.rejected.some(
+      r => r.segmentIndex === part.segmentIndex && r.partIndex === part.partIndex
+    );
+    if (!known) this.rejected.push(part);
   }
 
   private remove(job: UploadJob): void {

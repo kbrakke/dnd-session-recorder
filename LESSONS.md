@@ -174,3 +174,6 @@ Enabling CodeQL **default setup** (repo Settings → Code security → Code scan
 
 ### CodeQL `js/clear-text-logging` flags logging an env-sourced password
 The seed logged the demo password for reviewer convenience; because it was env-overridable (`process.env.DEMO_PASSWORD`), CodeQL (high) flagged it as logging a secret and failed the PR. Don't log password values even in seeds — log a non-sensitive literal hint only.
+
+### "Probably persisted" is not persisted — in durability code, only a positive server verdict deletes a local copy
+Two PR #50 review rounds found the same shape three times: a 15 s stop-join timeout treated as "the recorder stopped" (finalized before the late blob), `segment_closed` treated as "the ledger has the part" (true only until a prefix close — then Retry deleted the only copy), and a throwaway drain queue whose refused parts were dropped on Resume (Stop then finalized and purged them). Rule: a timeout, an inference, or a discarded object never resolves pending audio — only a 2xx for that exact part, or the user's explicit "finalize without it". Regression tests must let the timeout/refusal path actually fire (the first stop-join test mocked the timer to never resolve and so never exercised it).

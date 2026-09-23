@@ -35,7 +35,7 @@ import { SilenceDetector, shouldCloseForPause, shouldRotate } from './rotation';
 import { CAPTURING_PHASES, TERMINAL_PHASES, transition } from './state-machine';
 import type { RecorderEvent } from './state-machine';
 import { UploadQueue, browserQueueTiming } from './upload-queue';
-import type { PartSource, QueueDeps, QueueEvents } from './upload-queue';
+import type { PartSource, QueueDeps, QueueEvents, UnresolvedWork } from './upload-queue';
 import type {
   ChunkMeta,
   RecorderSnapshot,
@@ -180,6 +180,7 @@ export function initialSnapshot(sessionId: string): RecorderSnapshot {
     recovery: null,
     finalize: { status: null, errorMessage: null, attempts: null, nothingCaptured: false },
     abandonAvailable: false,
+    stopStalled: false,
     unresolved: null,
     errorMessage: null,
     takenOverMessage: null,
@@ -195,7 +196,11 @@ const HANDOFF_GRACE_MS = 5_000;
 /** Local metas older than this are garbage-collected. */
 const META_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Upper bound on waiting for outstanding recorder stops at Stop. */
+/**
+ * How long Stop waits for outstanding recorder stops before offering
+ * "Finalize without it". It keeps waiting after that — only the user's
+ * explicit choice ends the wait (a timeout alone is never a completed stop).
+ */
 const STOP_JOIN_TIMEOUT_MS = 15_000;
 
 const lockName = (recordingId: string) => `rpg-recorder:${recordingId}`;
@@ -251,8 +256,11 @@ export class RecorderEngine {
   private stopRequested = false;
   /** Bumped by stop/halt/dispose: async work started earlier must not resurrect capture. */
   private captureGen = 0;
-  /** Outstanding run stops (rotation, mic loss, long pause): joined before finalize. */
-  private readonly pendingStops = new Set<Promise<void>>();
+  /** Outstanding run stops (rotation, mic loss, long pause) → segment index: joined before finalize. */
+  private readonly pendingStops = new Map<Promise<void>, number>();
+  /** Segments whose stalled stop the user gave up on: late recorder events are dropped. */
+  private readonly abandonedSegments = new Set<number>();
+  private giveUpStalledStop: (() => void) | null = null;
   private pausedAt = 0;
   private trackEndedCleanup: (() => void) | null = null;
 
@@ -265,6 +273,10 @@ export class RecorderEngine {
   private queue: UploadQueue | null = null;
   private heartbeat: Heartbeat | null = null;
   private abandoning = false;
+  /** Crash-tail parts a takeover drain could not land: seeded into the live queue. */
+  private carriedUnresolved: UnresolvedWork | null = null;
+  /** First segment this tab captured live (carried parts predate it). */
+  private liveFromSegment = 0;
 
   // environment
   private timers: unknown[] = [];
@@ -379,6 +391,13 @@ export class RecorderEngine {
     this.deps.persistStorage();
 
     this.queue = this.createQueue(this.token, this.liveQueueEvents());
+    if (this.carriedUnresolved) {
+      // Refused crash-tail audio stays unresolved across Resume: a later Stop
+      // must park in tail-blocked, never finalize and purge it.
+      this.queue.adoptUnresolved(this.carriedUnresolved);
+      this.carriedUnresolved = null;
+    }
+    this.liveFromSegment = this.nextSegmentIndex;
     this.heartbeat = new Heartbeat(
       this.recordingId,
       this.token,
@@ -404,6 +423,7 @@ export class RecorderEngine {
 
     this.dispatch({ type: 'STARTED' }, {
       recordingId: this.recordingId,
+      unresolved: this.unresolvedSummary(),
       recovery: null,
       errorMessage: null,
       finalize: { status: null, errorMessage: null, attempts: null, nothingCaptured: false },
@@ -475,6 +495,10 @@ export class RecorderEngine {
 
   private onChunk(segmentIndex: number, blob: Blob, capturedAt: number): void {
     if (!this.recordingId) return;
+    if (this.abandonedSegments.has(segmentIndex)) {
+      this.deps.log('dropping late audio from a recorder the user gave up on', { segmentIndex, size: blob.size });
+      return;
+    }
     // Synchronous bookkeeping FIRST: timing, then seq/part/seal per slice.
     const mediaEndMs = this.clock.read();
     const startMs = this.lastMediaEnd.get(segmentIndex) ?? mediaEndMs;
@@ -565,6 +589,7 @@ export class RecorderEngine {
 
   /** The run's final blob has already been handled (dataavailable precedes stop). */
   private onRunStopped(segmentIndex: number, reason: StopReason): void {
+    if (this.abandonedSegments.has(segmentIndex)) return; // already finished at give-up
     this.writeChain = this.writeChain.then(() => this.finishSegment(segmentIndex));
     if (reason === 'device-lost' && this.run?.segmentIndex === segmentIndex) {
       this.run = null;
@@ -590,23 +615,63 @@ export class RecorderEngine {
       await run.stop(reason);
       await this.writeChain;
     })();
-    this.pendingStops.add(done);
-    void done.finally(() => this.pendingStops.delete(done));
+    this.pendingStops.set(done, run.segmentIndex);
+    void done.catch(() => undefined).finally(() => this.pendingStops.delete(done));
     return done;
   }
 
-  /** Wait for every outstanding run stop (bounded: a wedged recorder can't block Stop forever). */
-  private async joinPendingStops(): Promise<void> {
-    const signal = new AbortController().signal;
-    while (this.pendingStops.size > 0) {
-      const all = Promise.all([...this.pendingStops]).then(() => true);
-      const settled = await Promise.race([all, this.deps.sleep(STOP_JOIN_TIMEOUT_MS, signal).then(() => false)]);
-      if (!settled) {
-        this.deps.log('a recorder did not report stop in time; continuing', { pending: this.pendingStops.size });
-        return;
+  /**
+   * Wait for every outstanding run stop. A recorder that doesn't report stop
+   * within STOP_JOIN_TIMEOUT_MS is NOT treated as stopped: the snapshot flags
+   * `stopStalled` (the UI offers "Finalize without it") and the wait goes on.
+   * Resolves false only when the user explicitly gave up on the late audio.
+   */
+  private async joinPendingStops(): Promise<boolean> {
+    const timer = new AbortController();
+    const giveUp = new Promise<'give-up'>(resolve => {
+      this.giveUpStalledStop = () => resolve('give-up');
+    });
+    let warned = false;
+    try {
+      while (this.pendingStops.size > 0) {
+        const racers: Array<Promise<'done' | 'give-up' | 'timeout'>> = [
+          Promise.allSettled([...this.pendingStops.keys()]).then(() => 'done' as const),
+          giveUp,
+        ];
+        if (!warned) {
+          racers.push(this.deps.sleep(STOP_JOIN_TIMEOUT_MS, timer.signal).then(() => 'timeout' as const));
+        }
+        const outcome = await Promise.race(racers);
+        if (outcome === 'timeout') {
+          warned = true;
+          this.deps.log('a recorder has not reported stop; waiting', { pending: this.pendingStops.size });
+          this.set({ stopStalled: true });
+        } else if (outcome === 'give-up') {
+          this.abandonStalledSegments();
+          return false;
+        }
       }
+    } finally {
+      timer.abort();
+      this.giveUpStalledStop = null;
+      if (this.snap.stopStalled) this.set({ stopStalled: false });
     }
     await this.writeChain;
+    return true;
+  }
+
+  /**
+   * The user gave up on stalled recorders: finish their segments with the
+   * audio that did arrive (a valid WebM prefix) and ignore anything later.
+   */
+  private abandonStalledSegments(): void {
+    const segments = new Set(this.pendingStops.values());
+    this.deps.log('finalizing without audio from stalled recorders', { segments: [...segments] });
+    for (const segmentIndex of segments) {
+      this.abandonedSegments.add(segmentIndex);
+      this.writeChain = this.writeChain.then(() => this.finishSegment(segmentIndex));
+    }
+    this.pendingStops.clear();
   }
 
   private partSource(): PartSource {
@@ -682,7 +747,9 @@ export class RecorderEngine {
    * refused part freezes it at that part's start, even if later parts land.
    */
   private savedThrough(): number {
-    const refused = this.queue?.rejectedParts() ?? [];
+    // Carried crash-tail parts predate this tab's media clock: they block
+    // finalize (unresolvedSummary) but can't be placed on this timeline.
+    const refused = (this.queue?.rejectedParts() ?? []).filter(p => p.segmentIndex >= this.liveFromSegment);
     const barrier = refused.reduce(
       (min, part) => Math.min(min, part.mediaEndMs - part.durationMs),
       Number.POSITIVE_INFINITY
@@ -837,7 +904,8 @@ export class RecorderEngine {
       void this.stopRun(run, 'user-stop');
     }
     // Join EVERY outstanding stop — the current run and any rotated, mic-lost
-    // or long-paused run whose final blob may still be in flight.
+    // or long-paused run whose final blob may still be in flight. A stalled
+    // recorder keeps us here until it reports or the user gives up on it.
     await this.joinPendingStops();
     this.clock.pause();
     await this.writeChain;
@@ -897,6 +965,12 @@ export class RecorderEngine {
     this.heartbeat?.stop();
     if (!this.dispatch({ type: 'CHOOSE_FINALIZE' }, { unresolved: null })) return;
     await this.finalizeAndPoll({ token: this.token });
+  }
+
+  /** stopping + stopStalled: the user accepted losing the stalled recorder's final audio. */
+  abandonStalledStop(): void {
+    if (this.snap.phase !== 'stopping' || !this.snap.stopStalled) return;
+    this.giveUpStalledStop?.();
   }
 
   /** Give up on a stalled tail (the user was warned it is then lost). */
@@ -1302,9 +1376,14 @@ export class RecorderEngine {
     const pending = store ? await store.getPendingChunks(resp.recording.id).catch(() => []) : [];
     if (pending.length > 0) {
       const plan = planDrain(pending, resp.recording);
-      const outcome = await runDrain(this.createQueue(resp.recorderToken, {}), plan);
+      const queue = this.createQueue(resp.recorderToken, {});
+      const outcome = await runDrain(queue, plan);
       if (outcome.kind === 'failed') throw outcome.error;
       this.nextSegmentIndex = Math.max(this.nextSegmentIndex, plan.nextSegmentIndex);
+      // Parts still refused are NOT resolved by resuming: carry them (and the
+      // closes they hold back) into the live queue so Stop parks on them.
+      const unresolved = queue.unresolved();
+      this.carriedUnresolved = unresolved.parts.length > 0 ? unresolved : null;
     }
   }
 

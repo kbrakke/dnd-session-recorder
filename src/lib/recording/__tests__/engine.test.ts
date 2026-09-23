@@ -435,6 +435,47 @@ describe('RecorderEngine — bootstrap and recovery', () => {
     expect(h.calls).toContain('open 2 [tok2]');
   });
 
+  it('Resume keeps refused crash-tail audio unresolved: a later Stop parks instead of finalizing and purging it', async () => {
+    const store = await openRecorderStore(new IDBFactory());
+    await seedTail(store);
+    const h = await harness({
+      store,
+      transportFail: call => (call.startsWith('part 1/0') ? new RecorderApiError('client-bug', 'nope', 400) : null),
+      api: {
+        startOrTakeover: vi.fn(async () => ({
+          recording: recordingState({ segments: [
+            { index: 0, status: 'open', partCount: 3, maxPartIndex: 2, sizeBytes: 30 },
+            { index: 1, status: 'open', partCount: 1, maxPartIndex: 1, sizeBytes: 10 },
+          ] }),
+          recorderToken: 'tok2',
+          nextSegmentIndex: 2,
+        })),
+        getSessionRecording: vi.fn(async () => ({ uploadId: null, title: 't', campaignId: 'c', recording: { id: 'rec1', status: 'interrupted' as const, estimatedDurationSeconds: 60, startedAt: '', lastHeartbeatAt: '', errorMessage: null } })),
+        getRecording: vi.fn(async () => recordingState({ status: 'interrupted', segments: [{ index: 0, status: 'open', partCount: 3, maxPartIndex: 2, sizeBytes: 30 }] })),
+      },
+    });
+    await h.engine.bootstrap('u1');
+    await h.flush();
+    expect(h.engine.getSnapshot().recovery?.unresolvedSeconds).toBeGreaterThan(0);
+    // The drain never closed segment 1 over its refused part.
+    expect(h.calls.some(c => c.startsWith('close 1='))).toBe(false);
+
+    h.engine.chooseResume();
+    await h.engine.start({ stream: fakeStream().stream, userId: 'u1' });
+    await h.flush();
+    let snap = h.engine.getSnapshot();
+    expect(snap.phase).toBe('recording');
+    expect(snap.unresolved).toMatchObject({ parts: 1 });
+
+    for (let i = 0; i < 3; i++) await chunk(h);
+    await h.engine.stop();
+    await h.flush();
+    snap = h.engine.getSnapshot();
+    expect(snap.phase).toBe('tail-blocked');
+    expect(h.api.finalizeRecording).not.toHaveBeenCalled();
+    expect(await store.countPending('rec1')).toBeGreaterThan(0); // the refused part is still held
+  });
+
   it('an assembly already running is polled to completion', async () => {
     const h = await harness({
       api: {
@@ -489,6 +530,55 @@ describe('RecorderEngine — review regressions', () => {
     expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
     // Segment 0's late 7-byte blob was part of what got uploaded before finalize.
     expect(h.calls.some(c => c.startsWith('part 0/'))).toBe(true);
+  });
+
+  it('a stalled recorder stop is NOT a completed stop: after the timeout Stop keeps waiting, never finalizes', async () => {
+    // The default harness sleep resolves at once, so the 15 s join timeout fires.
+    const h = await harness();
+    await startFresh(h);
+    await chunk(h);
+    FakeRecorder.holdStops = true;
+    await chunk(h, 100, 900_000); // rotate: the old run's final blob is held
+    const stopping = h.engine.stop();
+    await h.flush();
+    let snap = h.engine.getSnapshot();
+    expect(snap.phase).toBe('stopping');
+    expect(snap.stopStalled).toBe(true);
+    expect(h.api.finalizeRecording).not.toHaveBeenCalled();
+
+    FakeRecorder.all.forEach(r => r.release()); // the late blob finally arrives
+    await stopping;
+    await h.flush();
+    snap = h.engine.getSnapshot();
+    expect(snap.stopStalled).toBe(false);
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+    // Segment 0's late 7-byte blob is in what was uploaded before finalize.
+    expect(h.calls).toContain('part 0/0 [tok1] 207b');
+    expect(h.calls).toContain('close 0=1 [tok1]');
+  });
+
+  it('giving up on a stalled stop is explicit: segments finish with what arrived, late audio is ignored', async () => {
+    const h = await harness();
+    await startFresh(h);
+    await chunk(h);
+    FakeRecorder.holdStops = true;
+    await chunk(h, 100, 900_000);
+    const stopping = h.engine.stop();
+    await h.flush();
+    h.engine.abandonTailAndFinalize(); // wrong phase for this: ignored
+    expect(h.engine.getSnapshot().phase).toBe('stopping');
+
+    h.engine.abandonStalledStop();
+    await stopping;
+    await h.flush();
+    expect(h.calls).toContain('part 0/0 [tok1] 200b');
+    expect(h.calls).toContain('close 0=1 [tok1]');
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+
+    const before = h.calls.length;
+    FakeRecorder.all.forEach(r => r.release()); // too late: the user gave it up
+    await h.flush();
+    expect(h.calls.slice(before).filter(c => c.startsWith('part') || c.startsWith('close'))).toEqual([]);
   });
 
   it('a synchronous IndexedDB throw falls back to memory and still uploads', async () => {

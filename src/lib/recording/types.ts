@@ -186,6 +186,11 @@ export interface RecorderSnapshot {
   };
   /** Uploading the tail has stalled long enough to offer finalizing without it. */
   abandonAvailable: boolean;
+  /**
+   * After Stop, a recorder has not delivered its final audio in time. Stop
+   * keeps waiting; the UI offers `abandonStalledStop()` behind a confirm.
+   */
+  stopStalled: boolean;
   errorMessage: string | null;
   takenOverMessage: string | null;
   /** The page navigates here (router.replace) when set. */

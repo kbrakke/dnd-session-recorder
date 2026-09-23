@@ -125,13 +125,91 @@ describe('UploadQueue', () => {
     expect(h.calls).toEqual(['part 3/0', 'open 3', 'part 3/0']);
   });
 
-  it('segment_closed on a part is an ACK', async () => {
+  it('segment_closed on a part is NOT an ACK: rows kept, part unresolved', async () => {
+    // The server answers a part it already holds with 2xx even after close,
+    // so segment_closed means the ledger does NOT have it.
     const h = harness({ failures: [once('part 0/4', err('segment-closed'))] });
     h.store(0, 4);
     h.queue.enqueue(partJob(0, 4));
     await h.queue.drained();
-    expect(h.acked).toEqual(['0/4']);
-    expect(h.events.onPartAcked).toHaveBeenCalled();
+    expect(h.acked).toEqual([]);
+    expect(h.stored.has('0/4')).toBe(true);
+    expect(h.events.onPartAcked).not.toHaveBeenCalled();
+    expect(h.queue.rejectedParts().map(p => `${p.segmentIndex}/${p.partIndex}`)).toEqual(['0/4']);
+  });
+
+  it('a refused part keeps its segment open: the close is deferred until Retry', async () => {
+    // Review repro: 0 and 2 land, 1 is refused, then Stop closes. Closing
+    // (even as a prefix) would make a later Retry of part 1 hit a closed
+    // segment and lose it.
+    const h = harness({ failures: [once('part 0/1', new RecorderApiError('client-bug', 'nope', 400))] });
+    h.store(0, 0); h.store(0, 1); h.store(0, 2);
+    for (const p of [0, 1, 2]) h.queue.enqueue(partJob(0, p));
+    h.queue.enqueue({ kind: 'close', segmentIndex: 0, partCount: 3 });
+    await h.queue.drained();
+    expect(h.calls).toEqual(['part 0/0', 'part 0/1', 'part 0/2']);
+    expect(h.stored.has('0/1')).toBe(true);
+    expect(h.queue.unresolved().closes).toEqual([{ kind: 'close', segmentIndex: 0, partCount: 3 }]);
+
+    h.queue.requeueRejected();
+    await h.queue.drained();
+    expect(h.calls.slice(3)).toEqual(['part 0/1', 'close 0=3']);
+    expect(h.acked).toContain('0/1');
+    expect(h.queue.unresolved()).toEqual({ parts: [], closes: [] });
+  });
+
+  it('a part refused again on Retry stays unresolved (once), and its close stays deferred', async () => {
+    const refuse = new RecorderApiError('client-bug', 'nope', 400);
+    const h = harness({ failures: [once('part 0/1', refuse), once('part 0/1', refuse)] });
+    h.store(0, 0); h.store(0, 1);
+    h.queue.enqueue(partJob(0, 0));
+    h.queue.enqueue(partJob(0, 1));
+    h.queue.enqueue({ kind: 'close', segmentIndex: 0, partCount: 2 });
+    await h.queue.drained();
+    h.queue.requeueRejected();
+    await h.queue.drained();
+    expect(h.calls).toEqual(['part 0/0', 'part 0/1', 'part 0/1']);
+    expect(h.queue.rejectedParts()).toHaveLength(1);
+    expect(h.queue.unresolved().closes).toHaveLength(1);
+    expect(h.stored.has('0/1')).toBe(true);
+  });
+
+  it('parts_missing never prefix-closes over a part this browser still holds', async () => {
+    // The re-upload is refused: the only copy stays unresolved and the
+    // segment stays open (no close 0=1 prefix) until Retry or explicit loss.
+    const h = harness({
+      failures: [
+        once('close 0=3', err('parts-missing', { missing: [1] })),
+        once('part 0/1', new RecorderApiError('client-bug', 'nope', 400)),
+      ],
+    });
+    h.store(0, 1);
+    h.queue.enqueue({ kind: 'close', segmentIndex: 0, partCount: 3 });
+    await h.queue.drained();
+    expect(h.calls).toEqual(['close 0=3', 'part 0/1']);
+    expect(h.events.onPartsAbandoned).not.toHaveBeenCalled();
+    expect(h.stored.has('0/1')).toBe(true);
+    expect(h.queue.rejectedParts().map(p => p.partIndex)).toEqual([1]);
+    expect(h.queue.unresolved().closes).toEqual([{ kind: 'close', segmentIndex: 0, partCount: 3 }]);
+  });
+
+  it('adoptUnresolved carries refused work into another queue', async () => {
+    const drain = harness({ failures: [once('part 0/0', new RecorderApiError('client-bug', 'nope', 400))] });
+    drain.store(0, 0);
+    drain.queue.enqueue(partJob(0, 0));
+    drain.queue.enqueue({ kind: 'close', segmentIndex: 0, partCount: 1 });
+    await drain.queue.drained();
+
+    const live = harness();
+    live.store(0, 0);
+    live.queue.adoptUnresolved(drain.queue.unresolved());
+    expect(live.queue.rejectedParts().map(p => p.partIndex)).toEqual([0]);
+    const healths = (live.events.onHealth as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+    expect(healths[healths.length - 1]).toBe('degraded');
+
+    live.queue.requeueRejected();
+    await live.queue.drained();
+    expect(live.calls).toEqual(['part 0/0', 'close 0=1']);
   });
 
   it('parts_missing: re-uploads locally held parts and re-closes; then falls back to the prefix', async () => {
