@@ -41,6 +41,10 @@ export default defineConfig({
           args: [
             '--use-fake-device-for-media-capture',
             '--use-fake-ui-for-media-capture',
+            // Linux Chromium (the CI runner) exposes NO fake microphone without
+            // this audio-side switch: getUserMedia fails "Requested device not
+            // found" even though the flags above work on macOS.
+            '--use-fake-device-for-media-stream',
           ],
         },
       },

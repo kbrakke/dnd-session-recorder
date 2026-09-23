@@ -301,7 +301,12 @@ jobs:
         if: always()
         with:
           name: playwright-report-pr-${{ github.event.pull_request.number }}
-          path: playwright-report/
+          # The CI config writes the HTML report to test-results-ci/ and
+          # traces/screenshots to test-results/ (the old playwright-report/
+          # path never existed, so failures shipped no evidence).
+          path: |
+            test-results-ci/
+            test-results/
           retention-days: 7
 
       - name: Add test results to summary
@@ -309,7 +314,7 @@ jobs:
         run: |
           echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f "playwright-report/index.html" ]; then
+          if [ -f "test-results-ci/index.html" ]; then
             echo "✅ Playwright HTML report generated" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📊 Download the \`playwright-report-pr-${{ github.event.pull_request.number }}\` artifact to view detailed test results" >> $GITHUB_STEP_SUMMARY

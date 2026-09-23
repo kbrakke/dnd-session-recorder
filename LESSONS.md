@@ -136,6 +136,9 @@ GitHub suppresses workflow events from actions authenticated with the default `G
 
 ## Code & test gotchas
 
+### Linux Chromium needs `--use-fake-device-for-media-stream` for a fake MICROPHONE
+`--use-fake-device-for-media-capture` + `--use-fake-ui-for-media-capture` give a fake mic on macOS, but on the Linux CI runner `getUserMedia({audio})` fails `NotFoundError: Requested device not found` and `enumerateDevices()` is empty (headless shell, new headless, and headed-under-xvfb alike; a fake audio file or PulseAudio don't help). Adding `--use-fake-device-for-media-stream` fixes it. Found 2026-09-23 when the recording E2E passed locally and failed 3/3 in PR CI. Fastest way to debug browser-media differences: run a tiny Playwright probe inside `mcr.microsoft.com/playwright:v<version>-noble` under Podman instead of iterating on CI.
+
 ### `ffprobe-static`'s path is bogus under the Turbopack dev server — probes fail silently
 Under `next dev --turbopack` (which CI also uses) `require('ffprobe-static').path` resolves to `/ROOT/node_modules/ffprobe-static/…`, so every `execFile(ffprobe)` fails with ENOENT. `probeAudioDurationSeconds` swallows the error and returns null, so it looks like "this file has no duration", not like a broken binary. Found 2026-09-22 when a finalize segment probe returned all-null params. Use `ffprobeBinary()` (`src/services/audioProcessing.ts`), which checks the path exists and falls back to system `ffprobe`. Also: the pipeline worker starts once at boot and keeps its code across HMR — restart the dev server after editing worker/step code before trusting a test run.
 
