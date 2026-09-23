@@ -170,6 +170,8 @@ export class UploadQueue {
         await this.execute(job);
         if (this.stopped) return;
         this.remove(job);
+        // Emitted AFTER removal so listeners see the true remaining backlog.
+        if (job.kind === 'part') this.events.onPartAcked?.(stripKind(job), this.deps.now());
         this.attempt = 0;
         this.setHealth('ok', null);
       } catch (e) {
@@ -217,7 +219,6 @@ export class UploadQueue {
         );
         // Delete local rows ONLY after the server's 2xx.
         await this.deps.parts.ack(job.segmentIndex, job.partIndex);
-        this.events.onPartAcked?.(stripKind(job), this.deps.now());
         return;
       }
       case 'close':
@@ -270,11 +271,11 @@ export class UploadQueue {
       case 'segment-closed':
         // A closed segment passed close's integrity check, so the ledger
         // already holds this part: treat as ACK.
+        this.remove(job);
         if (job.kind === 'part') {
           await this.deps.parts.ack(job.segmentIndex, job.partIndex);
           this.events.onPartAcked?.(stripKind(job), this.deps.now());
         }
-        this.remove(job);
         return 'continue';
 
       case 'parts-missing':

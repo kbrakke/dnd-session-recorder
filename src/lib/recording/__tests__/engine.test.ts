@@ -199,7 +199,7 @@ describe('RecorderEngine — capture', () => {
     await chunk(h); // 90s → seals part 0
     expect(h.calls).toContain('part 0/0 [tok1] 900b');
     expect(await h.store.countPending('rec1')).toBe(0);
-    expect(h.engine.getSnapshot().savedThroughMs).toBe(90_000);
+    expect(h.engine.getSnapshot()).toMatchObject({ savedThroughMs: 90_000, pendingParts: 0 });
   });
 
   it('pause force-seals the open part and reports paused; resume continues the same segment', async () => {

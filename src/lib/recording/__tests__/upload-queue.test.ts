@@ -219,6 +219,17 @@ describe('UploadQueue', () => {
     await expect(waiting).rejects.toBeInstanceOf(QueueStoppedError);
   });
 
+  it('reports the remaining backlog (excluding the acked part) when a part is acked', async () => {
+    const h = harness();
+    h.store(0, 0); h.store(0, 1);
+    const seen: number[] = [];
+    (h.events.onPartAcked as ReturnType<typeof vi.fn>).mockImplementation(() => seen.push(h.queue.pendingParts()));
+    h.queue.enqueue(partJob(0, 0));
+    h.queue.enqueue(partJob(0, 1));
+    await h.queue.drained();
+    expect(seen).toEqual([1, 0]);
+  });
+
   it('counts pending parts', () => {
     const h = harness({ online: () => false });
     h.queue.enqueue({ kind: 'open', segmentIndex: 0 });

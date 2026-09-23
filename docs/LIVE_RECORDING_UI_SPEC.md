@@ -370,3 +370,15 @@ Second-tab spec `second-tab.spec.ts`: while the first page records, `context.new
 3. `DOCKER_HOST=unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}') TESTCONTAINERS_RYUK_DISABLED=true CI=true npx playwright test --config=playwright.config.ci.ts --reporter=line` (then `podman rm -f` the postgres container; never pipe through `tail`). Both projects must pass; `--project=chromium-recording` alone for iteration.
 4. Manual on the dev server (Chrome + Firefox): record 2 min from `/sessions/record`, watch "All audio saved through" advance; kill the tab → reopen `/sessions/[id]/record` → tail drains → recovery card → Finalize → session reaches `completed`; open a second tab → live-elsewhere card → Take over → first tab shows taken-over; Pause > 30 min (temporarily lower `PAUSE_CLOSES_SEGMENT_MS`) → resume opens a new segment; set `NEXT_PUBLIC_RECORDING_ROTATION_MS=60000` → multi-segment finalize concat works (needs ffmpeg locally).
 5. Staging torture (design §13): kill the tab at minute 3, airplane mode, lid close, deploy mid-recording — each followed by recovery-card verification.
+
+## Implementation notes (2026-09-23)
+
+Built on `feat/live-recording-ui`. Where the implementation deliberately departs from the text above:
+
+- **Assembler sealing is synchronous.** The Step 3 pseudo-code stamps `partIndex` synchronously but calls `assembler.add` inside the async write chain; a chunk arriving while the sealing chunk was still queued would be stamped with the already-sealed part. `onChunk` now assigns seq, stamps, AND adds/seals synchronously; only enqueueing the sealed part waits for its chunks' IndexedDB writes.
+- **The pre-flight hook owns the stream**, so a fresh start goes `idle → starting` (added to the phase table) and `start({ stream, ... })` receives the stream; the engine's `preflight` phase is only used for Resume / Take over.
+- **`onPartAcked` fires after the job leaves the queue**, so `pendingParts` (and "All audio saved through …") reflect the true backlog.
+- **`bootstrapped` snapshot flag** distinguishes "still deciding" from "fresh session → pre-flight" (both are phase `idle`).
+- **Resume after a successful stored-token drain takes over with `force`**: the drain's PUTs refreshed the heartbeat (so a plain takeover would 409 `still_capturing`), and the accepted stored token proved this browser owns the recording.
+- **`ffprobeBinary()`**: `ffprobe-static`'s path is bogus under the Turbopack dev server (and CI), so every probe failed silently; probes now fall back to the system `ffprobe`.
+- **E2E**: the job-sequence check uses `/progress`'s new `job.type` instead of querying `pipeline_jobs` directly (the Playwright process doesn't know the testcontainer's URL). Specs: `tests/ci/recording/{live-recording,crash-tail,second-tab}.spec.ts`.
