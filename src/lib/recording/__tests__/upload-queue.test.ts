@@ -169,6 +169,36 @@ describe('UploadQueue', () => {
     expect(h.stored.has('0/0')).toBe(true);
   });
 
+  it('a refused part stays unresolved: later successes do not clear degraded health', async () => {
+    const h = harness({ failures: [once('part 0/0', new RecorderApiError('client-bug', 'too big', 413))] });
+    h.store(0, 0); h.store(0, 1);
+    h.queue.enqueue(partJob(0, 0));
+    h.queue.enqueue(partJob(0, 1));
+    await h.queue.drained();
+    const healths = (h.events.onHealth as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+    expect(healths[healths.length - 1]).toBe('degraded');
+    expect(h.queue.rejectedParts().map(p => p.partIndex)).toEqual([0]);
+  });
+
+  it('requeueRejected retries refused parts; abandonRejected clears them and health', async () => {
+    const h = harness({ failures: [once('part 0/0', new RecorderApiError('client-bug', 'x', 400))] });
+    h.store(0, 0);
+    h.queue.enqueue(partJob(0, 0));
+    await h.queue.drained();
+    h.queue.requeueRejected();
+    await h.queue.drained();
+    expect(h.acked).toEqual(['0/0']);
+    expect(h.queue.rejectedParts()).toEqual([]);
+
+    const h2 = harness({ failures: [once('part 1/0', new RecorderApiError('client-bug', 'x', 400))] });
+    h2.store(1, 0);
+    h2.queue.enqueue(partJob(1, 0));
+    await h2.queue.drained();
+    expect(h2.queue.abandonRejected()).toHaveLength(1);
+    const healths = (h2.events.onHealth as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+    expect(healths[healths.length - 1]).toBe('ok');
+  });
+
   it('a part with no local bytes is rejected, not reported as saved', async () => {
     const h = harness();
     h.queue.enqueue(partJob(0, 0));

@@ -243,7 +243,14 @@ export async function startOrTakeoverRecording(
     // so the session row is the only lock that covers the create path.
     await tx.$queryRaw`SELECT id FROM gaming_sessions WHERE id = ${sessionId} FOR UPDATE`;
 
-    const existing = await tx.recording.findUnique({ where: { sessionId } });
+    // Lock the RECORDING row too and read its status fresh. beginFinalize
+    // is a single conditional UPDATE on this row (it never takes the session
+    // lock), so the row lock is what serializes takeover against finalize:
+    // whichever commits first wins, and the loser sees the new status.
+    const locked = await tx.$queryRaw<
+      Array<{ id: string; status: string; last_heartbeat_at: Date }>
+    >`SELECT id, status, last_heartbeat_at FROM recordings WHERE session_id = ${sessionId} FOR UPDATE`;
+    const existing = locked[0] ?? null;
 
     if (!existing) {
       const created = await tx.recording.create({
@@ -260,21 +267,25 @@ export async function startOrTakeoverRecording(
       const nowRows = await tx.$queryRaw<Array<{ now: Date }>>`SELECT NOW() as now`;
       const display = deriveDisplayStatus(
         existing.status,
-        existing.lastHeartbeatAt,
+        existing.last_heartbeat_at,
         nowRows[0].now.getTime()
       );
       if (display !== 'interrupted') {
-        return { kind: 'still_capturing', lastHeartbeatAt: existing.lastHeartbeatAt };
+        return { kind: 'still_capturing', lastHeartbeatAt: existing.last_heartbeat_at };
       }
     }
 
-    // Rotate the token FIRST (row lock), then read segments: an old tab's
-    // openSegment either committed before this write (and is counted) or is
-    // rejected by assertCapturing afterwards.
-    const updated = await tx.recording.update({
-      where: { id: existing.id },
+    // Conditional too (belt and braces): never resurrect a recording that
+    // left the capture phase. The token rotates while holding the row lock;
+    // segments are read only afterwards, so an old tab's openSegment either
+    // committed before (and is counted) or is rejected by assertCapturing.
+    const rotated = await tx.recording.updateMany({
+      where: { id: existing.id, status: { in: ['recording', 'paused'] } },
       data: { recorderToken, status: 'recording', mimeType },
     });
+    if (rotated.count === 0) return { kind: 'past_capture' };
+    const updated = await tx.recording.findUniqueOrThrow({ where: { id: existing.id } });
+
     const last = await tx.recordingSegment.findFirst({
       where: { recordingId: existing.id },
       orderBy: { index: 'desc' },
@@ -334,12 +345,21 @@ export async function openSegment(
 }
 
 /**
- * Persist one uploaded part: object first, then — inside one transaction that
- * re-verifies the token/status — the ledger row (idempotent by
- * (segment, index)) and the segment aggregates recomputed from the ledger.
- * The verification doubles as the heartbeat. A rejected write best-effort
- * deletes the object it just stored; the client keeps its local copy because
- * it saw a 409, not a 200.
+ * Persist one uploaded part.
+ *
+ * Every attempt writes its OWN immutable object (`…/<part>-<attempt>.part`)
+ * and publishes that key only inside a transaction that re-verifies the token
+ * and capture status (assertCapturing — which also takes the recording row
+ * lock, serializing all capture writes of this recording). Consequences:
+ * - A rejected attempt deletes only its own object. (With one shared key per
+ *   part, a stale tab's cleanup could delete the object a concurrent,
+ *   accepted upload of the same part had just written — after the client
+ *   dropped its local copy.)
+ * - An accepted retry replaces the ledger's key; the replaced object is
+ *   deleted only after the new reference has committed.
+ * The ledger row is idempotent by (segment, index) and segment aggregates are
+ * recomputed from it, so retries can't double-count. The write doubles as a
+ * heartbeat.
  */
 export async function savePart(
   recording: Recording,
@@ -352,13 +372,19 @@ export async function savePart(
     recording.userId,
     recording.id,
     segment.index,
-    partIndex
+    partIndex,
+    randomUUID().replace(/-/g, '').slice(0, 16)
   );
   await saveAudio(storageKey, data, 'application/octet-stream');
 
+  let replacedKey: string | null = null;
   try {
     await prisma.$transaction(async tx => {
       await assertCapturing(tx, recording.id, token);
+      const previous = await tx.recordingPart.findUnique({
+        where: { segmentId_index: { segmentId: segment.id, index: partIndex } },
+        select: { storageKey: true },
+      });
       await tx.recordingPart.upsert({
         where: { segmentId_index: { segmentId: segment.id, index: partIndex } },
         create: { segmentId: segment.id, index: partIndex, storageKey, sizeBytes: data.length },
@@ -373,26 +399,28 @@ export async function savePart(
         where: { id: segment.id },
         data: { partCount: totals._count, sizeBytes: totals._sum.sizeBytes ?? 0 },
       });
+      replacedKey = previous && previous.storageKey !== storageKey ? previous.storageKey : null;
     });
   } catch (error) {
-    if (error instanceof CaptureRejectedError) {
-      // Only delete when no ledger row points at this key (a retried part
-      // that already landed keeps its object).
-      const ledger = await prisma.recordingPart.findUnique({
-        where: { segmentId_index: { segmentId: segment.id, index: partIndex } },
-        select: { id: true },
-      });
-      if (!ledger) {
-        await deleteObjectByKey(storageKey).catch(err =>
-          logger.warn('Could not delete rejected recording part object', {
-            recordingId: recording.id,
-            storageKey,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        );
-      }
-    }
+    // Nothing references this attempt's object: it is always safe to delete.
+    await deleteObjectByKey(storageKey).catch(err =>
+      logger.warn('Could not delete rejected recording part object', {
+        recordingId: recording.id,
+        storageKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
     throw error;
+  }
+
+  if (replacedKey) {
+    await deleteObjectByKey(replacedKey).catch(err =>
+      logger.warn('Could not delete replaced recording part object', {
+        recordingId: recording.id,
+        storageKey: replacedKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
   }
 }
 

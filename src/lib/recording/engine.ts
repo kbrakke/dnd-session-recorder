@@ -1,6 +1,7 @@
 import {
   FINALIZE_POLL_MS,
   HEARTBEAT_TICK_MS,
+  PART_MAX_BYTES,
   PAUSE_CLOSES_SEGMENT_MS,
   RECORDING_MIME_TYPE,
   RMS_SAMPLE_MS,
@@ -179,6 +180,7 @@ export function initialSnapshot(sessionId: string): RecorderSnapshot {
     recovery: null,
     finalize: { status: null, errorMessage: null, attempts: null, nothingCaptured: false },
     abandonAvailable: false,
+    unresolved: null,
     errorMessage: null,
     takenOverMessage: null,
     redirectTo: null,
@@ -193,7 +195,20 @@ const HANDOFF_GRACE_MS = 5_000;
 /** Local metas older than this are garbage-collected. */
 const META_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Upper bound on waiting for outstanding recorder stops at Stop. */
+const STOP_JOIN_TIMEOUT_MS = 15_000;
+
 const lockName = (recordingId: string) => `rpg-recorder:${recordingId}`;
+
+/** Byte-range slices of at most `max` bytes (order preserved, no copy). */
+export function splitBlob(blob: Blob, max: number): Blob[] {
+  if (blob.size <= max) return [blob];
+  const slices: Blob[] = [];
+  for (let offset = 0; offset < blob.size; offset += max) {
+    slices.push(blob.slice(offset, Math.min(offset + max, blob.size), blob.type));
+  }
+  return slices;
+}
 
 export interface StartOptions {
   /** A live microphone stream handed over from pre-flight. */
@@ -231,7 +246,13 @@ export class RecorderEngine {
   private readonly silence = new SilenceDetector();
   private readonly lastMediaEnd = new Map<number, number>();
   private flushOnNextBlob = false;
+  /** Highest media time of any acknowledged part (see savedThrough()). */
+  private ackedThroughMs = 0;
   private stopRequested = false;
+  /** Bumped by stop/halt/dispose: async work started earlier must not resurrect capture. */
+  private captureGen = 0;
+  /** Outstanding run stops (rotation, mic loss, long pause): joined before finalize. */
+  private readonly pendingStops = new Set<Promise<void>>();
   private pausedAt = 0;
   private trackEndedCleanup: (() => void) | null = null;
 
@@ -454,29 +475,70 @@ export class RecorderEngine {
 
   private onChunk(segmentIndex: number, blob: Blob, capturedAt: number): void {
     if (!this.recordingId) return;
-    // Synchronous bookkeeping FIRST: seq, part assignment, sealing.
-    const seq = this.assembler.nextSeq(segmentIndex);
-    const partIndex = this.assembler.currentPartIndex(segmentIndex);
+    // Synchronous bookkeeping FIRST: timing, then seq/part/seal per slice.
     const mediaEndMs = this.clock.read();
-    const durationMs = Math.max(0, mediaEndMs - (this.lastMediaEnd.get(segmentIndex) ?? mediaEndMs));
+    const startMs = this.lastMediaEnd.get(segmentIndex) ?? mediaEndMs;
+    const durationMs = Math.max(0, mediaEndMs - startMs);
     this.lastMediaEnd.set(segmentIndex, mediaEndMs);
     const forceSeal = this.flushOnNextBlob && this.run?.segmentIndex === segmentIndex;
     if (forceSeal) this.flushOnNextBlob = false;
 
+    // A delayed dataavailable (after a long suspension or screen lock) can
+    // carry far more than one timeslice. Split it into byte ranges of at most
+    // PART_MAX_BYTES, each its own chunk with its own seq, so every part stays
+    // < 2 × PART_MAX_BYTES (6 MiB) — under the server's 8 MiB cap — and
+    // concatenation order is preserved. Blob.slice is synchronous and copy-free.
+    const slices = splitBlob(blob, PART_MAX_BYTES);
+    let offsetMs = startMs;
+    slices.forEach((slice, i) => {
+      const last = i === slices.length - 1;
+      const sliceDuration = last
+        ? mediaEndMs - offsetMs
+        : Math.round((durationMs * slice.size) / blob.size);
+      offsetMs += sliceDuration;
+      this.recordSlice(segmentIndex, slice, {
+        durationMs: Math.max(0, sliceDuration),
+        mediaEndMs: last ? mediaEndMs : offsetMs,
+        capturedAt,
+        forceSeal: forceSeal && last,
+      });
+    });
+
+    this.set({ elapsedMs: mediaEndMs, partIndex: this.assembler.currentPartIndex(segmentIndex) });
+    this.heartbeat?.poke();
+    this.maybeRotate();
+  }
+
+  private recordSlice(
+    segmentIndex: number,
+    blob: Blob,
+    meta: { durationMs: number; mediaEndMs: number; capturedAt: number; forceSeal: boolean }
+  ): void {
+    const seq = this.assembler.nextSeq(segmentIndex);
+    const partIndex = this.assembler.currentPartIndex(segmentIndex);
     const chunk: StoredChunk = {
-      recordingId: this.recordingId,
+      recordingId: this.recordingId!,
       segmentIndex,
       seq,
       partIndex,
       blob,
       size: blob.size,
-      durationMs,
-      mediaEndMs,
-      capturedAt,
+      durationMs: meta.durationMs,
+      mediaEndMs: meta.mediaEndMs,
+      capturedAt: meta.capturedAt,
     };
-    const sealed = this.assembler.add(segmentIndex, chunk, { forceSeal });
-    // Issue the IDB put synchronously (capture order); memory fallback on failure.
-    const put = this.store ? this.store.putChunk(chunk) : Promise.reject(new Error('no local store'));
+    const sealed = this.assembler.add(segmentIndex, chunk, { forceSeal: meta.forceSeal });
+
+    // Issue the IDB put synchronously (capture order). It can fail two ways —
+    // a rejected promise OR a synchronous throw (e.g. InvalidStateError on a
+    // closed connection) — and both fall back to memory.
+    let put: Promise<void>;
+    try {
+      put = this.store ? this.store.putChunk(chunk) : Promise.reject(new Error('no local store'));
+    } catch (error) {
+      put = Promise.reject(error);
+    }
+    put.catch(() => undefined); // handled in the chain; avoid an unhandled rejection meanwhile
 
     this.writeChain = this.writeChain.then(async () => {
       try {
@@ -486,10 +548,6 @@ export class RecorderEngine {
       }
       if (sealed) this.enqueuePart(sealed);
     });
-
-    this.set({ elapsedMs: mediaEndMs, partIndex: this.assembler.currentPartIndex(segmentIndex) });
-    this.heartbeat?.poke();
-    this.maybeRotate();
   }
 
   private keepInMemory(chunk: StoredChunk): void {
@@ -522,8 +580,32 @@ export class RecorderEngine {
     if (partCount > 0) this.queue?.enqueue({ kind: 'close', segmentIndex, partCount });
   }
 
-  private async stopRun(run: SegmentRun, reason: StopReason): Promise<void> {
-    await run.stop(reason);
+  /**
+   * Stop a run and wait until its final blob and finishSegment are in the
+   * write chain. Every stop is tracked so Stop can join them all — a rotated
+   * or mic-lost run's late final blob must be uploaded before finalize.
+   */
+  private stopRun(run: SegmentRun, reason: StopReason): Promise<void> {
+    const done = (async () => {
+      await run.stop(reason);
+      await this.writeChain;
+    })();
+    this.pendingStops.add(done);
+    void done.finally(() => this.pendingStops.delete(done));
+    return done;
+  }
+
+  /** Wait for every outstanding run stop (bounded: a wedged recorder can't block Stop forever). */
+  private async joinPendingStops(): Promise<void> {
+    const signal = new AbortController().signal;
+    while (this.pendingStops.size > 0) {
+      const all = Promise.all([...this.pendingStops]).then(() => true);
+      const settled = await Promise.race([all, this.deps.sleep(STOP_JOIN_TIMEOUT_MS, signal).then(() => false)]);
+      if (!settled) {
+        this.deps.log('a recorder did not report stop in time; continuing', { pending: this.pendingStops.size });
+        return;
+      }
+    }
     await this.writeChain;
   }
 
@@ -574,17 +656,46 @@ export class RecorderEngine {
   private liveQueueEvents(): QueueEvents {
     return {
       onPartAcked: (part, at) => {
+        this.ackedThroughMs = Math.max(this.ackedThroughMs, part.mediaEndMs);
         this.set({
-          savedThroughMs: Math.max(this.snap.savedThroughMs, part.mediaEndMs),
+          savedThroughMs: this.savedThrough(),
           pendingParts: this.queue?.pendingParts() ?? 0,
+          unresolved: this.unresolvedSummary(),
         });
         this.heartbeat?.noteImplicit(at);
       },
       onHealth: (health, lastError) => this.set({ uploadHealth: health, lastUploadError: lastError }),
-      onRejected: (_job, message) => this.set({ lastUploadError: message }),
+      onRejected: (_job, message) =>
+        this.set({
+          lastUploadError: message,
+          savedThroughMs: this.savedThrough(),
+          unresolved: this.unresolvedSummary(),
+        }),
       onPartsAbandoned: (segmentIndex, missing) =>
         this.deps.log('segment closed as a prefix; parts could not be recovered', { segmentIndex, missing }),
       onFatal: kind => this.onFatalFromServer(kind),
+    };
+  }
+
+  /**
+   * "Saved through" only advances across a CONTIGUOUS acknowledged prefix: a
+   * refused part freezes it at that part's start, even if later parts land.
+   */
+  private savedThrough(): number {
+    const refused = this.queue?.rejectedParts() ?? [];
+    const barrier = refused.reduce(
+      (min, part) => Math.min(min, part.mediaEndMs - part.durationMs),
+      Number.POSITIVE_INFINITY
+    );
+    return Math.max(0, Math.min(this.ackedThroughMs, barrier));
+  }
+
+  private unresolvedSummary(): RecorderSnapshot['unresolved'] {
+    const refused = this.queue?.rejectedParts() ?? [];
+    if (refused.length === 0) return null;
+    return {
+      parts: refused.length,
+      seconds: Math.max(1, Math.round(refused.reduce((n, p) => n + p.durationMs, 0) / 1000)),
     };
   }
 
@@ -667,17 +778,29 @@ export class RecorderEngine {
   /** Pick a microphone while capturing: ends the segment, starts a new one. */
   async selectDevice(deviceId: string): Promise<void> {
     if (!this.isCapturing() || this.snap.phase === 'stopping' || !this.deps.mediaDevices) return;
+    const gen = this.captureGen;
+    // Stop / takeover / dispose while we awaited: never attach the new mic
+    // to a recorder that has moved on — release it immediately.
+    const stale = () => gen !== this.captureGen || this.disposed || !this.isCapturing() || this.snap.phase === 'stopping';
     let acquired;
     try {
       acquired = await acquireMicStream(this.deps.mediaDevices, deviceId);
     } catch (error) {
-      this.set({ errorMessage: toMicError(error).message });
+      if (!stale()) this.set({ errorMessage: toMicError(error).message });
+      return;
+    }
+    if (stale()) {
+      this.stopTracks(acquired.stream);
       return;
     }
     if (this.run) {
       const run = this.run;
       this.run = null;
       await this.stopRun(run, 'mic-change');
+    }
+    if (stale()) {
+      this.stopTracks(acquired.stream);
+      return;
     }
     this.releaseStream();
     this.attachStream(acquired.stream, acquired.deviceId ?? deviceId);
@@ -704,20 +827,33 @@ export class RecorderEngine {
   async stop(): Promise<void> {
     if (this.snap.phase !== 'recording' && this.snap.phase !== 'paused') return;
     this.stopRequested = true;
+    this.captureGen++;
     if (!this.dispatch({ type: 'STOP' })) return;
     this.clearPauseTimer();
     this.stopSampling();
     if (this.run) {
       const run = this.run;
       this.run = null;
-      await this.stopRun(run, 'user-stop');
+      void this.stopRun(run, 'user-stop');
     }
+    // Join EVERY outstanding stop — the current run and any rotated, mic-lost
+    // or long-paused run whose final blob may still be in flight.
+    await this.joinPendingStops();
     this.clock.pause();
     await this.writeChain;
     this.releaseStream();
     await this.releaseWakeLock();
     if (!this.dispatch({ type: 'CAPTURE_STOPPED' }, { pendingParts: this.queue?.pendingParts() ?? 0 })) return;
+    await this.drainTailThenFinalize();
+  }
 
+  /**
+   * Upload everything left, then finalize — unless the server refused parts,
+   * in which case stop in 'tail-blocked' and let the user retry or explicitly
+   * accept the loss. Finalize must never silently assemble across a gap.
+   */
+  private async drainTailThenFinalize(): Promise<void> {
+    this.clearAbandonTimer();
     this.abandonTimer = this.deps.setTimeout(() => {
       if (this.snap.phase === 'uploading-tail' && this.snap.uploadHealth !== 'ok') {
         this.set({ abandonAvailable: true });
@@ -730,8 +866,36 @@ export class RecorderEngine {
       if (!this.abandoning) return; // a fatal verdict already moved us on
     }
     this.clearAbandonTimer();
+
+    const unresolved = this.unresolvedSummary();
+    if (unresolved && !this.abandoning) {
+      this.dispatch({ type: 'TAIL_BLOCKED' }, {
+        abandonAvailable: false,
+        unresolved,
+        savedThroughMs: this.savedThrough(),
+      });
+      return; // heartbeat keeps running: this tab still owns the recording
+    }
+
     this.heartbeat?.stop();
     if (!this.dispatch({ type: 'TAIL_UPLOADED' }, { abandonAvailable: false })) return;
+    await this.finalizeAndPoll({ token: this.token });
+  }
+
+  /** tail-blocked: try the refused parts again. */
+  async retryTail(): Promise<void> {
+    if (this.snap.phase !== 'tail-blocked') return;
+    this.queue?.requeueRejected();
+    if (!this.dispatch({ type: 'RETRY_TAIL' }, { unresolved: null })) return;
+    await this.drainTailThenFinalize();
+  }
+
+  /** tail-blocked: the user accepted losing the refused parts. */
+  async finalizeAcceptingLoss(): Promise<void> {
+    if (this.snap.phase !== 'tail-blocked') return;
+    this.queue?.abandonRejected();
+    this.heartbeat?.stop();
+    if (!this.dispatch({ type: 'CHOOSE_FINALIZE' }, { unresolved: null })) return;
     await this.finalizeAndPoll({ token: this.token });
   }
 
@@ -904,6 +1068,7 @@ export class RecorderEngine {
   /** Stop capture hardware and background work; local rows are KEPT. */
   private haltCapture(): void {
     this.stopRequested = true;
+    this.captureGen++;
     const run = this.run;
     this.run = null;
     if (run) void run.stop('user-stop');
@@ -993,8 +1158,11 @@ export class RecorderEngine {
         this.set({ redirectTo: `/sessions/${this.sessionId}?initialState=processing` });
         return;
       case 'finalizing':
+        // POST finalize again rather than only polling: if the server was
+        // interrupted between marking 'finalizing' and enqueueing the job,
+        // beginFinalize re-enqueues it (409 already_finalizing just polls).
         this.dispatch({ type: 'FINALIZING' });
-        await this.pollFinalize();
+        await this.finalizeAndPoll({ token: meta?.recorderToken ?? null });
         return;
       case 'failed': {
         const strandedSeconds = bytesToSeconds(pending.reduce((n, c) => n + c.size, 0));
@@ -1011,7 +1179,12 @@ export class RecorderEngine {
     }
   }
 
-  private async enterRecovery(mode: RecoveryMode, strandedSeconds: number, drained = { done: 0, total: 0 }): Promise<void> {
+  private async enterRecovery(
+    mode: RecoveryMode,
+    strandedSeconds: number,
+    drained = { done: 0, total: 0 },
+    unresolvedSeconds = 0
+  ): Promise<void> {
     let captured: RecordingState | null = null;
     try {
       captured = await this.deps.api.getRecording(this.recordingId!);
@@ -1021,7 +1194,7 @@ export class RecorderEngine {
     if (this.snap.phase === 'idle') this.dispatch({ type: 'RECOVER' });
     this.takeoverForce = mode === 'live-elsewhere';
     this.dispatch({ type: 'RECOVERY_LOADED' }, {
-      recovery: { mode, captured, drained, strandedSeconds },
+      recovery: { mode, captured, drained, strandedSeconds, unresolvedSeconds },
     });
   }
 
@@ -1061,7 +1234,15 @@ export class RecorderEngine {
 
     const plan = planDrain(pending, server);
     let done = 0;
-    this.set({ recovery: { mode: 'tail', captured: server, drained: { done, total: plan.totalParts }, strandedSeconds: 0 } });
+    this.set({
+      recovery: {
+        mode: 'tail',
+        captured: server,
+        drained: { done, total: plan.totalParts },
+        strandedSeconds: 0,
+        unresolvedSeconds: 0,
+      },
+    });
     const queue = this.createQueue(storedToken, {
       onPartAcked: () => {
         done++;
@@ -1089,7 +1270,13 @@ export class RecorderEngine {
       }
     }
     this.token = storedToken; // still valid: nobody took over
-    await this.enterRecovery('tail', 0, { done, total: plan.totalParts });
+    // Parts the server refused stay in IndexedDB; the card warns before a
+    // finalize would skip them (they sit before any later audio).
+    const refused = queue.rejectedParts();
+    const unresolvedSeconds = refused.length
+      ? Math.max(1, Math.round(refused.reduce((n, p) => n + p.durationMs, 0) / 1000))
+      : 0;
+    await this.enterRecovery('tail', 0, { done, total: plan.totalParts }, unresolvedSeconds);
     // The drain's PUTs refreshed the heartbeat, so a takeover now needs
     // force — legitimately: the accepted stored token proved this browser
     // owns the recording.
@@ -1141,7 +1328,8 @@ export class RecorderEngine {
 
   async chooseDiscard(): Promise<void> {
     const from = this.snap.phase;
-    if (from !== 'recovery-choice' && from !== 'finalize-failed') return;
+    if (from !== 'recovery-choice' && from !== 'finalize-failed' && from !== 'tail-blocked') return;
+    if (from === 'tail-blocked') this.heartbeat?.stop();
     const force = this.snap.recovery?.mode === 'live-elsewhere';
     if (!this.dispatch({ type: 'CHOOSE_DISCARD' })) return;
     try {

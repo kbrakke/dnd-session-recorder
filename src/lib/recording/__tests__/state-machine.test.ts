@@ -5,7 +5,7 @@ import type { RecorderPhase } from '../types';
 
 const ALL_EVENTS: RecorderEventType[] = [
   'UNSUPPORTED', 'PREFLIGHT_READY', 'START', 'STARTED', 'PAUSE', 'RESUME', 'STOP',
-  'CAPTURE_STOPPED', 'TAIL_UPLOADED', 'FINALIZE_FAILED', 'FINALIZING', 'RECOVER',
+  'CAPTURE_STOPPED', 'TAIL_UPLOADED', 'TAIL_BLOCKED', 'RETRY_TAIL', 'FINALIZE_FAILED', 'FINALIZING', 'RECOVER',
   'RECOVERY_LOADED', 'CHOOSE_RESUME', 'CHOOSE_FINALIZE', 'CHOOSE_DISCARD', 'DISCARDED',
   'DISCARD_FAILED', 'TAKEN_OVER', 'FATAL',
 ];
@@ -49,6 +49,14 @@ describe('transition', () => {
     expect(transition('discarding', ev('DISCARD_FAILED'))).toBe('recovery-choice');
     expect(transition('finalize-failed', ev('CHOOSE_FINALIZE'))).toBe('finalizing');
     expect(transition('idle', ev('FINALIZING'))).toBe('finalizing');
+  });
+
+  it('refused parts park the tail in tail-blocked until retried or explicitly finalized', () => {
+    expect(transition('uploading-tail', ev('TAIL_BLOCKED'))).toBe('tail-blocked');
+    expect(transition('tail-blocked', ev('RETRY_TAIL'))).toBe('uploading-tail');
+    expect(transition('tail-blocked', ev('CHOOSE_FINALIZE'))).toBe('finalizing');
+    expect(transition('tail-blocked', ev('CHOOSE_DISCARD'))).toBe('discarding');
+    expect(transition('tail-blocked', ev('TAIL_UPLOADED'))).toBeNull();
   });
 
   it('takeover is reachable from every capturing phase', () => {

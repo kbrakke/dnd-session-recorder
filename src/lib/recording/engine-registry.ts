@@ -1,6 +1,6 @@
 import { RecorderEngine } from './engine';
 import type { EngineDeps } from './engine';
-import { CAPTURING_PHASES } from './state-machine';
+import { CAPTURING_PHASES, GUARD_UNLOAD_PHASES } from './state-machine';
 
 /**
  * One RecorderEngine per session per JS context, kept on `globalThis` — NOT
@@ -42,13 +42,27 @@ export function peekRecorderEngine(sessionId: string): RecorderEngine | null {
   return registry().engines.get(sessionId) ?? null;
 }
 
-/** The engine currently capturing or uploading its tail, if any. */
+/** The engine currently capturing or holding an unfinished tail, if any. */
 export function activeRecorderEngine(): RecorderEngine | null {
   for (const engine of registry().engines.values()) {
     const phase = engine.getSnapshot().phase;
-    if (CAPTURING_PHASES.includes(phase) || phase === 'uploading-tail') return engine;
+    if (CAPTURING_PHASES.includes(phase) || phase === 'uploading-tail' || phase === 'tail-blocked') {
+      return engine;
+    }
   }
   return null;
+}
+
+/**
+ * Whether closing/reloading the tab right now would lose audio: ANY engine
+ * in the registry is capturing, uploading, or draining. Read at
+ * `beforeunload` time, so it covers pages other than the recorder too.
+ */
+export function registryNeedsUnloadGuard(): boolean {
+  for (const engine of registry().engines.values()) {
+    if (GUARD_UNLOAD_PHASES.includes(engine.getSnapshot().phase)) return true;
+  }
+  return false;
 }
 
 /** Dispose and forget (after finalized / discarded / taken-over). */

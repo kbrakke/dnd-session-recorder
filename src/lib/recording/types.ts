@@ -119,6 +119,8 @@ export type RecorderPhase =
   | 'paused'
   | 'stopping'
   | 'uploading-tail'
+  /** The tail drained but some parts were refused: retry or accept the loss. */
+  | 'tail-blocked'
   | 'finalizing'
   | 'finalized'
   | 'finalize-failed'
@@ -169,7 +171,11 @@ export interface RecorderSnapshot {
     drained: { done: number; total: number };
     /** Seconds of local audio that could not be attached. */
     strandedSeconds: number;
+    /** Seconds the server refused during the drain (finalizing would skip them). */
+    unresolvedSeconds: number;
   } | null;
+  /** Parts the server refused and that are still unresolved. */
+  unresolved: { parts: number; seconds: number } | null;
   finalize: {
     status: RecordingDisplayStatus | null;
     errorMessage: string | null;

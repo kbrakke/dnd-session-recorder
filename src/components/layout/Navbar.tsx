@@ -8,6 +8,7 @@ import { Home, User, LogOut, Settings, Scroll, PenTool, Archive, BookOpen, HardD
 import { useState, useEffect, useRef } from 'react';
 import Button from '@/components/ui/Button';
 import { RecordingIndicator } from '@/components/recording/recording-indicator';
+import { RecordingUnloadGuard } from '@/components/recording/recording-unload-guard';
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -59,7 +60,9 @@ export default function Navbar() {
           </Link>
 
           <div className="flex items-center gap-4">
-            {/* A live recording keeps running across navigation: link back to it */}
+            {/* A live recording keeps running across navigation: link back to
+                it, and keep the leave-site guard alive on every page. */}
+            <RecordingUnloadGuard />
             {status === 'authenticated' && <RecordingIndicator />}
 
             {/* Navigation Items */}

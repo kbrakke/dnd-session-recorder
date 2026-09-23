@@ -15,6 +15,9 @@ import type { RecordingState } from '../types';
 
 class FakeRecorder implements MediaRecorderLike {
   static all: FakeRecorder[] = [];
+  /** When set, stop() goes inactive but its final blob/stop wait for release(). */
+  static holdStops = false;
+  private held: (() => void) | null = null;
   state: 'inactive' | 'recording' | 'paused' = 'inactive';
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: ((e: Event) => void) | null = null;
@@ -28,8 +31,12 @@ class FakeRecorder implements MediaRecorderLike {
   requestData() { this.emit(5); }
   stop() {
     this.state = 'inactive';
-    queueMicrotask(() => { this.emit(7); this.onstop?.(new Event('stop')); });
+    const finish = () => { this.emit(7); this.onstop?.(new Event('stop')); };
+    if (FakeRecorder.holdStops) this.held = finish;
+    else queueMicrotask(finish);
   }
+  /** Deliver a held final blob + stop event. */
+  release() { const f = this.held; this.held = null; f?.(); }
   emit(size: number) { this.ondataavailable?.({ data: new Blob([new Uint8Array(size).fill(size % 250)]) }); }
 }
 
@@ -114,8 +121,10 @@ async function harness(opts: {
   transportFail?: (call: string) => Error | null;
   store?: RecorderStore | 'broken';
   locks?: LocksLike;
+  deps?: Partial<EngineDeps>;
 } = {}): Promise<Harness> {
   FakeRecorder.all = [];
+  FakeRecorder.holdStops = false;
   let t = 0;
   const calls: Calls = [];
   const intervals: Array<() => void> = [];
@@ -147,6 +156,7 @@ async function harness(opts: {
     onVisibilityChange: () => () => undefined,
     onDeviceChange: () => () => undefined,
     log: () => undefined,
+    ...opts.deps,
   };
   const engine = new RecorderEngine('sess1', deps);
   const flush = async () => { for (let i = 0; i < 8; i++) await macrotask(); };
@@ -448,5 +458,141 @@ describe('RecorderEngine — bootstrap and recovery', () => {
     await h.engine.chooseDiscard();
     expect(h.api.discardRecording).toHaveBeenCalledWith('rec1', { token: null, force: false });
     expect(h.engine.getSnapshot()).toMatchObject({ phase: 'discarded', redirectTo: '/sessions/sess1' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #50 review regressions
+// ---------------------------------------------------------------------------
+
+describe('RecorderEngine — review regressions', () => {
+  it('Stop joins a rotated run whose final blob arrives late: no finalize before the old tail', async () => {
+    const h = await harness({
+      // The stop-join timeout must not win the race in this test.
+      deps: { sleep: async ms => { if (ms >= 15_000) return new Promise(() => undefined); await new Promise(r => setTimeout(r, 0)); } },
+    });
+    await startFresh(h);
+    await chunk(h);
+    FakeRecorder.holdStops = true;
+    await chunk(h, 100, 900_000); // rotate: old run's final blob is held
+    expect(FakeRecorder.all).toHaveLength(2);
+    const stopping = h.engine.stop();
+    await h.flush();
+    // Both runs stopped, but the OLD one's tail hasn't arrived: no finalize yet.
+    expect(h.api.finalizeRecording).not.toHaveBeenCalled();
+    FakeRecorder.all.forEach(r => r.release());
+    await stopping;
+    await h.flush();
+    expect(h.calls).toContain('close 0=1 [tok1]');
+    const closeIdx = h.calls.indexOf('close 0=1 [tok1]');
+    expect(closeIdx).toBeGreaterThan(-1);
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+    // Segment 0's late 7-byte blob was part of what got uploaded before finalize.
+    expect(h.calls.some(c => c.startsWith('part 0/'))).toBe(true);
+  });
+
+  it('a synchronous IndexedDB throw falls back to memory and still uploads', async () => {
+    const real = await openRecorderStore(new IDBFactory());
+    const throwing: RecorderStore = {
+      ...real,
+      putChunk: () => { throw new DOMException('connection closed', 'InvalidStateError'); },
+    };
+    const h = await harness({ store: throwing });
+    await startFresh(h);
+    for (let i = 0; i < 9; i++) await chunk(h);
+    expect(h.engine.getSnapshot().storageError).toBe(true);
+    expect(h.calls).toContain('part 0/0 [tok1] 900b');
+  });
+
+  it('splits an oversized delayed blob into bounded parts, in order', async () => {
+    const h = await harness();
+    await startFresh(h);
+    const MiB = 1024 * 1024;
+    await chunk(h, 7 * MiB, 10_000); // e.g. one blob after a long screen lock
+    await h.engine.stop();
+    await h.flush();
+    const parts = h.calls.filter(c => c.startsWith('part 0/'));
+    const sizes = parts.map(c => Number(c.match(/ (\d+)b$/)![1]));
+    expect(Math.max(...sizes)).toBeLessThan(6 * MiB); // < 2 × PART_MAX_BYTES, under the 8 MiB server cap
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(7 * MiB + 7);
+    expect(parts.map(c => Number(c.match(/part 0\/(\d+)/)![1]))).toEqual(sizes.map((_, i) => i));
+  });
+
+  it('bootstrapping an orphaned "finalizing" recording re-posts finalize (no endless poll)', async () => {
+    const getRecording = vi.fn()
+      .mockResolvedValueOnce(recordingState({ status: 'finalizing' }))
+      .mockResolvedValue(recordingState({ status: 'finalized' }));
+    const h = await harness({
+      api: {
+        getRecording,
+        getSessionRecording: vi.fn(async () => ({ uploadId: null, title: 't', campaignId: 'c', recording: { id: 'rec1', status: 'finalizing' as const, estimatedDurationSeconds: 60, startedAt: '', lastHeartbeatAt: '', errorMessage: null } })),
+      },
+    });
+    await h.engine.bootstrap('u1');
+    await h.flush();
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+    expect(h.engine.getSnapshot().phase).toBe('finalized');
+  });
+
+  it('a mic switch that resolves after Stop releases the new microphone', async () => {
+    let resolveGum!: (s: MediaStream) => void;
+    const late = fakeStream('mic-2');
+    const h = await harness({
+      deps: {
+        mediaDevices: {
+          getUserMedia: vi.fn(() => new Promise<MediaStream>(r => { resolveGum = r; })),
+          enumerateDevices: vi.fn(async () => [] as MediaDeviceInfo[]),
+        },
+      },
+    });
+    await startFresh(h);
+    const switching = h.engine.selectDevice('mic-2');
+    await h.engine.stop();
+    resolveGum(late.stream);
+    await switching;
+    await h.flush();
+    expect(late.track.stop).toHaveBeenCalled();
+    expect(FakeRecorder.all).toHaveLength(1); // no new segment on a stopped engine
+  });
+
+  it('a refused part freezes "saved through", keeps health degraded, and blocks finalize until resolved', async () => {
+    let refuse = true;
+    const h = await harness({
+      transportFail: call => (refuse && call.startsWith('part 0/0') ? new RecorderApiError('client-bug', 'Part exceeds maximum size', 413) : null),
+    });
+    await startFresh(h);
+    for (let i = 0; i < 18; i++) await chunk(h); // parts 0 (refused) and 1 (accepted)
+    let snap = h.engine.getSnapshot();
+    expect(h.calls).toContain('part 0/1 [tok1] 900b');
+    expect(snap.uploadHealth).toBe('degraded');
+    expect(snap.savedThroughMs).toBe(0); // frozen at the refused part's start
+    expect(snap.unresolved).toMatchObject({ parts: 1 });
+
+    await h.engine.stop();
+    await h.flush();
+    snap = h.engine.getSnapshot();
+    expect(snap.phase).toBe('tail-blocked');
+    expect(h.api.finalizeRecording).not.toHaveBeenCalled();
+
+    refuse = false; // e.g. transient server bug fixed
+    await h.engine.retryTail();
+    await h.flush();
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+    expect(h.engine.getSnapshot().phase).toBe('finalized');
+  });
+
+  it('finalizing across a refused part requires the explicit accept-loss action', async () => {
+    const h = await harness({
+      transportFail: call => (call.startsWith('part 0/0') ? new RecorderApiError('client-bug', 'nope', 400) : null),
+    });
+    await startFresh(h);
+    for (let i = 0; i < 9; i++) await chunk(h);
+    await h.engine.stop();
+    await h.flush();
+    expect(h.engine.getSnapshot().phase).toBe('tail-blocked');
+    await h.engine.finalizeAcceptingLoss();
+    await h.flush();
+    expect(h.api.finalizeRecording).toHaveBeenCalledTimes(1);
+    expect(h.engine.getSnapshot().phase).toBe('finalized');
   });
 });

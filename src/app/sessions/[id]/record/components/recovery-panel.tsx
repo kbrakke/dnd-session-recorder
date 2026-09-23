@@ -25,7 +25,7 @@ export function RecoveryPanel({ engine, snapshot, sessionId }: {
   snapshot: RecorderSnapshot;
   sessionId: string;
 }) {
-  const [confirm, setConfirm] = useState<'takeover' | 'discard' | 'finalize' | null>(null);
+  const [confirm, setConfirm] = useState<'takeover' | 'discard' | 'finalize' | 'loss' | null>(null);
   const recovery = snapshot.recovery;
   const finalizeFailed = snapshot.phase === 'finalize-failed';
   const discarding = snapshot.phase === 'discarding';
@@ -79,6 +79,11 @@ export function RecoveryPanel({ engine, snapshot, sessionId }: {
               Recovered {recovery.drained.done} unsaved part{recovery.drained.done === 1 ? '' : 's'} from this browser.
             </p>
           )}
+          {recovery && recovery.unresolvedSeconds > 0 && (
+            <p className="mt-1 text-sm text-red-800">
+              About {formatDurationSeconds(recovery.unresolvedSeconds)} saved in this browser was refused by the server.
+            </p>
+          )}
           {recovery && recovery.strandedSeconds > 0 && (
             <p className="mt-1 text-sm text-red-800">
               About {formatDurationSeconds(recovery.strandedSeconds)} of audio from this browser could not be attached.
@@ -96,6 +101,20 @@ export function RecoveryPanel({ engine, snapshot, sessionId }: {
           <div className="flex gap-2">
             <Button type="button" size="sm" data-testid="confirm-takeover" onClick={() => engine.chooseResume()}>
               Take over
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+      {confirm === 'loss' && (
+        <div className="rounded-ss-lg border border-red-300 bg-white p-3 text-sm text-red-900 space-y-2">
+          <p>
+            About {recovery?.unresolvedSeconds} s of audio saved in this browser was refused by the server and won’t be
+            included — nor anything after it in that segment. Finalize anyway?
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant="danger" data-testid="confirm-finalize-loss" onClick={() => void engine.chooseFinalize()}>
+              Finalize without it
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
           </div>
@@ -140,7 +159,13 @@ export function RecoveryPanel({ engine, snapshot, sessionId }: {
               type="button"
               variant={mode === 'failed' ? 'primary' : 'outline'}
               data-testid="recovery-finalize"
-              onClick={() => (liveElsewhere ? setConfirm('finalize') : void engine.chooseFinalize())}
+              onClick={() =>
+                liveElsewhere
+                  ? setConfirm('finalize')
+                  : recovery && recovery.unresolvedSeconds > 0
+                    ? setConfirm('loss')
+                    : void engine.chooseFinalize()
+              }
             >
               <RotateCcw className="h-4 w-4" />
               {mode === 'failed' ? 'Retry assembly' : 'Finalize what’s there'}

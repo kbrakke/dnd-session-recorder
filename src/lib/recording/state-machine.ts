@@ -10,6 +10,8 @@ export type RecorderEvent =
   | { type: 'STOP' }
   | { type: 'CAPTURE_STOPPED' }
   | { type: 'TAIL_UPLOADED' }
+  | { type: 'TAIL_BLOCKED' }
+  | { type: 'RETRY_TAIL' }
   | { type: 'FINALIZE_POLL'; status: RecordingDisplayStatus }
   | { type: 'FINALIZE_FAILED' }
   | { type: 'FINALIZING' }
@@ -72,6 +74,15 @@ export const TRANSITIONS: Table = {
   },
   'uploading-tail': {
     TAIL_UPLOADED: 'finalizing',
+    TAIL_BLOCKED: 'tail-blocked',
+    TAKEN_OVER: 'taken-over',
+    FATAL: 'error',
+  },
+  // Refused parts would leave a gap: never finalize across it silently.
+  'tail-blocked': {
+    RETRY_TAIL: 'uploading-tail',
+    CHOOSE_FINALIZE: 'finalizing',
+    CHOOSE_DISCARD: 'discarding',
     TAKEN_OVER: 'taken-over',
     FATAL: 'error',
   },
@@ -136,6 +147,7 @@ export const GUARD_UNLOAD_PHASES: readonly RecorderPhase[] = [
   'paused',
   'stopping',
   'uploading-tail',
+  'tail-blocked',
   'recovering',
 ];
 

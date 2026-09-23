@@ -10,7 +10,6 @@ import Button from '@/components/ui/Button';
 import { PreflightPanel } from '@/components/recording/preflight-panel';
 import { UnsupportedBrowser } from '@/components/recording/unsupported-browser';
 import { usePreflight } from '@/components/recording/use-preflight';
-import { useBeforeUnloadGuard } from '@/components/recording/use-before-unload';
 import { useRecorderEngine } from '@/components/recording/use-recorder-engine';
 import { createRecorderApi, isRecorderApiError } from '@/lib/recording/api';
 import { evictRecorderEngine } from '@/lib/recording/engine-registry';
@@ -55,8 +54,6 @@ function RecordSessionContent() {
   useEffect(() => {
     if (engine && userId) void engine.bootstrap(userId);
   }, [engine, userId]);
-
-  useBeforeUnloadGuard(snapshot.phase);
 
   useEffect(() => {
     if (!snapshot.redirectTo) return;
@@ -152,6 +149,7 @@ function RecordSessionContent() {
       break;
     case 'stopping':
     case 'uploading-tail':
+    case 'tail-blocked':
     case 'finalizing':
     case 'finalized':
       content = <AssemblingState engine={engine} snapshot={snapshot} />;

@@ -56,7 +56,12 @@ export interface QueueEvents {
   onHealth?(health: UploadHealth, lastError: string | null): void;
   /** Terminal: the queue stopped. Local rows are kept. */
   onFatal?(kind: QueueFatalKind, message: string): void;
-  /** A job the server permanently refused (client bug); dropped, rows kept. */
+  /**
+   * A job the server permanently refused (client bug). Rows are kept; a
+   * rejected PART stays unresolved (see `rejectedParts()`) and health stays
+   * 'degraded' until it is retried successfully or explicitly abandoned —
+   * never silently forgotten.
+   */
   onRejected?(job: UploadJob, message: string): void;
 }
 
@@ -97,6 +102,8 @@ export class UploadQueue {
   private waiters: Waiter[] = [];
   private readonly reopens = new Map<number, number>();
   private readonly closeRetries = new Map<number, number>();
+  /** Parts the server refused; unresolved until retried or abandoned. */
+  private rejected: SealedPart[] = [];
 
   constructor(
     private readonly recordingId: string,
@@ -132,6 +139,26 @@ export class UploadQueue {
 
   snapshotJobs(): readonly UploadJob[] {
     return [...this.jobs];
+  }
+
+  /** Parts the server refused and that are still unresolved. */
+  rejectedParts(): readonly SealedPart[] {
+    return [...this.rejected];
+  }
+
+  /** Try the refused parts again (they go to the head, in order). */
+  requeueRejected(): void {
+    const parts = this.rejected;
+    this.rejected = [];
+    for (const part of [...parts].reverse()) this.enqueueFront({ kind: 'part', ...part });
+  }
+
+  /** The user accepted losing the refused parts (finalize across the gap). */
+  abandonRejected(): SealedPart[] {
+    const parts = this.rejected;
+    this.rejected = [];
+    if (this.health === 'degraded') this.setHealth('ok', null);
+    return parts;
   }
 
   /** Resolves once every job is done; rejects if the queue stops first. */
@@ -173,7 +200,8 @@ export class UploadQueue {
         // Emitted AFTER removal so listeners see the true remaining backlog.
         if (job.kind === 'part') this.events.onPartAcked?.(stripKind(job), this.deps.now());
         this.attempt = 0;
-        this.setHealth('ok', null);
+        // A later success must NOT paper over an earlier refused part.
+        if (this.rejected.length === 0) this.setHealth('ok', null);
       } catch (e) {
         if (this.stopped) return;
         const err = isRecorderApiError(e)
@@ -287,8 +315,10 @@ export class UploadQueue {
         return 'continue';
 
       default:
-        // client-bug and anything unexpected: never retry a 4xx forever.
+        // client-bug and anything unexpected: never retry a 4xx forever —
+        // but a refused part stays unresolved (rows kept, health degraded).
         this.remove(job);
+        if (job.kind === 'part') this.rejected.push(stripKind(job));
         this.events.onRejected?.(job, err.message);
         this.setHealth('degraded', err.message);
         return 'continue';
@@ -335,6 +365,7 @@ export class UploadQueue {
 
   private setHealth(health: UploadHealth, lastError: string | null): void {
     if (health === this.health && health === 'ok') return;
+    if (health === 'ok' && this.rejected.length > 0) return;
     this.health = health;
     this.events.onHealth?.(health, lastError);
   }

@@ -5,9 +5,10 @@ import { GUARD_UNLOAD_PHASES } from '@/lib/recording/state-machine';
 import type { RecorderPhase } from '@/lib/recording/types';
 
 /**
- * Native "Leave site?" dialog while closing the tab would lose audio.
- * In-app navigation does NOT need guarding: the engine lives in the registry
- * and keeps recording; the Navbar indicator links back.
+ * Page-local "Leave site?" dialog for a phase the registry can't see yet
+ * (e.g. /sessions/record while its start requests are in flight). Engine
+ * phases are covered app-wide by <RecordingUnloadGuard/> in the Navbar,
+ * which survives in-app navigation.
  */
 export function useBeforeUnloadGuard(phase: RecorderPhase): void {
   const phaseRef = useRef(phase);
